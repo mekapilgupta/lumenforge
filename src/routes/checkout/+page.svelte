@@ -21,7 +21,7 @@
   let appliedCoupon = $state<string | null>(null);
   let placedOrderNumber = $state('');
   let placedOrderId = $state('');
-  let orderedItemsSnapshot = $state<any[]>([]);
+  let isNavigatingToSuccess = $state(false);
 
   // Payment method selection
   let paymentMethod = $state<'cod' | 'razorpay'>('cod');
@@ -239,24 +239,11 @@
       const { error: itemsErr } = await supabase.from('order_items').insert(items);
       if (itemsErr) throw itemsErr;
 
-      // Save items snapshot before clearing cart
-      orderedItemsSnapshot = cartStore.items.map(item => ({
-        name: item.name,
-        quantity: item.quantity,
-        price: item.price,
-        size: item.size,
-        color: item.color.name,
-        colorHex: item.color.hex,
-        image: item.image,
-      }));
-
+      isNavigatingToSuccess = true;
       // Clear cart and mark abandoned cart as recovered
       await cartStore.checkoutSuccess(order.id);
-
-      placedOrderNumber = order.order_number;
-      placedOrderId = order.id;
-      step = 3;
       uiStore.addToast('Order placed successfully! 🌸', 'success');
+      goto(`/checkout/success?order_id=${order.id}`);
 
       // Push to Shiprocket (fire-and-forget to avoid blocking UI)
       console.log('[Checkout] Pushing COD order to Shiprocket...');
@@ -402,23 +389,11 @@
 
           const verifyData = await verifyRes.json();
           if (verifyData.success) {
-            // Save items snapshot before clearing cart
-            orderedItemsSnapshot = cartStore.items.map(item => ({
-              name: item.name,
-              quantity: item.quantity,
-              price: item.price,
-              size: item.size,
-              color: item.color.name,
-              colorHex: item.color.hex,
-              image: item.image,
-            }));
-
+            isNavigatingToSuccess = true;
             // Clear cart and mark abandoned cart as recovered
             await cartStore.checkoutSuccess(createData.dbOrderId);
-            placedOrderNumber = createData.order.receipt;
-            placedOrderId = createData.dbOrderId;
-            step = 3;
             uiStore.addToast('Payment successful! Order confirmed 🌸', 'success');
+            goto(`/checkout/success?order_id=${createData.dbOrderId}`);
 
             // Push to Shiprocket (fire-and-forget to avoid blocking UI)
             console.log('[Checkout] Pushing Razorpay order to Shiprocket...');
@@ -560,7 +535,7 @@
   });
 
   $effect(() => {
-    if (cartStore.items.length === 0 && step < 3) {
+    if (cartStore.items.length === 0 && step < 3 && !isNavigatingToSuccess) {
       goto('/shop');
     }
   });
@@ -1021,87 +996,6 @@
               🔒 Your order is safe. Price includes all taxes.
             </p>
           </div>
-        </div>
-      </div>
-
-    <!-- ─── STEP 3: Order Success ───────────────────────────────────────────── -->
-    {:else if step === 3}
-      <div class="max-w-2xl mx-auto text-center py-8">
-        <div class="w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-6 animate-fade-in border-4" style="background: #ecfdf5; border-color: #a7f3d0;">
-          <svg class="w-10 h-10" fill="none" stroke="#10b981" stroke-width="3" viewBox="0 0 24 24" aria-hidden="true">
-            <polyline points="20 6 9 17 4 12"/>
-          </svg>
-        </div>
-        <h1 class="font-display text-3xl font-bold mb-2 animate-fade-up" style="color: var(--color-text-dark);">Thank you for your order! 🌸</h1>
-        <p class="mb-8 text-sm sm:text-base text-gray-600 max-w-lg mx-auto" style="color: var(--color-text-mid);">
-          We're preparing your sweet new pair of French Toes. Your order is confirmed and we'll send you updates as it makes its way to you.
-        </p>
-
-        <!-- Ordered Items list -->
-        {#if orderedItemsSnapshot && orderedItemsSnapshot.length > 0}
-          <div class="rounded-2xl border text-left mb-6 overflow-hidden shadow-sm" style="background: white; border-color: var(--color-blush);">
-            <div class="px-5 py-3.5 border-b" style="background: var(--color-blush); border-color: var(--color-blush-deep);">
-              <h3 class="font-semibold text-sm text-gray-800">Items Ordered</h3>
-            </div>
-            <div class="divide-y divide-pink-100/30">
-              {#each orderedItemsSnapshot as item}
-                <div class="flex items-center gap-4 p-4">
-                  {#if item.image}
-                    <div class="w-12 h-12 rounded-xl overflow-hidden shrink-0 border border-pink-100" style="background: var(--color-blush);">
-                      <img src={item.image} alt={item.name} class="w-full h-full object-cover" />
-                    </div>
-                  {/if}
-                  <div class="flex-1 min-w-0">
-                    <p class="text-sm font-semibold truncate" style="color: var(--color-text-dark);">{item.name}</p>
-                    <div class="flex flex-wrap items-center gap-x-2 mt-0.5 text-xs text-gray-500">
-                      <span>Qty: {item.quantity}</span>
-                      <span class="text-gray-300">•</span>
-                      <span>Size: {item.size}</span>
-                      <span class="text-gray-300">•</span>
-                      <span>Color: {item.color}</span>
-                    </div>
-                  </div>
-                  <div class="text-right shrink-0">
-                    <p class="text-sm font-bold" style="color: var(--color-text-dark);">₹{(item.price * item.quantity).toLocaleString('en-IN')}</p>
-                  </div>
-                </div>
-              {/each}
-            </div>
-          </div>
-        {/if}
-
-        <div class="rounded-2xl p-6 text-left mb-8 border shadow-sm" style="background: var(--color-blush); border-color: var(--color-blush-deep);">
-          <h3 class="font-semibold text-sm mb-4 border-b pb-2 text-gray-800" style="border-color: rgba(0, 0, 0, 0.05);">Order Information</h3>
-          <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
-            <div>
-              <p class="font-semibold" style="color: var(--color-text-dark);">Order Number</p>
-              <p class="font-mono text-sm font-bold" style="color: var(--color-blush-deep);">{placedOrderNumber}</p>
-            </div>
-            <div>
-              <p class="font-semibold" style="color: var(--color-text-dark);">Payment</p>
-              <p style="color: var(--color-text-mid);">
-                {paymentMethod === 'razorpay' ? 'Online Payment (Razorpay)' : 'Cash on Delivery (COD)'}
-              </p>
-            </div>
-            <div>
-              <p class="font-semibold" style="color: var(--color-text-dark);">Delivering to</p>
-              <p style="color: var(--color-text-mid);">{selectedAddr?.full_name}</p>
-              <p class="text-xs text-gray-500 mt-0.5">
-                {selectedAddr?.address_line1}{selectedAddr?.address_line2 ? ', ' + selectedAddr?.address_line2 : ''}, {selectedAddr?.city}, {selectedAddr?.state} – {selectedAddr?.pincode}
-              </p>
-            </div>
-            <div>
-              <p class="font-semibold" style="color: var(--color-text-dark);">Est. Delivery</p>
-              <p style="color: var(--color-text-mid); font-weight: 500;">
-                {serviceabilityResult?.etd || '5–7 business days'}
-              </p>
-            </div>
-          </div>
-        </div>
-
-        <div class="flex flex-col sm:flex-row gap-3 justify-center">
-          <a href="/account/orders" class="btn-primary px-8 py-3.5">View My Orders</a>
-          <a href="/shop" class="btn-outline px-8 py-3.5">Continue Shopping</a>
         </div>
       </div>
     {/if}
