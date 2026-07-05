@@ -66,7 +66,7 @@
     console.log('[My Orders Page] loadOrders: fetching orders for user:', authStore.user!.id);
     const { data, error } = await supabase
       .from('orders')
-      .select('*, items:order_items(*), returns:order_returns!order_id(*)')
+      .select('*, items:order_items(*), returns:order_returns!order_id(*), shipping_address:addresses!shipping_address_id(*)')
       .eq('user_id', authStore.user!.id)
       .order('created_at', { ascending: false });
     if (error) {
@@ -222,25 +222,56 @@
             </div>
           </div>
 
-          <div class="p-4">
+          <div class="p-5 flex flex-col gap-4">
             {#if order.items && order.items.length > 0}
-              <div class="flex items-center gap-3 flex-wrap">
-                {#each order.items.slice(0, 3) as item}
-                  <div class="flex items-center gap-2">
+              <div class="divide-y divide-pink-100/30">
+                {#each order.items as item, idx}
+                  <div class="flex items-start gap-4 py-3 first:pt-0 last:pb-0">
                     {#if item.product_image_url}
-                      <div class="w-10 h-10 rounded-lg overflow-hidden shrink-0" style="background: var(--color-blush);">
+                      <div class="w-12 h-12 rounded-xl overflow-hidden shrink-0 border border-pink-100/30" style="background: var(--color-blush);">
                         <img src={item.product_image_url} alt={item.product_name} class="w-full h-full object-cover" loading="lazy" />
                       </div>
                     {/if}
-                    <div>
-                      <p class="text-xs font-medium" style="color: var(--color-text-dark);">{item.product_name}</p>
-                      <p class="text-xs" style="color: var(--color-text-soft);">Qty: {item.quantity}</p>
+                    <div class="flex-1 min-w-0">
+                      <p class="text-sm font-semibold truncate" style="color: var(--color-text-dark);">{item.product_name}</p>
+                      
+                      <!-- Variant Attributes & Qty -->
+                      <div class="flex flex-wrap items-center gap-x-2.5 gap-y-1 mt-1 text-xs" style="color: var(--color-text-soft);">
+                        <span class="font-medium bg-gray-50 px-2 py-0.5 rounded border border-gray-100/80">Qty: {item.quantity}</span>
+                        {#if item.variant_info}
+                          {#if item.variant_info.size}
+                            <span class="text-gray-300">•</span>
+                            <span class="bg-pink-50/50 text-pink-700 font-medium px-2 py-0.5 rounded border border-pink-100/30">Size: {item.variant_info.size}</span>
+                          {/if}
+                          {#if item.variant_info.color}
+                            <span class="text-gray-300">•</span>
+                            <span class="bg-pink-50/50 text-pink-700 font-medium px-2 py-0.5 rounded border border-pink-100/30">Color: {item.variant_info.color}</span>
+                          {/if}
+                        {/if}
+                      </div>
+                    </div>
+                    <div class="text-right shrink-0">
+                      <p class="text-sm font-bold" style="color: var(--color-text-dark);">{fmt(item.total_price)}</p>
+                      {#if item.quantity > 1}
+                        <p class="text-[10px]" style="color: var(--color-text-soft);">{fmt(item.unit_price)} each</p>
+                      {/if}
                     </div>
                   </div>
                 {/each}
-                {#if order.items.length > 3}
-                  <span class="text-xs" style="color: var(--color-text-soft);">+{order.items.length - 3} more</span>
-                {/if}
+              </div>
+            {/if}
+
+            <!-- Delivery Address Snapshot -->
+            {#if order.shipping_address}
+              {@const addr = order.shipping_address}
+              <div class="pt-3.5 border-t border-dashed flex items-start gap-2.5 text-xs" style="border-color: var(--color-blush); color: var(--color-text-mid);">
+                <span class="text-sm">📍</span>
+                <div class="flex-1">
+                  <p class="font-semibold" style="color: var(--color-text-dark);">Delivery Address</p>
+                  <p class="mt-0.5 text-gray-500">
+                    {addr.full_name} · {addr.address_line1}{addr.address_line2 ? ', ' + addr.address_line2 : ''}, {addr.city}, {addr.state} – {addr.pincode}
+                  </p>
+                </div>
               </div>
             {/if}
           </div>
