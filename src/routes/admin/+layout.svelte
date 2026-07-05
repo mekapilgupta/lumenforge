@@ -1,11 +1,24 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, onDestroy } from 'svelte';
   import { goto } from '$app/navigation';
   import { page } from '$app/stores';
   import { authStore } from '$lib/stores/auth.svelte';
   import { uiStore } from '$lib/stores/ui.svelte';
+  import { supabase } from '$lib/supabaseClient';
 
   let { children } = $props();
+
+  // Action counts for badges
+  let pendingCounts = $state<{
+    orders: number;
+    returns: number;
+    actions: number;
+  }>({
+    orders: 0,
+    returns: 0,
+    actions: 0
+  });
+  let badgePollInterval: any = null;
 
   onMount(async () => {
     await authStore.init();
@@ -16,11 +29,52 @@
     if (!authStore.isAdmin) {
       uiStore.addToast('Access denied. Admin only.', 'error');
       goto('/');
+      return;
     }
+    await loadBadgeCounts();
+    // Poll every 30s
+    badgePollInterval = setInterval(loadBadgeCounts, 30000);
   });
+
+  onDestroy(() => {
+    if (badgePollInterval) clearInterval(badgePollInterval);
+  });
+
+  async function loadBadgeCounts() {
+    try {
+      const response = await fetch('/api/admin/actions');
+      const result = await response.json();
+      if (!response.ok) {
+        console.warn('Failed to fetch pending actions counts:', result.error || response.statusText);
+        return;
+      }
+
+      const actions = result.actions ?? [];
+      let ordersCount = 0;
+      let returnsCount = 0;
+      let actionsCount = actions.length;
+
+      for (const item of actions) {
+        if (['cancellation', 'payment_failure', 'cod_undelivered'].includes(item.type)) {
+          ordersCount++;
+        } else if (['return', 'exchange'].includes(item.type)) {
+          returnsCount++;
+        }
+      }
+
+      pendingCounts = {
+        orders: ordersCount,
+        returns: returnsCount,
+        actions: actionsCount
+      };
+    } catch (e) {
+      console.warn('Failed to fetch badge counts:', e);
+    }
+  }
 
   const sidebarLinks = [
     { href: '/admin', label: 'Dashboard', icon: 'M3 3h7v7H3zM14 3h7v7h-7zM14 14h7v7h-7zM3 14h7v7H3z' },
+    { href: '/admin/actions', label: 'Action Center', icon: 'M15 17h5l-1.405-1.405A2.032 2.032 0 0 1 18 14.158V11a6.002 6.002 0 0 0-4-5.659V5a2 2 0 1 0-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 1 1-6 0v-1m6 0H9' },
     { href: '/admin/orders', label: 'Orders', icon: 'M9 12h6M9 16h6M17 21H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7l5 5v11a2 2 0 0 1-2 2z' },
     { href: '/admin/returns', label: 'Returns & Exchanges', icon: 'M9 15L3 9m0 0l6-6M3 9h12a6 6 0 0 1 0 12h-3' },
     { href: '/admin/products', label: 'Products', icon: 'M20 7H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2zM12 12a2 2 0 1 0 0-4 2 2 0 0 0 0 4z' },
@@ -54,18 +108,31 @@
     <!-- Nav links -->
     <nav class="flex-1 py-4 flex flex-col gap-1 px-3">
       {#each sidebarLinks as link}
+        {@const count = link.href === '/admin/actions' ? pendingCounts.actions :
+                        link.href === '/admin/orders' ? pendingCounts.orders :
+                        link.href === '/admin/returns' ? pendingCounts.returns : 0}
         <a
           href={link.href}
-          class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors"
+          class="flex items-center justify-between px-3 py-2.5 rounded-xl text-sm font-medium transition-colors"
           style="
             background: {isActive(link.href) ? 'rgba(244,167,195,0.15)' : 'transparent'};
             color: {isActive(link.href) ? 'var(--color-blush-deep)' : 'rgba(255,255,255,0.65)'};
           "
         >
-          <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
-            <path d={link.icon}/>
-          </svg>
-          {link.label}
+          <div class="flex items-center gap-3">
+            <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
+              <path d={link.icon}/>
+            </svg>
+            {link.label}
+          </div>
+          {#if count > 0}
+            <span
+              class="px-2 py-0.5 rounded-full text-[10px] font-bold animate-pulse text-center"
+              style="background-color: var(--bg-danger); color: var(--text-danger); box-shadow: 0 0 8px var(--bg-danger); min-width: 1.25rem;"
+            >
+              {count}
+            </span>
+          {/if}
         </a>
       {/each}
     </nav>

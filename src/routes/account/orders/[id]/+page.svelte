@@ -4,11 +4,13 @@
   import { authStore } from '$lib/stores/auth.svelte';
   import { uiStore } from '$lib/stores/ui.svelte';
   import { supabase } from '$lib/supabaseClient';
+  import { canCancel } from '$lib/orders';
   import type { Order, OrderLog } from '$lib/types';
   import { orderStatusLabel, orderStatusColor, formatDateTime } from '$lib/utils/helpers';
-
+  
   let order = $state<Order | null>(null);
   let logs = $state<OrderLog[]>([]);
+  let timelineEntries = $state<any[]>([]); // merged logs + messages
   let loading = $state(true);
   let cancelling = $state(false);
   let realtimeSub: any = null;
@@ -59,6 +61,28 @@
       .eq('order_id', orderId)
       .order('created_at', { ascending: true });
     logs = (logData ?? []) as OrderLog[];
+
+    // Load chat messages from order_messages table
+    const { data: msgData } = await supabase
+      .from('order_messages')
+      .select('*')
+      .eq('order_id', orderId)
+      .order('created_at', { ascending: true });
+
+    // Merge logs + messages by timestamp for unified timeline
+    const entries: any[] = [];
+    for (const log of (logData ?? [])) {
+      // Skip old Customer:/Admin: prefixed log entries that were used for chat
+      // (they'll have equivalent entries in order_messages if migrated, but
+      // for backwards compat we still show them if order_messages is empty)
+      entries.push({ ...log, entryType: 'log' });
+    }
+    for (const msg of (msgData ?? [])) {
+      entries.push({ ...msg, entryType: msg.sender_type === 'customer' ? 'customer_msg' : 'admin_msg' });
+    }
+    // Sort by created_at ascending
+    entries.sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+    timelineEntries = entries;
   }
 
   function subscribeRealtime() {
@@ -96,49 +120,106 @@
     cancelling = true;
     showCancelModal = false;
 
-    const { error } = await supabase
-      .from('orders')
-      .update({ 
-        cancellation_status: 'pending', 
-        cancellation_reason: fullReason 
-      })
-      .eq('id', order.id)
-      .eq('user_id', authStore.user!.id);
-      
-    if (error) { 
+    const cancelResult = canCancel({
+      id: order.id,
+      status: order.status,
+      payment_method: order.payment_method,
+      payment_status: order.payment_status,
+      cancellation_status: order.cancellation_status,
+      razorpay_payment_id: order.razorpay_payment_id,
+      user_id: order.user_id,
+      total_amount: order.total_amount,
+    });
+
+    if (!cancelResult.allowed) {
       cancelling = false;
-      uiStore.addToast('Could not request cancellation: ' + error.message, 'error'); 
-      return; 
+      uiStore.addToast(cancelResult.reason ?? 'Cannot cancel this order at this stage.', 'error');
+      return;
     }
 
-    // Insert a row in order_logs for the cancellation request
-    await supabase
-      .from('order_logs')
-      .insert({
-        order_id: order.id,
-        status: order.status,
-        note: `Cancellation requested: ${fullReason}`,
-        created_by: authStore.user!.id
-      });
-
-    cancelling = false;
-
-    // Notify admin
-    fetch('/api/notify-admin', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        eventType: 'Cancellation',
-        details: {
-          orderNumber: order.order_number,
-          cancelledBy: `Customer (${authStore.profile?.full_name || authStore.user?.email || 'Customer'})`,
-          reason: `Requested - pending approval: ${fullReason}`
+    if (!cancelResult.requiresApproval) {
+      // Auto-approve: Confirmed or Pending — restock and cancel immediately
+      if (order.items && order.items.length > 0) {
+        for (const item of order.items) {
+          if (item.variant_id) {
+            const { data: pv } = await supabase
+              .from('product_variants')
+              .select('stock_quantity')
+              .eq('id', item.variant_id)
+              .single();
+            if (pv) {
+              await supabase
+                .from('product_variants')
+                .update({ stock_quantity: pv.stock_quantity + item.quantity })
+                .eq('id', item.variant_id);
+            }
+          }
         }
-      })
-    }).catch(err => console.warn('Admin order cancellation notification failed:', err));
+      }
 
-    await loadOrder();
-    uiStore.addToast('Cancellation request submitted for admin approval', 'success');
+      const { error } = await supabase
+        .from('orders')
+        .update({
+          status: 'cancelled',
+          cancellation_status: 'approved',
+          cancellation_reason: fullReason,
+          cancelled_at: new Date().toISOString(),
+        })
+        .eq('id', order.id)
+        .eq('user_id', authStore.user!.id);
+
+      if (error) {
+        cancelling = false;
+        uiStore.addToast('Could not cancel order: ' + error.message, 'error');
+        return;
+      }
+
+      // Insert log
+      await supabase
+        .from('order_logs')
+        .insert({
+          order_id: order.id,
+          status: 'cancelled',
+          note: `Cancelled by customer: ${fullReason}`,
+          created_by: authStore.user!.id,
+        });
+
+      cancelling = false;
+      await loadOrder();
+      uiStore.addToast('Order cancelled successfully.', 'success');
+    } else {
+      // Requires admin approval (Processing)
+      const { error } = await supabase
+        .from('orders')
+        .update({
+          cancellation_status: 'pending',
+          cancellation_reason: fullReason,
+        })
+        .eq('id', order.id)
+        .eq('user_id', authStore.user!.id);
+
+      if (error) {
+        cancelling = false;
+        uiStore.addToast('Could not request cancellation: ' + error.message, 'error');
+        return;
+      }
+
+      // Insert a row in order_logs for the cancellation request
+      await supabase
+        .from('order_logs')
+        .insert({
+          order_id: order.id,
+          status: order.status,
+          note: `Cancellation requested: ${fullReason}`,
+          created_by: authStore.user!.id,
+        });
+
+      cancelling = false;
+
+      // The trigger trg_cancellation_admin_action will auto-insert into admin_actions
+      await loadOrder();
+      uiStore.addToast('Cancellation request submitted for admin approval', 'success');
+    }
   }
 
   async function sendMessage() {
@@ -146,14 +227,13 @@
     sendingMessage = true;
     const msg = newMessageText.trim();
     
-    // Insert into order_logs
+    // Insert into order_messages (new table, triggers chat_message admin_action)
     const { error } = await supabase
-      .from('order_logs')
+      .from('order_messages')
       .insert({
         order_id: order.id,
-        status: order.status,
-        note: `Customer: ${msg}`,
-        created_by: authStore.user!.id
+        sender_type: 'customer',
+        message: msg,
       });
       
     if (error) {
@@ -215,9 +295,18 @@
     order ? ORDER_STEPS.indexOf(order.status as any) : -1
   );
 
-  const canCancel = $derived(
+  const showCancelButton = $derived(
     order && 
-    (order.status === 'pending' || order.status === 'confirmed') &&
+    canCancel({
+      id: order.id,
+      status: order.status,
+      payment_method: order.payment_method,
+      payment_status: order.payment_status,
+      cancellation_status: order.cancellation_status,
+      razorpay_payment_id: order.razorpay_payment_id,
+      user_id: order.user_id,
+      total_amount: order.total_amount,
+    }).allowed &&
     order.cancellation_status !== 'pending' &&
     order.cancellation_status !== 'approved'
   );
@@ -251,7 +340,7 @@
         <span class="px-4 py-1.5 rounded-full text-sm font-semibold text-white" style="background: {orderStatusColor(order.status)};">
           {orderStatusLabel(order.status)}
         </span>
-        {#if canCancel}
+        {#if showCancelButton}
           <button onclick={() => showCancelModal = true} disabled={cancelling} class="px-4 py-1.5 rounded-full text-sm font-semibold border hover:bg-red-50 transition-colors" style="border-color: #ef4444; color: #ef4444;">
             {cancelling ? 'Requesting...' : 'Cancel Order'}
           </button>
@@ -463,19 +552,20 @@
       </div>
     </div>
 
-    <!-- Order logs timeline & Support Chat -->
-    {#if logs.length > 0}
+    <!-- Order Timeline & Messages (merged) -->
+    {#if timelineEntries.length > 0}
       <div class="rounded-2xl p-5 border" style="border-color: var(--color-blush); background: white;">
         <h3 class="font-semibold text-base mb-5" style="color: var(--color-text-dark);">Order Timeline & Messages</h3>
         <div class="relative pl-6 space-y-5">
           <div class="absolute left-2 top-0 bottom-0 w-px" style="background: var(--color-blush);"></div>
-          {#each logs as log (log.id)}
-            {@const isCustomerMsg = log.note?.startsWith('Customer: ')}
-            {@const isAdminMsg = log.note?.startsWith('Admin: ') || log.note?.startsWith('Support: ')}
+          {#each timelineEntries as entry (entry.id)}
+            {@const isCustomerMsg = entry.entryType === 'customer_msg'}
+            {@const isAdminMsg = entry.entryType === 'admin_msg'}
+            {@const isLogEntry = entry.entryType === 'log'}
             <div class="relative">
               <div 
                 class="absolute -left-4 w-4 h-4 rounded-full border-2 bg-white flex items-center justify-center text-[8px]" 
-                style="border-color: {isCustomerMsg ? 'var(--color-peach)' : isAdminMsg ? 'var(--color-blush)' : orderStatusColor(log.status)};"
+                style="border-color: {isCustomerMsg ? 'var(--color-peach)' : isAdminMsg ? 'var(--color-blush)' : orderStatusColor(entry.status)};"
               >
                 {isCustomerMsg ? '👤' : isAdminMsg ? '💬' : '✓'}
               </div>
@@ -483,20 +573,31 @@
               {#if isCustomerMsg}
                 <div class="ml-2 rounded-2xl p-3 max-w-lg border" style="background-color: var(--color-bg-secondary); border-color: rgba(212, 165, 116, 0.2);">
                   <p class="text-xs font-bold" style="color: var(--color-nude);">You (Customer)</p>
-                  <p class="text-sm mt-0.5" style="color: var(--color-brown);">{(log.note ?? '').replace(/^Customer:\s*/, '')}</p>
-                  <p class="text-[10px] text-gray-400 mt-1">{formatDateTime(log.created_at)}</p>
+                  <p class="text-sm mt-0.5" style="color: var(--color-brown);">{entry.message}</p>
+                  <p class="text-[10px] text-gray-400 mt-1">{formatDateTime(entry.created_at)}</p>
                 </div>
               {:else if isAdminMsg}
                 <div class="ml-2 rounded-2xl p-3 max-w-lg border" style="background-color: var(--color-bg-accent); border-color: var(--color-blush);">
                   <p class="text-xs font-bold" style="color: var(--color-coral);">French Toes Support</p>
-                  <p class="text-sm mt-0.5" style="color: var(--color-brown);">{(log.note ?? '').replace(/^(Admin|Support):\s*/, '')}</p>
-                  <p class="text-[10px] text-gray-400 mt-1">{formatDateTime(log.created_at)}</p>
+                  <p class="text-sm mt-0.5" style="color: var(--color-brown);">{entry.message}</p>
+                  <p class="text-[10px] text-gray-400 mt-1">{formatDateTime(entry.created_at)}</p>
                 </div>
+              {:else if isLogEntry}
+                {#if entry.note?.startsWith('Customer: ') || entry.note?.startsWith('Admin: ') || entry.note?.startsWith('Support: ')}
+                  <!-- Legacy chat entries from order_logs — suppress since order_messages now handles chat -->
+                  <!-- Skip rendering -->
+                {:else}
+                  <div class="ml-2">
+                    <p class="font-semibold text-sm" style="color: var(--color-text-dark);">{orderStatusLabel(entry.status)}</p>
+                    {#if entry.note}<p class="text-xs mt-0.5" style="color: var(--color-text-mid);">{entry.note}</p>{/if}
+                    <p class="text-xs mt-0.5" style="color: var(--color-text-soft);">{formatDateTime(entry.created_at)}</p>
+                  </div>
+                {/if}
               {:else}
                 <div class="ml-2">
-                  <p class="font-semibold text-sm" style="color: var(--color-text-dark);">{orderStatusLabel(log.status)}</p>
-                  {#if log.note}<p class="text-xs mt-0.5" style="color: var(--color-text-mid);">{log.note}</p>{/if}
-                  <p class="text-xs mt-0.5" style="color: var(--color-text-soft);">{formatDateTime(log.created_at)}</p>
+                  <p class="font-semibold text-sm" style="color: var(--color-text-dark);">{orderStatusLabel(entry.status)}</p>
+                  {#if entry.note}<p class="text-xs mt-0.5" style="color: var(--color-text-mid);">{entry.note}</p>{/if}
+                  <p class="text-xs mt-0.5" style="color: var(--color-text-soft);">{formatDateTime(entry.created_at)}</p>
                 </div>
               {/if}
             </div>

@@ -11,12 +11,61 @@
   let lowStock = $state<any[]>([]);
   let loading = $state(true);
 
+  let actionCounts = $state<{
+    cancellation: number;
+    return: number;
+    exchange: number;
+    chat_message: number;
+  }>({
+    cancellation: 0,
+    return: 0,
+    exchange: 0,
+    chat_message: 0
+  });
+
   onMount(async () => {
     await authStore.init();
     if (!authStore.user || !authStore.isAdmin) return;
-    await Promise.all([loadStats(), loadRecentOrders(), loadTopProducts(), loadLowStock()]);
+    await Promise.all([loadStats(), loadRecentOrders(), loadTopProducts(), loadLowStock(), loadActionCounts()]);
     loading = false;
   });
+
+  async function loadActionCounts() {
+    try {
+      const response = await fetch('/api/admin/actions');
+      const result = await response.json();
+      if (!response.ok) {
+        console.warn('Failed to fetch action counts for dashboard:', result.error || response.statusText);
+        return;
+      }
+
+      const actions = result.actions ?? [];
+      const counts = {
+        cancellation: 0,
+        return: 0,
+        exchange: 0,
+        chat_message: 0
+      };
+
+      for (const item of actions) {
+        if (item.seen_at === null) {
+          if (['cancellation', 'payment_failure', 'cod_undelivered'].includes(item.type)) {
+            counts.cancellation++;
+          } else if (item.type === 'return') {
+            counts.return++;
+          } else if (item.type === 'exchange') {
+            counts.exchange++;
+          } else if (item.type === 'chat_message') {
+            counts.chat_message++;
+          }
+        }
+      }
+
+      actionCounts = counts;
+    } catch (e) {
+      console.warn('Failed to fetch action counts:', e);
+    }
+  }
 
   async function loadStats() {
     const { data } = await supabase.from('sales_analytics').select('*').single();
@@ -56,15 +105,39 @@
     packed: 'Packed', shipped: 'Shipped', out_for_delivery: 'Out for Delivery',
     delivered: 'Delivered', cancelled: 'Cancelled', refunded: 'Refunded',
   };
+
+  const totalPending = $derived(
+    actionCounts.cancellation + actionCounts.return + actionCounts.exchange + actionCounts.chat_message
+  );
 </script>
 
 <svelte:head><title>Admin Dashboard — French Toes</title></svelte:head>
 
-{#if loading}
+  {#if loading}
   <div class="flex justify-center py-16"><div class="w-8 h-8 border-4 rounded-full animate-spin border-gray-200 border-t-indigo-600"></div></div>
 {:else}
   <div class="flex flex-col gap-8">
     <h1 class="text-2xl font-bold text-white">Dashboard</h1>
+
+    <!-- Action Required Banner -->
+    {#if totalPending > 0}
+      <div class="rounded-xl p-4 border flex items-center justify-between animate-fade-in" style="background: var(--bg-danger); border-color: var(--text-danger);">
+        <div>
+          <p class="font-semibold text-sm" style="color: var(--text-danger);">
+            ⚡ Action Required
+          </p>
+          <p class="text-xs mt-0.5" style="color: var(--text-danger); opacity: 0.8;">
+            {#if actionCounts.cancellation > 0}{actionCounts.cancellation} cancellation{actionCounts.cancellation > 1 ? 's' : ''}{/if}
+            {#if actionCounts.return + actionCounts.exchange > 0}{actionCounts.cancellation > 0 ? ', ' : ''}{actionCounts.return + actionCounts.exchange} return{actionCounts.return + actionCounts.exchange > 1 ? 's' : ''}/exchange{actionCounts.return + actionCounts.exchange > 1 ? 's' : ''}{/if}
+            {#if actionCounts.chat_message > 0}{(actionCounts.cancellation + actionCounts.return + actionCounts.exchange) > 0 ? ', ' : ''}{actionCounts.chat_message} message{actionCounts.chat_message > 1 ? 's' : ''}{/if}
+            {' '}need attention
+          </p>
+        </div>
+        <a href="/admin/actions" class="px-4 py-2 rounded-xl text-xs font-semibold text-white transition-all hover:opacity-90" style="background: var(--text-danger);">
+          View Action Center →
+        </a>
+      </div>
+    {/if}
 
     <!-- KPI cards -->
     {#if stats}

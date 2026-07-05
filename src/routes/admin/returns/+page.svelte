@@ -4,6 +4,8 @@
   import { uiStore } from "$lib/stores/ui.svelte";
   import { supabase } from "$lib/supabaseClient";
   import { formatDate } from "$lib/utils/helpers";
+  import { createExchangeOrder } from "$lib/orders";
+  import { processRefund } from "$lib/utils/refunds";
 
   let returns = $state<any[]>([]);
   let loading = $state(true);
@@ -15,6 +17,20 @@
   let shippingAddress = $state<any>(null);
   let loadingAddress = $state(false);
   let actionLoading = $state(false);
+
+  // New modal states for overrides
+  let showManualPickupModal = $state(false);
+  let courierName = $state('');
+  let courierContact = $state('');
+  let awbTrackingId = $state('');
+  let pickupScheduledFor = $state('');
+  let pickupNotes = $state('');
+
+  let showManualRefundModal = $state(false);
+  let refundMethod = $state<'upi' | 'bank_transfer' | 'store_credit'>('upi');
+  let refundRefId = $state('');
+  let refundAmountRupees = $state<number>(0);
+  let refundDeductionReason = $state('');
 
   const STATUS_FILTERS = [
     { id: "all", label: "All Requests" },
@@ -391,6 +407,360 @@
       selectedReturn = { ...selectedReturn, status: "exchange_shipped", replacement_order_id: newOrder.id };
     }
   }
+
+  // --- MANUAL OVERRIDES & EXCHANGE APPROVALS ---
+
+  async function scheduleManualPickup(ret: any) {
+    if (!courierName) {
+      uiStore.addToast('Please specify a courier name.', 'error');
+      return;
+    }
+    actionLoading = true;
+    showManualPickupModal = false;
+
+    // Fetch matching admin action ID
+    const { data: matchingActions } = await supabase
+      .from('admin_actions')
+      .select('id')
+      .eq('order_id', ret.order_id)
+      .eq('reference_id', ret.id)
+      .eq('status', 'pending')
+      .limit(1);
+    const adminActionId = matchingActions && matchingActions.length > 0 ? matchingActions[0].id : null;
+
+    // Update return request
+    const { error } = await supabase
+      .from('order_returns')
+      .update({
+        status: 'pickup_scheduled',
+        pickup_mode: 'manual',
+        courier_name: courierName,
+        courier_contact: courierContact || null,
+        awb_or_tracking_id: awbTrackingId || null,
+        pickup_scheduled_for: pickupScheduledFor ? new Date(pickupScheduledFor).toISOString() : null,
+        pickup_notes: pickupNotes || null,
+        manual_override: true,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', ret.id);
+
+    if (error) {
+      actionLoading = false;
+      uiStore.addToast('Failed to schedule manual pickup: ' + error.message, 'error');
+      return;
+    }
+
+    // Log to manual_action_log
+    await supabase
+      .from('manual_action_log')
+      .insert({
+        admin_action_id: adminActionId,
+        admin_id: authStore.user!.id,
+        action_type: 'manual_pickup_schedule',
+        input_data: {
+          order_return_id: ret.id,
+          courier_name: courierName,
+          awb: awbTrackingId,
+          date: pickupScheduledFor
+        }
+      });
+
+    // Log to order_logs
+    await supabase.from('order_logs').insert({
+      order_id: ret.order_id,
+      status: 'returned',
+      note: `System: Reverse pickup scheduled manually via ${courierName}. AWB/Ref: ${awbTrackingId || 'N/A'}`,
+      created_by: authStore.user!.id
+    });
+
+    actionLoading = false;
+    uiStore.addToast('Manual reverse pickup scheduled.', 'success');
+    await loadReturns();
+    if (selectedReturn?.id === ret.id) {
+      selectedReturn = { 
+        ...selectedReturn, 
+        status: 'pickup_scheduled',
+        pickup_mode: 'manual',
+        courier_name: courierName,
+        courier_contact: courierContact,
+        awb_or_tracking_id: awbTrackingId,
+        pickup_scheduled_for: pickupScheduledFor ? new Date(pickupScheduledFor).toISOString() : null,
+        manual_override: true
+      };
+    }
+
+    // Reset form
+    courierName = '';
+    courierContact = '';
+    awbTrackingId = '';
+    pickupScheduledFor = '';
+    pickupNotes = '';
+  }
+
+  async function markPickedUpManually(ret: any) {
+    if (!confirm('Mark this return request as picked up by the courier?')) return;
+    actionLoading = true;
+
+    // Fetch matching admin action ID
+    const { data: matchingActions } = await supabase
+      .from('admin_actions')
+      .select('id')
+      .eq('order_id', ret.order_id)
+      .eq('reference_id', ret.id)
+      .eq('status', 'pending')
+      .limit(1);
+    const adminActionId = matchingActions && matchingActions.length > 0 ? matchingActions[0].id : null;
+
+    const { error } = await supabase
+      .from('order_returns')
+      .update({
+        status: 'picked_up',
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', ret.id);
+
+    if (error) {
+      actionLoading = false;
+      uiStore.addToast('Failed to mark picked up: ' + error.message, 'error');
+      return;
+    }
+
+    // Log to manual_action_log
+    await supabase
+      .from('manual_action_log')
+      .insert({
+        admin_action_id: adminActionId,
+        admin_id: authStore.user!.id,
+        action_type: 'manual_picked_up',
+        input_data: { order_return_id: ret.id }
+      });
+
+    // Log to order_logs
+    await supabase.from('order_logs').insert({
+      order_id: ret.order_id,
+      status: 'returned',
+      note: 'System: Slipper items marked as picked up manually by courier.',
+      created_by: authStore.user!.id
+    });
+
+    actionLoading = false;
+    uiStore.addToast('Return request marked as picked up.', 'success');
+    await loadReturns();
+    if (selectedReturn?.id === ret.id) {
+      selectedReturn = { ...selectedReturn, status: 'picked_up' };
+    }
+  }
+
+  async function markReceivedManually(ret: any) {
+    if (!confirm("Confirm receipt of returned slipper items at the warehouse? This will automatically restock variant quantities.")) return;
+    actionLoading = true;
+
+    // 1. Increment Stock
+    if (ret.items && ret.items.length > 0) {
+      for (const item of ret.items) {
+        const { data: itemData } = await supabase
+          .from('order_items')
+          .select('variant_id')
+          .eq('id', item.order_item_id)
+          .single();
+
+        if (itemData?.variant_id) {
+          const { data: pv } = await supabase
+            .from('product_variants')
+            .select('stock_quantity')
+            .eq('id', itemData.variant_id)
+            .single();
+
+          if (pv) {
+            await supabase
+              .from('product_variants')
+              .update({ stock_quantity: pv.stock_quantity + item.quantity })
+              .eq('id', itemData.variant_id);
+          }
+        }
+      }
+    }
+
+    // 2. Fetch admin action ID for manual action log
+    const { data: matchingActions } = await supabase
+      .from('admin_actions')
+      .select('id')
+      .eq('order_id', ret.order_id)
+      .eq('reference_id', ret.id)
+      .eq('status', 'pending')
+      .limit(1);
+    const adminActionId = matchingActions && matchingActions.length > 0 ? matchingActions[0].id : null;
+
+    // 3. Update return status
+    const { error } = await supabase
+      .from('order_returns')
+      .update({
+        status: 'received',
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', ret.id);
+
+    if (error) {
+      actionLoading = false;
+      uiStore.addToast('Failed to mark received: ' + error.message, 'error');
+      return;
+    }
+
+    // 4. Log to manual_action_log
+    await supabase
+      .from('manual_action_log')
+      .insert({
+        admin_action_id: adminActionId,
+        admin_id: authStore.user!.id,
+        action_type: 'manual_receive',
+        input_data: {
+          order_return_id: ret.id,
+          restocked_items: ret.items
+        }
+      });
+
+    // 5. Log to order_logs
+    await supabase.from('order_logs').insert({
+      order_id: ret.order_id,
+      status: 'returned',
+      note: 'System: Slipper items received manually at warehouse and restocked.',
+      created_by: authStore.user!.id
+    });
+
+    actionLoading = false;
+    uiStore.addToast('Items marked as received and inventory restocked.', 'success');
+    await loadReturns();
+    if (selectedReturn?.id === ret.id) {
+      selectedReturn = { ...selectedReturn, status: 'received' };
+    }
+  }
+
+  async function submitManualRefund(ret: any) {
+    if (refundAmountRupees <= 0) {
+      uiStore.addToast('Please enter a valid refund amount.', 'error');
+      return;
+    }
+    actionLoading = true;
+    showManualRefundModal = false;
+
+    // Fetch matching admin action ID
+    const { data: matchingActions } = await supabase
+      .from('admin_actions')
+      .select('id')
+      .eq('order_id', ret.order_id)
+      .eq('reference_id', ret.id)
+      .eq('status', 'pending')
+      .limit(1);
+    const adminActionId = matchingActions && matchingActions.length > 0 ? matchingActions[0].id : null;
+
+    const result = await processRefund(ret, {
+      mode: 'full',
+      amount: refundAmountRupees,
+      method: refundMethod,
+      referenceId: refundRefId,
+      deductionReason: refundDeductionReason || undefined,
+      adminId: authStore.user!.id,
+      adminActionId: adminActionId
+    });
+
+    actionLoading = false;
+
+    if (!result.success) {
+      uiStore.addToast(result.error || 'Manual refund failed.', 'error');
+      return;
+    }
+
+    // Resolve matching admin_actions row
+    if (adminActionId) {
+      await supabase
+        .from('admin_actions')
+        .update({ status: 'resolved', resolved_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+        .eq('id', adminActionId);
+    }
+
+    uiStore.addToast('Manual refund processed successfully.', 'success');
+    await loadReturns();
+    closeDrawer();
+  }
+
+  async function approveExchangeRequest(ret: any) {
+    if (!ret.requested_variant_id) {
+      uiStore.addToast('Exchange request is missing variant selection.', 'error');
+      return;
+    }
+    if (!confirm('Approve this exchange request? This will verify stock, decrement replacement variant inventory, and generate a linked exchange order.')) return;
+    
+    actionLoading = true;
+
+    // 1. Call createExchangeOrder
+    const result = await createExchangeOrder({
+      orderReturnId: ret.id,
+      originalOrderId: ret.order_id,
+      requestedVariantId: ret.requested_variant_id,
+      priceDifference: Math.round((ret.price_difference ?? 0) * 100), // convert Rupees difference back to Paise
+      userId: ret.customer_id,
+      shippingAddressId: ret.order?.shipping_address_id,
+      productName: ret.items?.[0]?.product_name || 'Slippers Replacement',
+      productImageUrl: null
+    });
+
+    if (!result.success || !result.newOrderId) {
+      actionLoading = false;
+      uiStore.addToast(result.error || 'Failed to create exchange order.', 'error');
+      return;
+    }
+
+    // 2. Fetch matching admin action ID
+    const { data: matchingActions } = await supabase
+      .from('admin_actions')
+      .select('id')
+      .eq('order_id', ret.order_id)
+      .eq('reference_id', ret.id)
+      .eq('status', 'pending')
+      .limit(1);
+    const adminActionId = matchingActions && matchingActions.length > 0 ? matchingActions[0].id : null;
+
+    // 3. Update return status
+    const { error: retErr } = await supabase
+      .from('order_returns')
+      .update({
+        status: 'exchange_shipped',
+        replacement_order_id: result.newOrderId,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', ret.id);
+
+    if (retErr) {
+      console.warn('Exchange order created but return record failed to update:', retErr.message);
+    }
+
+    // 4. Resolve matching admin_actions row
+    if (adminActionId) {
+      await supabase
+        .from('admin_actions')
+        .update({ status: 'resolved', resolved_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+        .eq('id', adminActionId);
+    }
+
+    // 5. Write to manual_action_log
+    await supabase
+      .from('manual_action_log')
+      .insert({
+        admin_action_id: adminActionId,
+        admin_id: authStore.user!.id,
+        action_type: 'exchange_approval',
+        input_data: {
+          order_return_id: ret.id,
+          replacement_order_id: result.newOrderId,
+          replacement_order_number: result.newOrderNumber
+        }
+      });
+
+    actionLoading = false;
+    uiStore.addToast(`Exchange approved. Replacement order ${result.newOrderNumber} created.`, 'success');
+    await loadReturns();
+    closeDrawer();
+  }
 </script>
 
 <svelte:head><title>Returns & Exchanges — Admin French Toes</title></svelte:head>
@@ -612,55 +982,112 @@
         </p>
       {/if}
 
-      <!-- Operations -->
-      <div class="flex flex-wrap gap-2 pt-1.5 border-t border-white/5">
-        {#if selectedReturn.status === "requested"}
-          <button
-            onclick={() => approveReturn(selectedReturn)}
-            disabled={actionLoading}
-            class="px-3 py-2 rounded-xl text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 cursor-pointer"
-          >
-            Approve & Schedule Pickup
-          </button>
-          <button
-            onclick={() => rejectReturn(selectedReturn)}
-            disabled={actionLoading}
-            class="px-3 py-2 rounded-xl text-xs font-semibold text-white bg-red-600 hover:bg-red-500 disabled:opacity-50 cursor-pointer"
-          >
-            Reject Request
-          </button>
-        {/if}
+      <!-- Operations Split -->
+      <div class="space-y-4 pt-3 border-t border-white/5">
+        <div>
+          <p class="text-[10px] font-bold text-indigo-400 uppercase tracking-wider mb-2">Automated Flow (API)</p>
+          <div class="flex flex-wrap gap-2">
+            {#if selectedReturn.status === "requested"}
+              <button
+                onclick={() => approveReturn(selectedReturn)}
+                disabled={actionLoading}
+                class="px-3 py-2 rounded-xl text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 cursor-pointer"
+              >
+                Approve & Shiprocket Pickup
+              </button>
+            {/if}
 
-        {#if ["approved", "pickup_scheduled", "picked_up", "received"].includes(selectedReturn.status)}
-          {#if selectedReturn.type === "refund"}
-            {#if selectedOrder?.razorpay_payment_id}
+            {#if ["approved", "pickup_scheduled", "picked_up", "received"].includes(selectedReturn.status) && selectedReturn.type === "refund" && selectedOrder?.razorpay_payment_id}
               <button
                 onclick={() => processReturnRefund(selectedReturn)}
                 disabled={actionLoading}
                 class="px-3 py-2 rounded-xl text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 cursor-pointer"
               >
-                Process Refund (Razorpay)
+                Razorpay Automated Refund
               </button>
             {/if}
-            <button
-              onclick={() => markReturnManuallyRefunded(selectedReturn)}
-              disabled={actionLoading}
-              class="px-3 py-2 rounded-xl text-xs font-semibold text-white bg-amber-600 hover:bg-amber-500 disabled:opacity-50 cursor-pointer"
-            >
-              Mark Refunded (COD / Manual)
-            </button>
-          {/if}
 
-          {#if selectedReturn.type === "exchange"}
-            <button
-              onclick={() => createReplacementOrder(selectedReturn)}
-              disabled={actionLoading}
-              class="px-3 py-2 rounded-xl text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 cursor-pointer"
-            >
-              Create Replacement Order
-            </button>
-          {/if}
-        {/if}
+            {#if selectedReturn.status === "requested"}
+              <button
+                onclick={() => rejectReturn(selectedReturn)}
+                disabled={actionLoading}
+                class="px-3 py-2 rounded-xl text-xs font-semibold text-white bg-red-600 hover:bg-red-500 disabled:opacity-50 cursor-pointer"
+              >
+                Reject Request
+              </button>
+            {/if}
+          </div>
+        </div>
+
+        <div>
+          <p class="text-[10px] font-bold text-amber-400 uppercase tracking-wider mb-2">Manual Overrides</p>
+          <div class="flex flex-wrap gap-2">
+            {#if selectedReturn.status === "requested" || selectedReturn.status === "approved"}
+              <button
+                onclick={() => {
+                  courierName = '';
+                  courierContact = '';
+                  awbTrackingId = '';
+                  pickupScheduledFor = '';
+                  pickupNotes = '';
+                  showManualPickupModal = true;
+                }}
+                disabled={actionLoading}
+                class="px-3 py-2 rounded-xl text-xs font-semibold text-white bg-amber-700/50 hover:bg-amber-600/60 border border-amber-600/40 disabled:opacity-50 cursor-pointer"
+              >
+                Schedule Pickup Manually
+              </button>
+            {/if}
+
+            {#if selectedReturn.status === "pickup_scheduled"}
+              <button
+                onclick={() => markPickedUpManually(selectedReturn)}
+                disabled={actionLoading}
+                class="px-3 py-2 rounded-xl text-xs font-semibold text-white bg-amber-700/50 hover:bg-amber-600/60 border border-amber-600/40 disabled:opacity-50 cursor-pointer"
+              >
+                Mark Picked Up Manually
+              </button>
+            {/if}
+
+            {#if ["approved", "pickup_scheduled", "picked_up"].includes(selectedReturn.status)}
+              <button
+                onclick={() => markReceivedManually(selectedReturn)}
+                disabled={actionLoading}
+                class="px-3 py-2 rounded-xl text-xs font-semibold text-white bg-amber-700/50 hover:bg-amber-600/60 border border-amber-600/40 disabled:opacity-50 cursor-pointer"
+              >
+                Mark Received (Restock Items)
+              </button>
+            {/if}
+
+            {#if ["approved", "pickup_scheduled", "picked_up", "received"].includes(selectedReturn.status)}
+              {#if selectedReturn.type === "refund"}
+                <button
+                  onclick={() => {
+                    refundAmountRupees = (selectedReturn.requested_refund_amount ?? selectedOrder?.total_amount ?? 0) / 100;
+                    refundMethod = 'upi';
+                    refundRefId = '';
+                    refundDeductionReason = '';
+                    showManualRefundModal = true;
+                  }}
+                  disabled={actionLoading}
+                  class="px-3 py-2 rounded-xl text-xs font-semibold text-white bg-amber-700/50 hover:bg-amber-600/60 border border-amber-600/40 disabled:opacity-50 cursor-pointer"
+                >
+                  Mark Refunded Manually
+                </button>
+              {/if}
+
+              {#if selectedReturn.type === "exchange"}
+                <button
+                  onclick={() => approveExchangeRequest(selectedReturn)}
+                  disabled={actionLoading}
+                  class="px-3 py-2 rounded-xl text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 cursor-pointer"
+                >
+                  Approve Exchange (Create Order)
+                </button>
+              {/if}
+            {/if}
+          </div>
+        </div>
       </div>
     </div>
 
@@ -702,6 +1129,89 @@
       {:else}
         <p class="text-xs text-gray-500">Address could not be fetched</p>
       {/if}
+    </div>
+  </div>
+{/if}
+
+<!-- Manual Pickup Modal -->
+{#if showManualPickupModal}
+  <!-- svelte-ignore a11y_click_events_have_key_events -->
+  <div class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm" onclick={() => showManualPickupModal = false} role="button" tabindex="0" aria-label="Close modal">
+    <div class="w-full max-w-md bg-[#18192a] border border-white/10 rounded-2xl p-6 shadow-2xl flex flex-col gap-4 text-white text-left" onclick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
+      <h3 class="text-lg font-bold">Schedule Manual Reverse Pickup 🚚</h3>
+      
+      <div class="flex flex-col gap-3">
+        <div>
+          <label class="block text-xs font-semibold text-gray-400 mb-1" for="courier-name">Courier Partner Name *</label>
+          <input id="courier-name" bind:value={courierName} type="text" placeholder="E.g. Delhivery, BlueDart" class="w-full px-3 py-2 rounded-xl text-sm bg-white/5 border border-white/15 outline-none focus:border-indigo-500 text-white" />
+        </div>
+        
+        <div>
+          <label class="block text-xs font-semibold text-gray-400 mb-1" for="courier-contact">Courier Contact (optional)</label>
+          <input id="courier-contact" bind:value={courierContact} type="text" placeholder="E.g. +91 9999999999" class="w-full px-3 py-2 rounded-xl text-sm bg-white/5 border border-white/15 outline-none focus:border-indigo-500 text-white" />
+        </div>
+
+        <div>
+          <label class="block text-xs font-semibold text-gray-400 mb-1" for="tracking-id">AWB / Tracking ID (optional)</label>
+          <input id="tracking-id" bind:value={awbTrackingId} type="text" placeholder="E.g. 1234567890" class="w-full px-3 py-2 rounded-xl text-sm bg-white/5 border border-white/15 outline-none focus:border-indigo-500 text-white" />
+        </div>
+
+        <div>
+          <label class="block text-xs font-semibold text-gray-400 mb-1" for="pickup-date">Scheduled Date & Time</label>
+          <input id="pickup-date" bind:value={pickupScheduledFor} type="datetime-local" class="w-full px-3 py-2 rounded-xl text-sm bg-white/5 border border-white/15 outline-none focus:border-indigo-500 text-white" />
+        </div>
+
+        <div>
+          <label class="block text-xs font-semibold text-gray-400 mb-1" for="pickup-notes">Pickup Instructions/Notes</label>
+          <textarea id="pickup-notes" bind:value={pickupNotes} placeholder="E.g. customer will drop at store" rows="2" class="w-full px-3 py-2 rounded-xl text-sm bg-white/5 border border-white/15 outline-none focus:border-indigo-500 text-white resize-none"></textarea>
+        </div>
+      </div>
+
+      <div class="flex gap-3 mt-2">
+        <button onclick={() => showManualPickupModal = false} class="flex-1 py-2.5 rounded-xl text-xs font-semibold border border-white/15 text-gray-300">Cancel</button>
+        <button onclick={() => scheduleManualPickup(selectedReturn)} disabled={!courierName} class="flex-1 py-2.5 rounded-xl text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50">Confirm Schedule</button>
+      </div>
+    </div>
+  </div>
+{/if}
+
+<!-- Manual Refund Modal -->
+{#if showManualRefundModal}
+  <!-- svelte-ignore a11y_click_events_have_key_events -->
+  <div class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm" onclick={() => showManualRefundModal = false} role="button" tabindex="0" aria-label="Close modal">
+    <div class="w-full max-w-md bg-[#18192a] border border-white/10 rounded-2xl p-6 shadow-2xl flex flex-col gap-4 text-white text-left" onclick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
+      <h3 class="text-lg font-bold">Mark Refunded Manually 💸</h3>
+      
+      <div class="flex flex-col gap-3">
+        <div>
+          <label class="block text-xs font-semibold text-gray-400 mb-1" for="refund-method-select">Refund Method *</label>
+          <select id="refund-method-select" bind:value={refundMethod} class="w-full px-3 py-2.5 rounded-xl text-sm bg-[#18192a] border border-white/15 outline-none focus:border-indigo-500 text-white">
+            <option value="upi">UPI</option>
+            <option value="bank_transfer">Bank Transfer</option>
+            <option value="store_credit">Store Credit</option>
+          </select>
+        </div>
+
+        <div>
+          <label class="block text-xs font-semibold text-gray-400 mb-1" for="refund-amount">Refund Amount (₹) *</label>
+          <input id="refund-amount" bind:value={refundAmountRupees} type="number" min="1" step="any" class="w-full px-3 py-2 rounded-xl text-sm bg-white/5 border border-white/15 outline-none focus:border-indigo-500 text-white font-mono" />
+        </div>
+
+        <div>
+          <label class="block text-xs font-semibold text-gray-400 mb-1" for="refund-ref">Reference ID / Transaction ID *</label>
+          <input id="refund-ref" bind:value={refundRefId} type="text" placeholder="E.g. Bank Ref No., UPI Ref No." class="w-full px-3 py-2 rounded-xl text-sm bg-white/5 border border-white/15 outline-none focus:border-indigo-500 text-white" />
+        </div>
+
+        <div>
+          <label class="block text-xs font-semibold text-gray-400 mb-1" for="deduction-reason">Deductions & Reasons (optional)</label>
+          <input id="deduction-reason" bind:value={refundDeductionReason} type="text" placeholder="E.g. ₹100 deducted for return shipping fee" class="w-full px-3 py-2 rounded-xl text-sm bg-white/5 border border-white/15 outline-none focus:border-indigo-500 text-white" />
+        </div>
+      </div>
+
+      <div class="flex gap-3 mt-2">
+        <button onclick={() => showManualRefundModal = false} class="flex-1 py-2.5 rounded-xl text-xs font-semibold border border-white/15 text-gray-300">Cancel</button>
+        <button onclick={() => submitManualRefund(selectedReturn)} disabled={refundAmountRupees <= 0 || !refundRefId} class="flex-1 py-2.5 rounded-xl text-xs font-semibold text-white bg-amber-600 hover:bg-amber-500 disabled:opacity-50">Confirm Refund</button>
+      </div>
     </div>
   </div>
 {/if}

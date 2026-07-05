@@ -18,6 +18,87 @@
   let customerNote = $state('');
   let submittingReturn = $state(false);
 
+  let availableVariants = $state<any[]>([]);
+  let loadingVariants = $state(false);
+  let selectedVariantId = $state<string>('');
+  let exchangePriceDiff = $state(0); // in paise
+  let productBasePrice = $state(0);
+  let activeExchangeProductId = $state<string>('');
+
+  $effect(() => {
+    if (returnType === 'exchange') {
+      const selectedItemIds = Object.keys(selectedItems);
+      if (selectedItemIds.length > 0 && returnDialogOrder) {
+        const firstItem = returnDialogOrder.items.find((it: any) => it.id === selectedItemIds[0]);
+        if (firstItem && firstItem.product_id !== activeExchangeProductId) {
+          activeExchangeProductId = firstItem.product_id;
+          loadVariantsForExchange(firstItem.product_id);
+        }
+      } else {
+        activeExchangeProductId = '';
+        availableVariants = [];
+        selectedVariantId = '';
+        exchangePriceDiff = 0;
+      }
+    } else {
+      activeExchangeProductId = '';
+      availableVariants = [];
+      selectedVariantId = '';
+      exchangePriceDiff = 0;
+    }
+  });
+
+  async function loadVariantsForExchange(productId: string) {
+    loadingVariants = true;
+    const [pRes, vRes] = await Promise.all([
+      supabase.from('products').select('price').eq('id', productId).single(),
+      supabase.from('product_variants').select('*').eq('product_id', productId).gt('stock_quantity', 0)
+    ]);
+    loadingVariants = false;
+    
+    if (pRes.error || vRes.error) {
+      console.error('Error loading product/variants:', pRes.error?.message || vRes.error?.message);
+      return;
+    }
+    
+    productBasePrice = pRes.data?.price ?? 0;
+    availableVariants = vRes.data ?? [];
+    if (availableVariants.length > 0) {
+      selectedVariantId = availableVariants[0].id;
+      calculatePriceDiff();
+    } else {
+      selectedVariantId = '';
+      exchangePriceDiff = 0;
+    }
+  }
+
+  function calculatePriceDiff() {
+    if (!selectedVariantId || !returnDialogOrder) {
+      exchangePriceDiff = 0;
+      return;
+    }
+    const selectedItemIds = Object.keys(selectedItems);
+    if (selectedItemIds.length === 0) {
+      exchangePriceDiff = 0;
+      return;
+    }
+    const firstItem = returnDialogOrder.items.find((it: any) => it.id === selectedItemIds[0]);
+    if (!firstItem) {
+      exchangePriceDiff = 0;
+      return;
+    }
+
+    const variant = availableVariants.find(v => v.id === selectedVariantId);
+    if (!variant) {
+      exchangePriceDiff = 0;
+      return;
+    }
+
+    const newPrice = productBasePrice + (variant.price_adjustment ?? 0);
+    const oldPrice = firstItem.unit_price;
+    exchangePriceDiff = newPrice - oldPrice;
+  }
+
   const REASONS = [
     { id: 'damaged', label: 'Item arrived damaged' },
     { id: 'wrong_item', label: 'Wrong item received' },
@@ -111,6 +192,9 @@
     selectedItems = {};
     reasonCode = 'changed_mind';
     customerNote = '';
+    availableVariants = [];
+    selectedVariantId = '';
+    exchangePriceDiff = 0;
   }
 
   function closeReturnDialog() {
@@ -122,10 +206,16 @@
     if (checked) next[item.id] = 1;
     else delete next[item.id];
     selectedItems = next;
+    if (returnType === 'exchange') {
+      calculatePriceDiff();
+    }
   }
 
   function setQty(itemId: string, qty: number, max: number) {
     selectedItems = { ...selectedItems, [itemId]: Math.max(1, Math.min(qty, max)) };
+    if (returnType === 'exchange') {
+      calculatePriceDiff();
+    }
   }
 
   async function submitReturn() {
@@ -147,6 +237,8 @@
       }));
 
     const requestedRefundAmount = items.reduce((sum: number, it: any) => sum + it.unit_price * it.quantity, 0);
+    const priceDiffRupees = returnType === 'exchange' ? (exchangePriceDiff / 100) : 0;
+    const requestedVariantId = returnType === 'exchange' ? selectedVariantId : null;
 
     submittingReturn = true;
     const { error } = await supabase.from('order_returns').insert({
@@ -157,6 +249,8 @@
       reason_code: reasonCode,
       customer_note: customerNote || null,
       requested_refund_amount: requestedRefundAmount,
+      requested_variant_id: requestedVariantId,
+      price_difference: priceDiffRupees
     });
     submittingReturn = false;
 
@@ -366,6 +460,43 @@
         Exchange for replacement
       </label>
     </div>
+
+    {#if returnType === 'exchange'}
+      <div class="flex flex-col gap-2 p-3 bg-pink-50/20 rounded-xl border border-pink-100/30">
+        <p class="text-xs font-semibold text-gray-700">Choose Replacement Variant</p>
+        {#if loadingVariants}
+          <p class="text-xs text-gray-500 animate-pulse">Loading available options...</p>
+        {:else if availableVariants.length === 0}
+          <p class="text-xs text-red-500 font-medium">Sorry, no other variants of this product have stock currently.</p>
+        {:else}
+          <select 
+            bind:value={selectedVariantId} 
+            onchange={calculatePriceDiff}
+            class="text-xs border rounded-lg px-2 py-1.5 bg-white outline-none"
+            style="border-color: var(--color-blush); color: var(--color-text-dark);"
+          >
+            {#each availableVariants as v}
+              <option value={v.id}>
+                Size: {v.size} / Color: {v.color} 
+                ({v.stock_quantity} left) 
+                {#if (productBasePrice + (v.price_adjustment ?? 0)) !== productBasePrice}
+                  — ₹{((productBasePrice + (v.price_adjustment ?? 0)) / 100).toFixed(0)}
+                {/if}
+              </option>
+            {/each}
+          </select>
+          
+          <div class="flex justify-between items-center mt-2 text-xs">
+            <span class="text-gray-600">Price difference:</span>
+            <span class="font-bold {exchangePriceDiff > 0 ? 'text-red-500' : exchangePriceDiff < 0 ? 'text-green-600' : 'text-gray-700'}">
+              {exchangePriceDiff > 0 ? `You pay ₹${(exchangePriceDiff / 100).toFixed(0)}` : 
+               exchangePriceDiff < 0 ? `Refund ₹${(Math.abs(exchangePriceDiff) / 100).toFixed(0)}` : 
+               'No difference'}
+            </span>
+          </div>
+        {/if}
+      </div>
+    {/if}
 
     <div class="flex flex-col gap-1">
       <label class="text-xs font-semibold" style="color: var(--color-text-dark);" for="reason">Reason</label>

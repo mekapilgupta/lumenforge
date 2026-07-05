@@ -22,6 +22,10 @@
   --color-text-mid:    #6b4c6e;
   --color-text-soft:   #9e7ca0;
 
+  /* Danger / Alert tokens (used for admin badges, overdue SLA, etc.) */
+  --bg-danger:   rgba(239, 68, 68, 0.15);
+  --text-danger: #ef4444;
+
   /* Fonts */
   --font-display: 'Playfair Display', 'Georgia', serif;
   --font-body:    'Outfit', 'Inter', 'system-ui', sans-serif;
@@ -29,6 +33,10 @@
   /* Border radius */
   --radius-card:  1rem;
   --radius-pill:  9999px;
+
+  /* Danger status colors */
+  --bg-danger:     #ef4444;
+  --text-danger:   #ffffff;
 }
 
 /* ─── Base Styles ─────────────────────────────────────────────── */

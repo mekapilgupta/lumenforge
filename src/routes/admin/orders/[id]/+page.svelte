@@ -9,6 +9,7 @@
 
   let order = $state<any>(null);
   let logs = $state<OrderLog[]>([]);
+  let timelineEntries = $state<any[]>([]);
   let loading = $state(true);
   let updating = $state(false);
   let adminNote = $state('');
@@ -100,6 +101,25 @@
     loading = false;
   });
 
+  async function markChatActionsResolved(orderId: string, msgData: any[]) {
+    const unreadCustomerMsgs = msgData.filter(
+      (m: any) => m.sender_type === 'customer' && !m.read_by_admin_at
+    );
+    if (unreadCustomerMsgs.length > 0) {
+      await supabase
+        .from('order_messages')
+        .update({ read_by_admin_at: new Date().toISOString() })
+        .in('id', unreadCustomerMsgs.map((m: any) => m.id));
+
+      await supabase
+        .from('admin_actions')
+        .update({ status: 'resolved', resolved_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+        .eq('order_id', orderId)
+        .eq('type', 'chat_message')
+        .eq('status', 'pending');
+    }
+  }
+
   async function loadOrder() {
     const orderId = ($page.params as Record<string, string>)['id'];
     const { data } = await supabase
@@ -110,12 +130,36 @@
     order = data;
     adminNote = data?.admin_notes ?? '';
 
-    const { data: logData } = await supabase
-      .from('order_logs')
-      .select('*')
-      .eq('order_id', orderId)
-      .order('created_at', { ascending: true });
+    const [{ data: logData }, { data: msgData }] = await Promise.all([
+      supabase
+        .from('order_logs')
+        .select('*')
+        .eq('order_id', orderId)
+        .order('created_at', { ascending: true }),
+      supabase
+        .from('order_messages')
+        .select('*')
+        .eq('order_id', orderId)
+        .order('created_at', { ascending: true }),
+    ]);
+
     logs = (logData ?? []) as OrderLog[];
+
+    // Merge into timeline entries for rendering
+    const entries: any[] = [];
+    for (const log of (logData ?? [])) {
+      entries.push({ ...log, entryType: 'log' });
+    }
+    for (const msg of (msgData ?? [])) {
+      entries.push({ ...msg, entryType: msg.sender_type === 'customer' ? 'customer_msg' : 'admin_msg' });
+    }
+    entries.sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+    timelineEntries = entries;
+
+    // Mark chat actions as seen/resolved
+    if (!loading && msgData && msgData.length > 0) {
+      markChatActionsResolved(orderId, msgData);
+    }
   }
 
   function openStatusModal(newStatus: string) {
@@ -198,6 +242,27 @@
     updating = true;
     showCancelModal = false;
     const currentCancelReason = cancelReason;
+
+    // 1. Restock items
+    if (order.items && order.items.length > 0) {
+      for (const item of order.items) {
+        if (item.variant_id) {
+          const { data: pv } = await supabase
+            .from('product_variants')
+            .select('stock_quantity')
+            .eq('id', item.variant_id)
+            .single();
+          if (pv) {
+            await supabase
+              .from('product_variants')
+              .update({ stock_quantity: pv.stock_quantity + item.quantity })
+              .eq('id', item.variant_id);
+          }
+        }
+      }
+    }
+
+    // 2. Update order status
     const { error } = await supabase
       .from('orders')
       .update({ status: 'cancelled', cancellation_reason: cancelReason })
@@ -229,7 +294,57 @@
     updating = true;
     showApproveCancelModal = false;
 
-    // 1. Update order
+    // 1. Restock items
+    if (order.items && order.items.length > 0) {
+      for (const item of order.items) {
+        if (item.variant_id) {
+          const { data: pv } = await supabase
+            .from('product_variants')
+            .select('stock_quantity')
+            .eq('id', item.variant_id)
+            .single();
+          if (pv) {
+            await supabase
+              .from('product_variants')
+              .update({ stock_quantity: pv.stock_quantity + item.quantity })
+              .eq('id', item.variant_id);
+          }
+        }
+      }
+    }
+
+    // 2. Find matching cancellation admin action before resolving
+    const { data: matchingActions } = await supabase
+      .from('admin_actions')
+      .select('id')
+      .eq('order_id', order.id)
+      .eq('type', 'cancellation')
+      .eq('status', 'pending')
+      .limit(1);
+    const adminActionId = matchingActions && matchingActions.length > 0 ? matchingActions[0].id : null;
+
+    // 3. Write to manual_action_log
+    if (adminActionId) {
+      await supabase
+        .from('manual_action_log')
+        .insert({
+          admin_action_id: adminActionId,
+          admin_id: authStore.user!.id,
+          action_type: 'cancellation_approval',
+          input_data: {
+            order_id: order.id,
+            order_number: order.order_number,
+            comment: cancelActionComment || 'Approved by support.',
+            restocked_items: order.items?.map((it: any) => ({
+              variant_id: it.variant_id,
+              sku: it.product_sku,
+              quantity: it.quantity
+            })) ?? []
+          }
+        });
+    }
+
+    // 4. Update order
     const { error } = await supabase
       .from('orders')
       .update({ 
@@ -245,7 +360,7 @@
       return;
     }
 
-    // 2. Fetch/update log note
+    // 5. Fetch/update log note
     const { data: recentLogs } = await supabase
       .from('order_logs')
       .select('id')
@@ -263,7 +378,15 @@
         .eq('id', recentLogs[0].id);
     }
 
-    // 3. Email customer
+    // 6. Resolve matching admin_actions
+    await supabase
+      .from('admin_actions')
+      .update({ status: 'resolved', resolved_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+      .eq('order_id', order.id)
+      .eq('type', 'cancellation')
+      .eq('status', 'pending');
+
+    // 7. Email customer
     if (order.profile?.email) {
       fetch('/api/emails', {
         method: 'POST',
@@ -310,11 +433,19 @@
       .insert({
         order_id: order.id,
         status: order.status,
-        note: `Support: Cancellation request rejected. Comments: ${cancelActionComment || 'Your order is being processed.'}`,
+        note: `Cancellation request rejected. Comments: ${cancelActionComment || 'Your order is being processed.'}`,
         created_by: authStore.user!.id
       });
 
-    // 3. Email customer
+    // 3. Resolve matching admin_actions
+    await supabase
+      .from('admin_actions')
+      .update({ status: 'resolved', resolved_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+      .eq('order_id', order.id)
+      .eq('type', 'cancellation')
+      .eq('status', 'pending');
+
+    // 4. Email customer
     if (order.profile?.email) {
       fetch('/api/emails', {
         method: 'POST',
@@ -350,14 +481,13 @@
     sendingMessage = true;
     const msg = adminMessage.trim();
 
-    // Insert log
+    // Insert into order_messages (new chat table)
     const { error } = await supabase
-      .from('order_logs')
+      .from('order_messages')
       .insert({
         order_id: order.id,
-        status: order.status,
-        note: `Support: ${msg}`,
-        created_by: authStore.user!.id
+        sender_type: 'admin',
+        message: msg,
       });
 
     if (error) {
@@ -632,19 +762,19 @@
           {/each}
         </div>
 
-        <!-- Order Timeline & Support Chat -->
-        {#if logs.length > 0}
+        <!-- Order Timeline & Support Chat (merged timelineEntries) -->
+        {#if timelineEntries.length > 0}
           <div class="rounded-xl p-5" style="background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1);">
             <h2 class="font-semibold text-white text-sm mb-4">Timeline & Chat Logs</h2>
             <div class="relative pl-6 space-y-4">
               <div class="absolute left-2 top-0 bottom-0 w-px bg-gray-700"></div>
-              {#each logs as log (log.id)}
-                {@const isCustomerMsg = log.note?.startsWith('Customer: ')}
-                {@const isAdminMsg = log.note?.startsWith('Admin: ') || log.note?.startsWith('Support: ')}
+              {#each timelineEntries as entry (entry.id)}
+                {@const isCustomerMsg = entry.entryType === 'customer_msg'}
+                {@const isAdminMsg = entry.entryType === 'admin_msg'}
                 <div class="relative">
                   <div 
                     class="absolute -left-4 w-4 h-4 rounded-full border-2 bg-gray-800 flex items-center justify-center text-[8px]" 
-                    style="border-color: {isCustomerMsg ? '#f59e0b' : isAdminMsg ? '#ec4899' : STATUS_COLOR[log.status] ?? '#6b7280'};"
+                    style="border-color: {isCustomerMsg ? '#f59e0b' : isAdminMsg ? '#ec4899' : STATUS_COLOR[entry.status] ?? '#6b7280'};"
                   >
                     {isCustomerMsg ? '👤' : isAdminMsg ? '💬' : '✓'}
                   </div>
@@ -652,20 +782,21 @@
                   {#if isCustomerMsg}
                     <div class="ml-2 rounded-xl p-3 max-w-lg" style="background-color: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.2);">
                       <p class="text-xs font-bold text-amber-400">Customer Message</p>
-                      <p class="text-sm mt-0.5" style="color: #ffffff;">{(log.note ?? '').replace(/^Customer:\s*/, '')}</p>
-                      <p class="text-[10px] text-gray-500 mt-1">{formatDateTime(log.created_at)}</p>
+                      <p class="text-sm mt-0.5 text-white">{entry.message}</p>
+                      <p class="text-[10px] text-gray-500 mt-1">{formatDateTime(entry.created_at)}</p>
                     </div>
                   {:else if isAdminMsg}
                     <div class="ml-2 rounded-xl p-3 max-w-lg" style="background-color: rgba(236, 72, 153, 0.1); border: 1px solid rgba(236, 72, 153, 0.2);">
                       <p class="text-xs font-bold text-pink-400">Support Representative (You)</p>
-                      <p class="text-sm mt-0.5" style="color: #ffffff;">{(log.note ?? '').replace(/^(Admin|Support):\s*/, '')}</p>
-                      <p class="text-[10px] text-gray-500 mt-1">{formatDateTime(log.created_at)}</p>
+                      <p class="text-sm mt-0.5 text-white">{entry.message}</p>
+                      <p class="text-[10px] text-gray-500 mt-1">{formatDateTime(entry.created_at)}</p>
                     </div>
                   {:else}
+                    <!-- Legacy log entries -->
                     <div class="ml-2">
-                      <p class="font-semibold text-sm text-white">{STATUS_LABEL[log.status] ?? log.status}</p>
-                      {#if log.note}<p class="text-xs text-gray-400 mt-0.5">{log.note}</p>{/if}
-                      <p class="text-xs text-gray-600 mt-0.5">{formatDateTime(log.created_at)}</p>
+                      <p class="font-semibold text-sm text-white">{STATUS_LABEL[entry.status] ?? entry.status}</p>
+                      {#if entry.note}<p class="text-xs text-gray-400 mt-0.5">{entry.note}</p>{/if}
+                      <p class="text-xs text-gray-600 mt-0.5">{formatDateTime(entry.created_at)}</p>
                     </div>
                   {/if}
                 </div>
@@ -692,6 +823,29 @@
                   {sendingMessage ? 'Sending...' : 'Send Message'}
                 </button>
               </div>
+            </div>
+          </div>
+        {:else if logs.length > 0}
+          <!-- Fallback: legacy display for backward compat -->
+          <div class="rounded-xl p-5" style="background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1);">
+            <h2 class="font-semibold text-white text-sm mb-4">Timeline & Chat Logs</h2>
+            <div class="relative pl-6 space-y-4">
+              <div class="absolute left-2 top-0 bottom-0 w-px bg-gray-700"></div>
+              {#each logs as log (log.id)}
+                <div class="relative">
+                  <div 
+                    class="absolute -left-4 w-4 h-4 rounded-full border-2 bg-gray-800 flex items-center justify-center text-[8px]" 
+                    style="border-color: {STATUS_COLOR[log.status] ?? '#6b7280'};"
+                  >
+                    ✓
+                  </div>
+                  <div class="ml-2">
+                    <p class="font-semibold text-sm text-white">{STATUS_LABEL[log.status] ?? log.status}</p>
+                    {#if log.note}<p class="text-xs text-gray-400 mt-0.5">{log.note}</p>{/if}
+                    <p class="text-xs text-gray-600 mt-0.5">{formatDateTime(log.created_at)}</p>
+                  </div>
+                </div>
+              {/each}
             </div>
           </div>
         {/if}
