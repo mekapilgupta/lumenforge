@@ -1,0 +1,666 @@
+@import "tailwindcss";
+
+/* ─── French Toes Design Tokens ─────────────────────────────── */
+@theme {
+  /* Color palette */
+  --color-blush:       #f9d5e5;
+  --color-blush-deep:  #f4a7c3;
+  --color-brand-magenta: #D81B60;
+  --color-peach:       #ffdab9;
+  --color-peach-deep:  #ffb347;
+  --color-lavender:    #e8d5f5;
+  --color-lavender-deep: #c9a0dc;
+  --color-mint:        #d5f0e8;
+  --color-mint-deep:   #7ecba1;
+  --color-coral:       #ffb5a7;
+  --color-coral-deep:  #ff7f6e;
+  --color-gold:        #d4a853;
+  --color-gold-light:  #f5e6c8;
+  --color-cream:       #fdf8f3;
+  --color-warm-white:  #FAFAFA;
+  --color-text-dark:   #2d1b2e;
+  --color-text-mid:    #6b4c6e;
+  --color-text-soft:   #9e7ca0;
+
+  /* Fonts */
+  --font-display: 'Playfair Display', 'Georgia', serif;
+  --font-body:    'Outfit', 'Inter', 'system-ui', sans-serif;
+
+  /* Border radius */
+  --radius-card:  1rem;
+  --radius-pill:  9999px;
+}
+
+/* ─── Base Styles ─────────────────────────────────────────────── */
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  font-family: var(--font-body);
+  background-color: var(--color-warm-white);
+  color: var(--color-text-dark);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ─── Typography Helpers ──────────────────────────────────────── */
+.font-display {
+  font-family: var(--font-display);
+}
+
+h1, h2, h3 {
+  font-family: var(--font-display);
+  line-height: 1.2;
+}
+
+/* ─── Gradient Utilities ─────────────────────────────────────── */
+.gradient-blush-peach {
+  background: linear-gradient(135deg, var(--color-blush) 0%, var(--color-peach) 100%);
+}
+
+.gradient-lavender-mint {
+  background: linear-gradient(135deg, var(--color-lavender) 0%, var(--color-mint) 100%);
+}
+
+.gradient-hero {
+  background: linear-gradient(135deg, #fde8f0 0%, #fdf0e8 50%, #f0e8fd 100%);
+}
+
+/* ─── Card / Elevation ──────────────────────────────────────── */
+.card-lift {
+  transition: transform 0.25s ease, box-shadow 0.25s ease;
+}
+.card-lift:hover {
+  transform: translateY(-6px);
+  box-shadow: 0 20px 40px rgba(180, 100, 140, 0.15);
+}
+
+/* ─── Scrollbar (webkit) ─────────────────────────────────────── */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--color-blush-deep); border-radius: 3px; }
+
+/* ─── Focus Outline (accessible) ────────────────────────────── */
+:focus-visible {
+  outline: 2px solid var(--color-blush-deep);
+  outline-offset: 3px;
+}
+
+/* ─── Marquee Animation ─────────────────────────────────────── */
+@keyframes marquee {
+  0%   { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+.marquee-track {
+  display: flex;
+  width: max-content;
+  animation: marquee 28s linear infinite;
+}
+.marquee-wrap {
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+/* ─── Slide / Fade Animations ───────────────────────────────── */
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(24px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.anim-fade-up {
+  animation: fadeInUp 0.6s ease both;
+}
+
+@keyframes pulseGlow {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(244, 167, 195, 0.4); }
+  50%       { box-shadow: 0 0 0 10px rgba(244, 167, 195, 0); }
+}
+.pulse-glow {
+  animation: pulseGlow 2s ease-in-out infinite;
+}
+
+/* ─── Button base ──────────────────────────────────────────── */
+.btn-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0.75rem 2rem;
+  background: linear-gradient(135deg, var(--color-brand-magenta) 0%, #ff5c93 100%);
+  color: white;
+  font-weight: 600;
+  font-size: 0.95rem;
+  border-radius: var(--radius-pill);
+  transition: opacity 0.2s, transform 0.2s, box-shadow 0.2s;
+  cursor: pointer;
+  border: none;
+  letter-spacing: 0.01em;
+}
+.btn-primary:hover {
+  opacity: 0.92;
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(216, 27, 96, 0.4);
+}
+.btn-primary:active {
+  transform: scale(0.97);
+}
+
+.btn-outline {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0.7rem 1.75rem;
+  background: transparent;
+  color: var(--color-text-dark);
+  font-weight: 600;
+  border: 2px solid var(--color-brand-magenta);
+  border-radius: var(--radius-pill);
+  transition: background 0.2s, color 0.2s;
+  cursor: pointer;
+}
+.btn-outline:hover {
+  background: #FFF0F5;
+  color: var(--color-brand-magenta);
+}
+
+/* ─── Section Spacing ──────────────────────────────────────── */
+.section {
+  padding: 5rem 1.5rem;
+}
+@media (min-width: 768px) {
+  .section { padding: 6rem 2rem; }
+}
+
+/* ─── Product image zoom ────────────────────────────────────── */
+.img-zoom {
+  overflow: hidden;
+}
+.img-zoom img {
+  transition: transform 0.4s ease;
+}
+.img-zoom:hover img {
+  transform: scale(1.07);
+}
+
+/* ─── Cart drawer overlay ──────────────────────────────────── */
+.drawer-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.35);
+  z-index: 40;
+  backdrop-filter: blur(2px);
+}
+
+/* ─── Toast ─────────────────────────────────────────────────── */
+.toast-success { border-left: 4px solid var(--color-mint-deep); }
+.toast-error   { border-left: 4px solid var(--color-coral-deep); }
+.toast-info    { border-left: 4px solid var(--color-lavender-deep); }
+
+/* ─── Hero Zoom Breathe Effect ──────────────────────────────── */
+@keyframes heroZoom {
+  from { transform: scale(1); }
+  to   { transform: scale(1.06); }
+}
+.hero-zoom img {
+  animation: heroZoom 8s ease-in-out infinite alternate;
+}
+
+/* ─── Staggered Word Entrance ───────────────────────────────── */
+@keyframes fadeSlideUp {
+  from { opacity: 0; transform: translateY(24px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.word-stagger {
+  display: inline-block;
+  opacity: 0;
+  animation: fadeSlideUp 0.6s ease forwards;
+}
+.word-stagger:nth-child(1) { animation-delay: 0.2s; }
+.word-stagger:nth-child(2) { animation-delay: 0.4s; }
+.word-stagger:nth-child(3) { animation-delay: 0.6s; }
+.word-stagger:nth-child(4) { animation-delay: 0.8s; }
+
+/* ─── CTA Shimmer Sweep ─────────────────────────────────────── */
+@keyframes shimmerSweep {
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+.btn-shimmer {
+  position: relative;
+  overflow: hidden;
+}
+.btn-shimmer::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255,255,255,0.3) 50%,
+    transparent 100%
+  );
+  animation: shimmerSweep 2.5s ease-in-out infinite;
+}
+
+/* ─── Scroll Indicator Bounce ───────────────────────────────── */
+@keyframes scrollBounce {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(8px); }
+}
+.scroll-indicator {
+  animation: scrollBounce 1.5s ease-in-out infinite;
+  transition: opacity 0.3s ease;
+}
+
+/* ─── Category Marquee Strip ────────────────────────────────── */
+@keyframes marqueeScroll {
+  from { transform: translateX(0); }
+  to   { transform: translateX(-50%); }
+}
+.ft-marquee-strip {
+  overflow: hidden;
+  background: #fff5f8;
+  padding: 12px 0;
+  border-top: 1px solid #f0d0db;
+  border-bottom: 1px solid #f0d0db;
+}
+.ft-marquee-track {
+  display: flex;
+  gap: 32px;
+  width: max-content;
+  animation: marqueeScroll 30s linear infinite;
+  white-space: nowrap;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #c0556a;
+  letter-spacing: 0.03em;
+}
+.ft-marquee-track:hover {
+  animation-play-state: paused;
+}
+.ft-marquee-track .dot {
+  opacity: 0.4;
+}
+.ft-marquee-track .marquee-link {
+  color: inherit;
+  text-decoration: none;
+  transition: color 0.2s;
+}
+.ft-marquee-track .marquee-link:hover {
+  color: #e8647a;
+}
+
+/* ─── Product Card Entrance Animation ───────────────────────── */
+.product-card-animate {
+  opacity: 0;
+  transform: translateY(20px);
+  transition: opacity 0.5s ease, transform 0.5s ease;
+}
+.product-card-animate.ft-visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* ─── Product Card Image Swap ───────────────────────────────── */
+.product-img-primary {
+  transition: opacity 0.4s ease, transform 0.5s ease;
+}
+.product-img-secondary {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  transition: opacity 0.4s ease;
+  object-fit: cover;
+  width: 100%;
+  height: 100%;
+}
+.product-card-hover-swap:hover .product-img-primary {
+  opacity: 0;
+  transform: scale(1.04);
+}
+.product-card-hover-swap:hover .product-img-secondary {
+  opacity: 1;
+}
+
+/* ─── Quick Add Slide Up ────────────────────────────────────── */
+.ft-quick-add {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: rgba(255,255,255,0.92);
+  backdrop-filter: blur(6px);
+  padding: 10px;
+  text-align: center;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #c0556a;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  transform: translateY(100%);
+  transition: transform 0.3s ease;
+  border-radius: 0 0 16px 16px;
+}
+.product-card-hover-swap:hover .ft-quick-add {
+  transform: translateY(0);
+}
+
+/* ─── Product Badges ────────────────────────────────────────── */
+.ft-badge {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  border-radius: 6px;
+  padding: 3px 9px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.ft-badge--sale       { background: #e8647a; color: white; }
+.ft-badge--new        { background: #6b9e78; color: white; }
+.ft-badge--bestseller { background: #f0a500; color: white; }
+.ft-badge--limited    { background: #9b59b6; color: white; }
+
+/* ─── Color Swatches ────────────────────────────────────────── */
+.ft-swatches {
+  display: flex;
+  gap: 5px;
+  margin-top: 6px;
+}
+.ft-swatch {
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  border: 1.5px solid rgba(0,0,0,0.12);
+  cursor: pointer;
+  transition: transform 0.2s;
+}
+.ft-swatch:hover {
+  transform: scale(1.3);
+}
+
+/* ─── Auto-Scrolling Product Carousel ───────────────────────── */
+@keyframes carouselScroll {
+  from { transform: translateX(0); }
+  to   { transform: translateX(-50%); }
+}
+.ft-carousel-section {
+  overflow: hidden;
+  padding: 48px 0 32px;
+}
+.ft-carousel-section h2 {
+  text-align: center;
+  margin-bottom: 24px;
+  font-size: 1.6rem;
+}
+.ft-carousel-track {
+  display: flex;
+  gap: 20px;
+  width: max-content;
+  animation: carouselScroll 40s linear infinite;
+}
+.ft-carousel-track:hover {
+  animation-play-state: paused;
+}
+.ft-carousel-track .ft-c-card {
+  width: 220px;
+  flex-shrink: 0;
+  border-radius: 14px;
+  overflow: hidden;
+  background: #fff;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.07);
+}
+.ft-carousel-track .ft-c-card img {
+  width: 100%;
+  height: 260px;
+  object-fit: cover;
+  transition: transform 0.4s ease;
+}
+.ft-carousel-track .ft-c-card:hover img {
+  transform: scale(1.05);
+}
+.ft-c-card-info {
+  padding: 10px 12px;
+  font-size: 0.82rem;
+}
+.ft-c-card-info strong {
+  display: block;
+  font-weight: 600;
+}
+.ft-c-card-info span {
+  color: #888;
+}
+
+/* ─── Shop by Color Pills ───────────────────────────────────── */
+.ft-color-nav {
+  text-align: center;
+  padding: 32px 16px;
+}
+.ft-color-nav h3 {
+  font-size: 1.1rem;
+  margin-bottom: 16px;
+  color: #888;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-weight: 500;
+}
+.ft-color-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: center;
+}
+.ft-cpill {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 9px 20px;
+  border-radius: 999px;
+  border: 2px solid var(--c);
+  color: var(--c);
+  font-weight: 600;
+  font-size: 0.85rem;
+  text-decoration: none;
+  transition: all 0.25s ease;
+}
+.ft-cpill:hover {
+  background: var(--c);
+  color: white;
+  transform: scale(1.06) translateY(-2px);
+  box-shadow: 0 6px 16px rgba(0,0,0,0.12);
+}
+
+/* ─── Reviews Carousel Auto-Scroll ──────────────────────────── */
+@keyframes reviewsScroll {
+  from { transform: translateX(0); }
+  to   { transform: translateX(-50%); }
+}
+.ft-reviews-track {
+  display: flex;
+  gap: 16px;
+  width: max-content;
+  animation: reviewsScroll 50s linear infinite;
+}
+.ft-reviews-track:hover {
+  animation-play-state: paused;
+}
+.ft-review-card {
+  transition: transform 0.3s ease;
+}
+.ft-review-card:hover {
+  transform: rotate(-1deg) scale(1.02);
+}
+
+/* ─── Navbar Enhancements ───────────────────────────────────── */
+@keyframes slideDown {
+  from { transform: translateY(-100%); }
+  to   { transform: translateY(0); }
+}
+.navbar-entrance {
+  animation: slideDown 0.4s ease forwards;
+}
+
+@keyframes iconBounce {
+  0%, 100% { transform: scale(1); }
+  50%      { transform: scale(1.15); }
+}
+.icon-bounce {
+  animation: iconBounce 0.5s ease 0.8s both;
+}
+
+/* Nav link underline sweep */
+.nav-link-sweep {
+  position: relative;
+}
+.nav-link-sweep::after {
+  content: '';
+  position: absolute;
+  bottom: -4px;
+  left: 0;
+  width: 0;
+  height: 2px;
+  background: var(--color-brand-magenta);
+  border-radius: 1px;
+  transition: width 0.3s ease;
+}
+.nav-link-sweep:hover::after {
+  width: 100%;
+}
+
+/* ─── Pill Tabs ─────────────────────────────────────────────── */
+.tab-pill {
+  border-radius: 999px;
+  padding: 8px 22px;
+  border: 1.5px solid #e8c8d0;
+  background: transparent;
+  cursor: pointer;
+  font-weight: 500;
+  transition: all 0.25s ease;
+}
+.tab-pill.active {
+  background: #e8647a;
+  color: white;
+  border-color: #e8647a;
+  transform: scale(1.04);
+}
+
+/* ─── Tab Switch Fade Animation ─────────────────────────────── */
+@keyframes tabFadeIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.tab-fade-in {
+  animation: tabFadeIn 0.3s ease forwards;
+}
+
+/* ─── Footer Trust Badge Animation ──────────────────────────── */
+.trust-badge-animate {
+  opacity: 0;
+  transform: translateY(12px);
+  transition: opacity 0.4s ease, transform 0.4s ease;
+}
+.trust-badge-animate.ft-visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+.trust-badge-hover {
+  transition: transform 0.2s ease;
+}
+.trust-badge-hover:hover {
+  transform: translateY(-3px);
+}
+
+/* ─── Newsletter Input Glow ─────────────────────────────────── */
+.newsletter-input:focus {
+  box-shadow: 0 0 0 3px rgba(232,100,122,0.2);
+  border-color: rgba(232,100,122,0.5) !important;
+}
+
+/* ─── Announcement Bar Mobile Second Line ───────────────────── */
+.marquee-mobile-alt {
+  display: none;
+}
+@media (max-width: 640px) {
+  .marquee-mobile-alt {
+    display: block;
+  }
+}
+
+/* ─── Prefers Reduced Motion ────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ─── Scrollbar Hide Utility ────────────────────────────────── */
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+.scrollbar-hide {
+  -ms-overflow-style: none;  /* IE and Edge */
+  scrollbar-width: none;  /* Firefox */
+}
+
+/* ─── Lush Premium Card Animations ───────────────────────────── */
+.lush-card {
+  position: relative;
+  overflow: hidden;
+  will-change: transform;
+}
+
+.lush-card::after {
+  content: "";
+  position: absolute;
+  top: -50%;
+  left: -80%;
+  width: 40%;
+  height: 200%;
+  background: linear-gradient(
+    to right,
+    rgba(255, 255, 255, 0) 0%,
+    rgba(255, 255, 255, 0.35) 30%,
+    rgba(255, 255, 255, 0.6) 50%,
+    rgba(255, 255, 255, 0.35) 70%,
+    rgba(255, 255, 255, 0) 100%
+  );
+  transform: rotate(30deg);
+  opacity: 0;
+  transition: opacity 0.2s ease;
+  pointer-events: none;
+}
+
+.lush-card:hover::after {
+  opacity: 1;
+  animation: shine-sweep 1.4s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
+}
+
+@keyframes shine-sweep {
+  0% {
+    left: -80%;
+  }
+  100% {
+    left: 150%;
+  }
+}
+
+.lush-card-pattern {
+  background-position: center !important;
+  background-size: cover !important;
+  transition: background-position 0.8s cubic-bezier(0.25, 1, 0.5, 1), transform 0.5s cubic-bezier(0.25, 1, 0.5, 1), box-shadow 0.5s ease !important;
+}
+
+.lush-card-pattern:hover {
+  background-position: 52% 52% !important;
+}
+

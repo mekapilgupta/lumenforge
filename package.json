@@ -1,0 +1,32 @@
+{
+	"name": "frenchtoes",
+	"private": true,
+	"version": "0.0.1",
+	"type": "module",
+	"scripts": {
+		"dev": "vite dev",
+		"build": "vite build",
+		"preview": "vite preview",
+		"prepare": "svelte-kit sync || echo ''",
+		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
+		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch"
+	},
+	"devDependencies": {
+		"@sveltejs/adapter-auto": "^7.0.1",
+		"@sveltejs/adapter-netlify": "^6.0.4",
+		"@sveltejs/kit": "^2.57.0",
+		"@sveltejs/vite-plugin-svelte": "^7.0.0",
+		"supabase": "^2.106.0",
+		"svelte": "^5.55.2",
+		"svelte-check": "^4.4.6",
+		"terser": "^5.48.0",
+		"typescript": "^6.0.2",
+		"vite": "^8.0.7"
+	},
+	"dependencies": {
+		"@supabase/supabase-js": "^2.105.1",
+		"@tailwindcss/vite": "^4.2.4",
+		"razorpay": "^2.9.6",
+		"tailwindcss": "^4.2.4"
+	}
+}
