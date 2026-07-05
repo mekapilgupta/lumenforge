@@ -401,15 +401,34 @@ async function handleCreateExchangeShipment(runId: string, task: any) {
   const { replacement_order_id } = task.payload ?? {};
   if (!replacement_order_id) throw new TaskError("Missing replacement_order_id in payload", false);
 
-  log(runId, "warn", "handleCreateExchangeShipment is a placeholder — wire this to your existing order→Shiprocket shipment creation logic", { replacement_order_id });
+  log(runId, "info", "Creating exchange replacement shipment in Shiprocket", { replacement_order_id });
 
-  await writeOrderLog(runId, replacement_order_id, "exchange_shipment_pending",
-    "System: Exchange replacement order created — forward shipment creation not yet wired up (see queue-worker TODO).");
+  const supabaseUrl = env.MYSUPABASE_URL ?? Deno.env.get("SUPABASE_URL")!;
+  const serviceKey = env.MYSUPABASE_SERVICE_ROLE_KEY ?? Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
-  await sendAdminEmail(runId, `Action needed: exchange shipment not yet automated — Order ${replacement_order_id}`,
-    `<p>Replacement order <b>${replacement_order_id}</b> was created for an exchange, but automatic Shiprocket shipment creation for exchanges isn't wired up yet. Please create the shipment manually for now.</p>`);
+  let res: Response;
+  try {
+    res = await fetchWithTimeout(`${supabaseUrl}/functions/v1/push-to-shiprocket`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${serviceKey}`,
+      },
+      body: JSON.stringify({ orderId: replacement_order_id }),
+    });
+  } catch (e) {
+    throw new TaskError(`Exchange shipment push request failed/timed out: ${(e as Error).message}`, true);
+  }
 
-  // Not thrown as an error — this is an expected, logged, manual-fallback state until wired up.
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new TaskError(`Exchange shipment creation failed (${res.status}): ${data?.error ?? JSON.stringify(data)}`, res.status >= 500);
+  }
+
+  log(runId, "info", "Exchange shipment created successfully", { replacement_order_id, shiprocketOrderId: data.shiprocket_order_id });
+
+  await writeOrderLog(runId, replacement_order_id, "exchange_shipment_created",
+    `System: Exchange replacement shipment created in Shiprocket. Order ID: ${data.shiprocket_order_id ?? "N/A"}`);
 }
 
 // ---------------------------------------------------------------------------

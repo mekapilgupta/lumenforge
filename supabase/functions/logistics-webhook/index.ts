@@ -36,24 +36,23 @@ async function sendAdminEmail(reqId: string, subject: string, html: string) {
 }
 
 // Shiprocket's own current_status text → our orders.status enum.
-// Extend this map freely; unmapped statuses are logged and ignored (not
-// dangerous — they just won't move the order's status) rather than crashing.
+// Keys normalized to UPPERCASE for robust, case-insensitive comparison.
 const STATUS_MAP: Record<string, string> = {
-  "Pickup Scheduled": "processing",
-  "Pickup Generated": "processing",
-  "Shipped": "shipped",
-  "In Transit": "shipped",
-  "Out For Delivery": "out_for_delivery",
-  "Delivered": "delivered",
-  "Cancelled": "cancelled",
-  "RTO Initiated": "processing",
-  "RTO In Transit": "processing",
-  "RTO Delivered": "returned",
+  "PICKUP SCHEDULED": "processing",
+  "PICKUP GENERATED": "processing",
+  "SHIPPED": "shipped",
+  "IN TRANSIT": "shipped",
+  "OUT FOR DELIVERY": "out_for_delivery",
+  "DELIVERED": "delivered",
+  "CANCELLED": "cancelled",
+  "CANCELED": "cancelled", // Handle both British & American spellings
+  "RTO INITIATED": "processing",
+  "RTO IN TRANSIT": "processing",
+  "RTO DELIVERED": "returned",
 };
 
-// Events worth an immediate email — everything else just updates silently
-// (you don't want an inbox full of "in transit" pings).
-const NOTIFY_ON = new Set(["Cancelled", "RTO Delivered", "Delivered"]);
+// Events worth an immediate email in UPPERCASE
+const NOTIFY_ON = new Set(["CANCELLED", "CANCELED", "RTO DELIVERED", "DELIVERED"]);
 
 serve(async (req) => {
   const reqId = crypto.randomUUID();
@@ -79,8 +78,6 @@ serve(async (req) => {
     }
 
     // --- Idempotency: dedupe on (order, status, awb, latest scan timestamp).
-    // A retried or duplicate webhook delivery for the exact same event is a
-    // no-op instead of double-logging / double-emailing.
     const latestScan = payload.scans && payload.scans.length > 0 ? payload.scans[0] : null;
     const dedupeKey = `${orderId}|${shiprocketStatus}|${awbCode ?? ""}|${latestScan?.date ?? payload.current_timestamp ?? ""}`;
 
@@ -98,7 +95,6 @@ serve(async (req) => {
     }
 
     // --- Look up the order first so we can compare current vs incoming status
-    // (avoids re-firing side effects if Shiprocket resends the same status).
     const { data: currentOrder, error: currentOrderErr } = await supabaseAdmin
       .from("orders").select("id, status, payment_status").eq("id", orderId).maybeSingle();
 
@@ -107,7 +103,9 @@ serve(async (req) => {
       return new Response(JSON.stringify({ success: true, message: "Unknown order, ignored" }), { headers: { "Content-Type": "application/json" } });
     }
 
-    const dbStatus = STATUS_MAP[shiprocketStatus] ?? currentOrder.status;
+    // Normalize incoming status for case-insensitive lookup
+    const statusNormalized = (shiprocketStatus ?? "").trim().toUpperCase();
+    const dbStatus = STATUS_MAP[statusNormalized] ?? currentOrder.status;
     const statusChanged = dbStatus !== currentOrder.status;
 
     const updatePayload: Record<string, unknown> = {
@@ -123,12 +121,6 @@ serve(async (req) => {
       throw updateError;
     }
 
-    // Note: if dbStatus === 'cancelled' and statusChanged, the existing
-    // trg_queue_order_automations trigger on `orders` fires automatically
-    // and queues cancel_shipment + process_refund — no extra code needed
-    // here. This is what makes "cancel it in Shiprocket → auto-refund" work
-    // with zero manual steps on your side.
-
     if (latestScan) {
       await supabaseAdmin.from("order_logs").insert({
         order_id: orderId,
@@ -139,10 +131,10 @@ serve(async (req) => {
 
     log(reqId, "info", "Order synced from Shiprocket", { orderId, shiprocketStatus, dbStatus, statusChanged });
 
-    if (NOTIFY_ON.has(shiprocketStatus) && statusChanged) {
+    if (NOTIFY_ON.has(statusNormalized) && statusChanged) {
       await sendAdminEmail(reqId, `Shipment update: ${shiprocketStatus} — Order ${orderId}`,
         `<p>Shiprocket reports <b>${shiprocketStatus}</b> for order <b>${orderId}</b> (AWB ${awbCode ?? "N/A"}).</p>` +
-        (shiprocketStatus === "Cancelled" ? "<p>Refund and internal cancellation have been queued automatically.</p>" : ""));
+        ((statusNormalized === "CANCELLED" || statusNormalized === "CANCELED") ? "<p>Refund and internal cancellation have been queued automatically.</p>" : ""));
     }
 
     return new Response(JSON.stringify({ success: true }), { headers: { "Content-Type": "application/json" } });

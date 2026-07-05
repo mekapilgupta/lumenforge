@@ -6,6 +6,12 @@ const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const shiprocketEmail = Deno.env.get("SHIPROCKET_API_EMAIL")!;
 const shiprocketPassword = Deno.env.get("SHIPROCKET_API_PASSWORD")!;
 
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Methods": "POST, GET, OPTIONS",
+};
+
 const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey, {
   auth: { autoRefreshToken: false, persistSession: false },
 });
@@ -52,6 +58,11 @@ async function getShiprocketToken() {
 }
 
 serve(async (req) => {
+  // Handle CORS preflight requests from client browser
+  if (req.method === "OPTIONS") {
+    return new Response("ok", { headers: corsHeaders });
+  }
+
   console.log("[Shiprocket Push] Target Edge Function awakened.");
   
   try {
@@ -61,7 +72,10 @@ serve(async (req) => {
     const orderId = body.id || body.orderId;
     if (!orderId) {
       console.error("[Shiprocket Push] Execution halted: No orderId was supplied.");
-      return new Response(JSON.stringify({ error: "Missing order identification parameter" }), { status: 400 });
+      return new Response(JSON.stringify({ error: "Missing order identification parameter" }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" }
+      });
     }
 
     // Checking UUID state to safely choose standard query syntax versus string parsing
@@ -86,25 +100,38 @@ serve(async (req) => {
 
     if (dbQueryError) {
       console.error("[Shiprocket Push] Database fetch error:", JSON.stringify(dbQueryError));
-      return new Response(JSON.stringify({ error: dbQueryError.message }), { status: 500 });
+      return new Response(JSON.stringify({ error: dbQueryError.message }), {
+        status: 500,
+        headers: { ...corsHeaders, "Content-Type": "application/json" }
+      });
     }
 
     if (!fullOrder) {
       console.error(`[Shiprocket Push] No order matched column targets for ID: ${orderId}`);
-      return new Response(JSON.stringify({ error: "Order context missing from DB" }), { status: 404 });
+      return new Response(JSON.stringify({ error: "Order context missing from DB" }), {
+        status: 404,
+        headers: { ...corsHeaders, "Content-Type": "application/json" }
+      });
     }
 
     console.log("[Shiprocket Push] Full database row retrieved successfully:", JSON.stringify(fullOrder, null, 2));
 
-    // Safely mapping parameters and matching correct underscored table field columns
-    const customerName = fullOrder.address?.full_name || "Valued Customer";
-    const add1 = fullOrder.address?.address_line_1 || "No Address Provided"; // Fixed spelling
-    const add2 = fullOrder.address?.address_line_2 || "";                  // Fixed spelling
+    // Get user profile for email and phone numbers (needed especially for COD orders)
+    const { data: profile } = await supabaseAdmin
+      .from("profiles")
+      .select("full_name, email, phone")
+      .eq("id", fullOrder.user_id)
+      .maybeSingle();
+
+    // Safely mapping parameters and matching correct table field columns
+    const customerName = fullOrder.address?.full_name || profile?.full_name || "Valued Customer";
+    const add1 = fullOrder.address?.address_line1 || "No Address Provided"; // Fixed column name (removed underscore)
+    const add2 = fullOrder.address?.address_line2 || "";                  // Fixed column name (removed underscore)
     const city = fullOrder.address?.city || "City Missing";
     const pincode = fullOrder.address?.pincode || "000000";
     const state = fullOrder.address?.state || "State Missing";
-    const email = fullOrder.payment_gateway_response?.email || "customer@frenchtoes.in";
-    const phone = fullOrder.address?.phone || fullOrder.payment_gateway_response?.contact || "9999999999";
+    const email = profile?.email || fullOrder.payment_gateway_response?.email || "customer@frenchtoes.in";
+    const phone = fullOrder.address?.phone || profile?.phone || fullOrder.payment_gateway_response?.contact || "9999999999";
     const isCod = fullOrder.payment_method === "cod";
 
     console.log(`[Shiprocket Push] Field Verification: Name: ${customerName}, Pincode: ${pincode}, Phone: ${phone}`);
@@ -136,7 +163,10 @@ serve(async (req) => {
         "discount": (item.discount_amount || 0) / 100,
       })),
       "payment_method": isCod ? "COD" : "Prepaid",
-      "sub_total": (fullOrder.total_amount || 0) / 100,
+      "sub_total": (fullOrder.subtotal || fullOrder.total_amount || 0) / 100,
+      "shipping_charges": (fullOrder.shipping_charges || 0) / 100,
+      "discount": (fullOrder.discount_amount || 0) / 100,
+      "cod_amount": isCod ? (fullOrder.total_amount || 0) / 100 : 0, // Required for COD
       "length": 30,
       "breadth": 20,
       "height": 10,
@@ -159,7 +189,10 @@ serve(async (req) => {
 
     if (!srResponse.ok) {
       console.error("[Shiprocket Push] Shiprocket API rejected order placement:", srResult);
-      return new Response(JSON.stringify({ error: srResult.message || "Shiprocket rejected input payload" }), { status: 400 });
+      return new Response(JSON.stringify({ error: srResult.message || "Shiprocket rejected input payload" }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" }
+      });
     }
 
     console.log(`[Shiprocket Push] Success! Received SR Order ID: ${srResult.order_id}. Writing back to orders table...`);
@@ -181,11 +214,14 @@ serve(async (req) => {
     }
 
     return new Response(JSON.stringify({ success: true, shiprocket_order_id: srResult.order_id }), {
-      headers: { "Content-Type": "application/json" },
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
 
   } catch (err: any) {
     console.error("[Shiprocket Push] Uncaught Exception crash inside handler:", err.message);
-    return new Response(JSON.stringify({ error: err.message }), { status: 500 });
+    return new Response(JSON.stringify({ error: err.message }), {
+      status: 500,
+      headers: { ...corsHeaders, "Content-Type": "application/json" }
+    });
   }
 });
