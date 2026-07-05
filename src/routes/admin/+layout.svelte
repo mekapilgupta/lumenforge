@@ -22,6 +22,7 @@
   const sidebarLinks = [
     { href: '/admin', label: 'Dashboard', icon: 'M3 3h7v7H3zM14 3h7v7h-7zM14 14h7v7h-7zM3 14h7v7H3z' },
     { href: '/admin/orders', label: 'Orders', icon: 'M9 12h6M9 16h6M17 21H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7l5 5v11a2 2 0 0 1-2 2z' },
+    { href: '/admin/returns', label: 'Returns & Exchanges', icon: 'M9 15L3 9m0 0l6-6M3 9h12a6 6 0 0 1 0 12h-3' },
     { href: '/admin/products', label: 'Products', icon: 'M20 7H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2zM12 12a2 2 0 1 0 0-4 2 2 0 0 0 0 4z' },
     { href: '/admin/categories', label: 'Categories', icon: 'M3 6h18M3 12h18M3 18h18' },
     { href: '/admin/low-stock', label: 'Low Stock', icon: 'M12 9v4M12 17h.01M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z' },

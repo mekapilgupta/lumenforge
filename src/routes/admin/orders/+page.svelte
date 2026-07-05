@@ -90,7 +90,7 @@
       const { data, error } = await supabase
         .from("order_returns")
         .select(
-          "*, order:orders!order_id(id, order_number, customer_name, customer_email, customer_phone, total_amount, razorpay_payment_id, payment_status, status, shipping_address_id)",
+          "*, order:orders!order_id(id, order_number, total_amount, razorpay_payment_id, payment_status, status, shipping_address_id, profile:user_id(full_name, email, phone))",
         )
         .order("created_at", { ascending: false });
       if (error) {
@@ -141,10 +141,10 @@
             r.order?.order_number
               ?.toLowerCase()
               .includes(search.toLowerCase()) ||
-            r.order?.customer_email
+            r.order?.profile?.email
               ?.toLowerCase()
               .includes(search.toLowerCase()) ||
-            r.order?.customer_name
+            r.order?.profile?.full_name
               ?.toLowerCase()
               .includes(search.toLowerCase()),
         )
@@ -555,10 +555,10 @@
                   >
                   <td class="px-5 py-4">
                     <p class="text-gray-200 text-xs font-medium">
-                      {ret.order?.customer_name ?? "—"}
+                      {ret.order?.profile?.full_name ?? "—"}
                     </p>
                     <p class="text-gray-500 text-[10px]">
-                      {ret.order?.customer_email ?? "—"}
+                      {ret.order?.profile?.email ?? "—"}
                     </p>
                   </td>
                   <td class="px-5 py-4 text-xs text-gray-300 capitalize"
@@ -866,20 +866,20 @@
         Customer Profile
       </h3>
       <p class="text-sm font-medium text-white">
-        {selectedOrder.customer_name ?? "—"}
+        {selectedOrder.customer_name ?? selectedOrder.profile?.full_name ?? "—"}
       </p>
       <div class="grid grid-cols-2 gap-2 text-xs text-gray-400 mt-1">
         <div>
-          <span class="text-[9px] uppercase text-gray-500 block">Email</span
-          ><span class="text-gray-300"
-            >{selectedOrder.customer_email ?? "—"}</span
-          >
+          <span class="text-[9px] uppercase text-gray-500 block">Email</span>
+          <span class="text-gray-300">
+            {selectedOrder.customer_email ?? selectedOrder.profile?.email ?? "—"}
+          </span>
         </div>
         <div>
-          <span class="text-[9px] uppercase text-gray-500 block">Phone</span
-          ><span class="text-gray-300"
-            >{selectedOrder.customer_phone ?? "—"}</span
-          >
+          <span class="text-[9px] uppercase text-gray-500 block">Phone</span>
+          <span class="text-gray-300">
+            {selectedOrder.customer_phone ?? selectedOrder.profile?.phone ?? "—"}
+          </span>
         </div>
       </div>
     </div>
