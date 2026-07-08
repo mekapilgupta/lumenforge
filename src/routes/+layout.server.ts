@@ -3,16 +3,17 @@ import { PUBLIC_SUPABASE_URL, PUBLIC_SUPABASE_ANON_KEY } from '$env/static/publi
 import type { LayoutServerLoad } from './$types';
 
 export const load: LayoutServerLoad = async ({ cookies }) => {
+  const isUnlocked = cookies.get('site_unlocked') === 'true';
   const sessionCookie = cookies.get('sb-session');
   if (!sessionCookie) {
-    return { cart: [] };
+    return { cart: [], isUnlocked };
   }
 
   try {
     const decoded = decodeURIComponent(sessionCookie);
     const session = JSON.parse(decoded);
     const userId = session.user_id;
-    if (!userId) return { cart: [] };
+    if (!userId) return { cart: [], isUnlocked };
 
     const supabase = createClient(PUBLIC_SUPABASE_URL, PUBLIC_SUPABASE_ANON_KEY, {
       global: {
@@ -29,14 +30,15 @@ export const load: LayoutServerLoad = async ({ cookies }) => {
 
     if (error) {
       console.error('Error fetching cart in layout load:', error);
-      return { cart: [] };
+      return { cart: [], isUnlocked };
     }
 
     return {
-      cart: data || []
+      cart: data || [],
+      isUnlocked
     };
   } catch (e) {
     console.error('Error parsing session cookie in layout load:', e);
-    return { cart: [] };
+    return { cart: [], isUnlocked };
   }
 };
