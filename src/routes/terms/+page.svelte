@@ -9,6 +9,16 @@
 
   <div class="prose prose-sm max-w-none space-y-8" style="color: var(--color-text-mid); line-height: 1.8;">
 
+    <div class="p-5 rounded-2xl border text-sm leading-relaxed mb-8 text-amber-800 bg-amber-50 border-amber-200 shadow-sm">
+      <h3 class="font-bold text-base mb-2 flex items-center gap-2">⚠️ SPECIAL DISCLAIMER: Sandbox Testing Mode</h3>
+      <p>
+        Please note that <strong>French Toes</strong> is currently operating in <strong>Sandbox Testing Mode</strong>. The website, products, checkout flows, and prices (including items priced at ₹10) are published solely for testing and verification purposes. 
+      </p>
+      <p class="mt-2 font-semibold">
+        No actual transactions, payments, or shipments of physical goods will be processed or fulfilled. Any orders placed during this period are purely simulated.
+      </p>
+    </div>
+
     <div>
       <p>
         Welcome to <strong>French Toes</strong> (frenchtoes.in), owned and operated by <strong>Vertex International</strong>. By accessing or using our website, you agree to these Terms of Service. If you do not agree, please do not use our site.

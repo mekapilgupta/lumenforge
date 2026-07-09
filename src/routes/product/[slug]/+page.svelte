@@ -501,6 +501,11 @@
             </button>
           </div>
 
+          <!-- Sandbox Testing Mode Notice -->
+          <div class="p-3.5 rounded-xl text-xs leading-relaxed border text-amber-800 bg-amber-50 border-amber-200 shadow-sm">
+            ⚠️ <strong>Sandbox Testing Mode:</strong> This store is currently in testing mode. Orders placed (including pieces priced at ₹10) are simulated. No actual payments will be collected, and no products will be shipped.
+          </div>
+
           <!-- Pincode Checker -->
           <div class="border rounded-2xl p-4 flex flex-col gap-3 transition-all" style="background: rgba(244, 167, 195, 0.05); border-color: rgba(244, 167, 195, 0.25);">
             <div class="flex items-center justify-between">

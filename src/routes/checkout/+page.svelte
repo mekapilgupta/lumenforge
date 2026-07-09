@@ -961,16 +961,22 @@
             </div>
           </div>
 
-          <div class="flex gap-3">
-            <button onclick={() => step = 1} class="btn-outline px-6 py-3">← Back</button>
-            <button onclick={placeOrder} disabled={loading} class="btn-primary flex-1 justify-center py-3.5 text-base">
-              {#if loading}
-                <span class="inline-block w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2"></span>
-                Placing order...
-              {:else}
-                🌸 Place Order — {fmt(totalPaise)}
-              {/if}
-            </button>
+          <div class="space-y-4">
+            <div class="p-3.5 rounded-xl text-xs leading-relaxed border text-amber-800 bg-amber-50 border-amber-200 shadow-sm">
+              ⚠️ <strong>Testing Mode Notice:</strong> This website is currently in testing mode. All orders and products (including ₹10 items) are for verification and testing only. No real shipments or deliveries will be made.
+            </div>
+
+            <div class="flex gap-3">
+              <button onclick={() => step = 1} class="btn-outline px-6 py-3">← Back</button>
+              <button onclick={placeOrder} disabled={loading} class="btn-primary flex-1 justify-center py-3.5 text-base">
+                {#if loading}
+                  <span class="inline-block w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2"></span>
+                  Placing order...
+                {:else}
+                  🌸 Place Order — {fmt(totalPaise)}
+                {/if}
+              </button>
+            </div>
           </div>
         </div>
 

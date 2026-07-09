@@ -106,11 +106,6 @@
                   {shipping === 0 ? 'FREE 🎉' : fmt(shipping)}
                 </span>
               </div>
-              {#if shipping > 0}
-                <p class="text-xs p-2 rounded-lg" style="background: var(--color-blush); color: var(--color-text-mid);">
-                  Add {fmt(999 - subtotal)} more for free shipping
-                </p>
-              {/if}
             </div>
 
             <div class="border-t pt-4 mb-6" style="border-color: var(--color-blush);">
@@ -128,6 +123,10 @@
             <p class="text-xs text-center mt-3" style="color: var(--color-text-soft);">
               🔒 Cash on Delivery · No advance payment needed
             </p>
+
+            <div class="mt-4 p-3.5 rounded-xl text-xs leading-relaxed border text-amber-800 bg-amber-50 border-amber-200 shadow-sm">
+              ⚠️ <strong>Sandbox Testing Mode:</strong> Please note that this store is in testing mode. Orders placed (including ₹10 items) are simulated and will not be shipped or fulfilled.
+            </div>
           </div>
         </div>
       </div>

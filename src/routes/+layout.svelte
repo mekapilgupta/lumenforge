@@ -55,12 +55,18 @@
   <QuickSizeModal />
 
   <!-- App shell -->
-  <div class="flex flex-col min-h-screen">
+  <div class="flex flex-col min-h-screen pb-14 sm:pb-10">
     <Header />
     <main class="flex-1">
       {@render children()}
     </main>
     <Footer />
+  </div>
+
+  <!-- Sitewide Sandbox Warning Banner -->
+  <div class="fixed bottom-0 left-0 right-0 z-50 py-2.5 px-4 text-center font-semibold text-xs sm:text-sm shadow-[0_-4px_10px_rgba(0,0,0,0.05)] flex items-center justify-center gap-2 border-t backdrop-blur-md select-none"
+       style="background-color: rgba(251, 191, 36, 0.95); border-color: rgba(217, 119, 6, 0.3); color: #78350f;">
+    <span>⚠️ <strong>Sandbox Testing Mode:</strong> This store is currently for testing only. All products & orders (e.g. ₹10 pieces) are simulated. No actual shipments will be fulfilled. 🌸</span>
   </div>
 {:else}
   <!-- Beautiful Lock Screen -->
