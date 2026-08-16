@@ -3,7 +3,7 @@ import { PUBLIC_SUPABASE_URL, PUBLIC_SUPABASE_ANON_KEY } from '$env/static/publi
 import type { LayoutServerLoad } from './$types';
 
 export const load: LayoutServerLoad = async ({ cookies }) => {
-  const isUnlocked = cookies.get('site_unlocked') === 'true';
+  const isUnlocked = true; // Lock feature disabled for now
   const sessionCookie = cookies.get('sb-session');
   if (!sessionCookie) {
     return { cart: [], isUnlocked };

@@ -27,11 +27,40 @@
     chat_message: { label: 'Message', bg: 'rgba(16, 185, 129, 0.15)', text: '#10b981' }
   };
 
-  onMount(async () => {
-    await authStore.init();
-    if (!authStore.user || !authStore.isAdmin) return;
-    await loadActions();
-    loading = false;
+  let channel: any = null;
+
+  onMount(() => {
+    let active = true;
+
+    async function init() {
+      await authStore.init();
+      if (!authStore.user || !authStore.isAdmin) return;
+      await loadActions();
+      if (!active) return;
+      loading = false;
+
+      // Subscribe to real-time action items
+      channel = supabase
+        .channel('admin-action-center')
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'admin_actions' },
+          (payload) => {
+            if (payload.eventType === 'INSERT') {
+              uiStore.addToast(`⚡ New action required: ${payload.new.type?.replace('_', ' ')}`, 'info');
+            }
+            loadActions();
+          }
+        )
+        .subscribe();
+    }
+
+    init();
+
+    return () => {
+      active = false;
+      if (channel) supabase.removeChannel(channel);
+    };
   });
 
   async function loadActions() {

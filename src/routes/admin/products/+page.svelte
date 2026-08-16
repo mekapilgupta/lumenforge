@@ -38,6 +38,13 @@
     categories = (data ?? []) as Category[];
   }
 
+  let variants = $state<any[]>([]);
+  let loadingVariants = $state(false);
+  let showVariantForm = $state(false);
+  let newVariant = $state({
+    sku: '', size: '', color: '', price_adjustment: '0', stock_quantity: '20', is_active: true
+  });
+
   function startEdit(p: any) {
     editId = p.id;
     form = {
@@ -49,6 +56,104 @@
       is_new_arrival: p.is_new_arrival, is_limited_edition: p.is_limited_edition, is_active: p.is_active,
     };
     showForm = true;
+    loadVariants(p.id);
+  }
+
+  async function loadVariants(productId: string) {
+    loadingVariants = true;
+    const { data } = await supabase
+      .from('product_variants')
+      .select('*')
+      .eq('product_id', productId)
+      .order('created_at', { ascending: true });
+    variants = data ?? [];
+    loadingVariants = false;
+  }
+
+  async function saveVariant() {
+    if (!editId) return;
+    if (!newVariant.sku) { uiStore.addToast('Variant SKU is required', 'error'); return; }
+    
+    const payload = {
+      product_id: editId,
+      sku: newVariant.sku.trim(),
+      size: newVariant.size.trim() || null,
+      color: newVariant.color.trim() || null,
+      price_adjustment: Math.round((parseFloat(newVariant.price_adjustment) || 0) * 100),
+      stock_quantity: parseInt(newVariant.stock_quantity) || 0,
+      is_active: newVariant.is_active
+    };
+
+    const { error } = await supabase.from('product_variants').insert(payload);
+    if (error) {
+      uiStore.addToast('Failed to add variant: ' + error.message, 'error');
+      return;
+    }
+
+    uiStore.addToast('Variant created successfully!', 'success');
+    newVariant = { sku: '', size: '', color: '', price_adjustment: '0', stock_quantity: '20', is_active: true };
+    showVariantForm = false;
+    await loadVariants(editId);
+  }
+
+  async function updateVariantStock(variantId: string, newStockStr: string) {
+    const newStock = parseInt(newStockStr);
+    if (isNaN(newStock) || newStock < 0) return;
+    const { error } = await supabase
+      .from('product_variants')
+      .update({ stock_quantity: newStock, updated_at: new Date().toISOString() })
+      .eq('id', variantId);
+
+    if (error) {
+      uiStore.addToast('Stock update failed: ' + error.message, 'error');
+      return;
+    }
+    uiStore.addToast('Variant stock updated', 'success');
+    if (editId) await loadVariants(editId);
+  }
+
+  async function updateVariantPriceAdjustment(variantId: string, newPriceAdjStr: string) {
+    const newPriceAdj = Math.round((parseFloat(newPriceAdjStr) || 0) * 100);
+    const { error } = await supabase
+      .from('product_variants')
+      .update({ price_adjustment: newPriceAdj, updated_at: new Date().toISOString() })
+      .eq('id', variantId);
+
+    if (error) {
+      uiStore.addToast('Price adjustment update failed: ' + error.message, 'error');
+      return;
+    }
+    uiStore.addToast('Variant price adjustment updated', 'success');
+    if (editId) await loadVariants(editId);
+  }
+
+  async function deleteVariant(variantId: string) {
+    if (!confirm('Are you sure you want to delete this variant?')) return;
+    const { error } = await supabase
+      .from('product_variants')
+      .delete()
+      .eq('id', variantId);
+
+    if (error) {
+      uiStore.addToast('Variant deletion failed: ' + error.message, 'error');
+      return;
+    }
+    uiStore.addToast('Variant deleted', 'success');
+    if (editId) await loadVariants(editId);
+  }
+
+  async function toggleVariantActive(variantId: string, currentStatus: boolean) {
+    const { error } = await supabase
+      .from('product_variants')
+      .update({ is_active: !currentStatus, updated_at: new Date().toISOString() })
+      .eq('id', variantId);
+
+    if (error) {
+      uiStore.addToast('Status toggle failed: ' + error.message, 'error');
+      return;
+    }
+    uiStore.addToast(!currentStatus ? 'Variant activated' : 'Variant deactivated', 'success');
+    if (editId) await loadVariants(editId);
   }
 
   async function saveProduct() {
@@ -77,7 +182,7 @@
         if (error) throw error;
         uiStore.addToast('Product created!', 'success');
       }
-      form = emptyForm(); editId = null; showForm = false;
+      form = emptyForm(); editId = null; showForm = false; variants = [];
       await loadProducts();
     } catch (err: any) {
       uiStore.addToast('Error: ' + err.message, 'error');
@@ -105,7 +210,7 @@
   <div class="flex items-center justify-between">
     <h1 class="text-2xl font-bold text-white">Products</h1>
     {#if !showForm}
-      <button onclick={() => { form = emptyForm(); editId = null; showForm = true; }} class="px-4 py-2 rounded-xl text-sm font-semibold text-white" style="background: #4f46e5;">+ Add Product</button>
+      <button onclick={() => { form = emptyForm(); editId = null; variants = []; showForm = true; }} class="px-4 py-2 rounded-xl text-sm font-semibold text-white" style="background: #4f46e5;">+ Add Product</button>
     {/if}
   </div>
 
@@ -118,7 +223,7 @@
           { id: 'p-slug', label: 'Slug *', key: 'slug', type: 'text' },
           { id: 'p-price', label: 'Price (₹) *', key: 'price', type: 'number' },
           { id: 'p-orig', label: 'Original Price (₹)', key: 'original_price', type: 'number' },
-          { id: 'p-stock', label: 'Stock Qty', key: 'stock_quantity', type: 'number' },
+          { id: 'p-stock', label: 'Base Stock Qty', key: 'stock_quantity', type: 'number' },
           { id: 'p-low', label: 'Low Stock Threshold', key: 'low_stock_threshold', type: 'number' },
           { id: 'p-gst', label: 'GST %', key: 'gst_percent', type: 'number' },
           { id: 'p-sizes', label: 'Sizes (comma-sep)', key: 'sizes', type: 'text' },
@@ -154,8 +259,122 @@
           {/each}
         </div>
       </div>
-      <div class="flex gap-3 mt-4">
-        <button onclick={() => { showForm = false; editId = null; }} class="px-4 py-2.5 rounded-xl text-sm text-gray-300" style="background: rgba(255,255,255,0.1);">Cancel</button>
+
+      <!-- Variants Management Section (if editing an existing product) -->
+      {#if editId}
+        <div class="mt-8 pt-6 border-t border-white/10">
+          <div class="flex items-center justify-between mb-3">
+            <div>
+              <h3 class="text-sm font-bold text-white">Product Variants</h3>
+              <p class="text-xs text-gray-400">Manage individual size, color, stock, and price adjustments.</p>
+            </div>
+            <button
+              onclick={() => showVariantForm = !showVariantForm}
+              class="px-3 py-1.5 rounded-lg text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-500 transition-colors"
+            >
+              {showVariantForm ? 'Cancel' : '+ Add Variant'}
+            </button>
+          </div>
+
+          {#if showVariantForm}
+            <div class="p-4 rounded-xl bg-white/5 border border-white/10 mb-4 grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div>
+                <label for="v-sku" class="block text-[11px] font-semibold text-gray-400 mb-1">SKU *</label>
+                <input id="v-sku" bind:value={newVariant.sku} placeholder="e.g. FT-PASTEL-38-PNK" class="w-full px-2.5 py-1.5 rounded-lg text-xs text-white bg-white/10 border border-white/20 outline-none" />
+              </div>
+              <div>
+                <label for="v-size" class="block text-[11px] font-semibold text-gray-400 mb-1">Size</label>
+                <input id="v-size" bind:value={newVariant.size} placeholder="e.g. UK 6" class="w-full px-2.5 py-1.5 rounded-lg text-xs text-white bg-white/10 border border-white/20 outline-none" />
+              </div>
+              <div>
+                <label for="v-color" class="block text-[11px] font-semibold text-gray-400 mb-1">Color</label>
+                <input id="v-color" bind:value={newVariant.color} placeholder="e.g. Pastel Pink" class="w-full px-2.5 py-1.5 rounded-lg text-xs text-white bg-white/10 border border-white/20 outline-none" />
+              </div>
+              <div>
+                <label for="v-price-adj" class="block text-[11px] font-semibold text-gray-400 mb-1">Price Adjustment (₹)</label>
+                <input id="v-price-adj" bind:value={newVariant.price_adjustment} type="number" placeholder="0" class="w-full px-2.5 py-1.5 rounded-lg text-xs text-white bg-white/10 border border-white/20 outline-none" />
+              </div>
+              <div>
+                <label for="v-stock" class="block text-[11px] font-semibold text-gray-400 mb-1">Stock Qty</label>
+                <input id="v-stock" bind:value={newVariant.stock_quantity} type="number" placeholder="20" class="w-full px-2.5 py-1.5 rounded-lg text-xs text-white bg-white/10 border border-white/20 outline-none" />
+              </div>
+              <div class="flex items-end pb-1">
+                <button
+                  onclick={saveVariant}
+                  class="w-full py-1.5 rounded-lg text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-500"
+                >
+                  Save Variant
+                </button>
+              </div>
+            </div>
+          {/if}
+
+          {#if loadingVariants}
+            <p class="text-xs text-gray-400 py-2">Loading variants...</p>
+          {:else if variants.length === 0}
+            <p class="text-xs text-gray-500 py-2 italic">No variants configured for this product yet.</p>
+          {:else}
+            <div class="overflow-x-auto">
+              <table class="w-full text-left text-xs text-gray-300">
+                <thead>
+                  <tr class="border-b border-white/10 text-gray-400">
+                    <th class="py-2 px-3">SKU</th>
+                    <th class="py-2 px-3">Size / Color</th>
+                    <th class="py-2 px-3">Price Adj. (₹)</th>
+                    <th class="py-2 px-3">Stock Qty</th>
+                    <th class="py-2 px-3">Status</th>
+                    <th class="py-2 px-3">Actions</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-white/5">
+                  {#each variants as v (v.id)}
+                    <tr>
+                      <td class="py-2 px-3 font-mono text-gray-300">{v.sku}</td>
+                      <td class="py-2 px-3 text-white">{v.size || '—'} / {v.color || '—'}</td>
+                      <td class="py-2 px-3">
+                        <input
+                          type="number"
+                          value={v.price_adjustment ? v.price_adjustment / 100 : 0}
+                          onchange={(e) => updateVariantPriceAdjustment(v.id, (e.target as HTMLInputElement).value)}
+                          class="w-20 px-2 py-0.5 rounded bg-white/10 border border-white/20 text-white text-xs outline-none"
+                        />
+                      </td>
+                      <td class="py-2 px-3">
+                        <input
+                          type="number"
+                          value={v.stock_quantity}
+                          onchange={(e) => updateVariantStock(v.id, (e.target as HTMLInputElement).value)}
+                          class="w-16 px-2 py-0.5 rounded bg-white/10 border border-white/20 text-white text-xs outline-none"
+                        />
+                      </td>
+                      <td class="py-2 px-3">
+                        <button
+                          onclick={() => toggleVariantActive(v.id, v.is_active)}
+                          class="px-2 py-0.5 rounded text-[10px] font-semibold cursor-pointer"
+                          style="background: {v.is_active ? 'rgba(34,197,94,0.2)' : 'rgba(239,68,68,0.2)'}; color: {v.is_active ? '#22c55e' : '#ef4444'};"
+                        >
+                          {v.is_active ? 'Active' : 'Inactive'}
+                        </button>
+                      </td>
+                      <td class="py-2 px-3">
+                        <button
+                          onclick={() => deleteVariant(v.id)}
+                          class="text-xs text-red-400 hover:text-red-300 font-semibold cursor-pointer"
+                        >
+                          Delete
+                        </button>
+                      </td>
+                    </tr>
+                  {/each}
+                </tbody>
+              </table>
+            </div>
+          {/if}
+        </div>
+      {/if}
+
+      <div class="flex gap-3 mt-6">
+        <button onclick={() => { showForm = false; editId = null; variants = []; }} class="px-4 py-2.5 rounded-xl text-sm text-gray-300" style="background: rgba(255,255,255,0.1);">Cancel</button>
         <button onclick={saveProduct} disabled={saving} class="px-4 py-2.5 rounded-xl text-sm font-semibold text-white" style="background: #4f46e5;">
           {saving ? 'Saving...' : editId ? 'Update Product' : 'Create Product'}
         </button>

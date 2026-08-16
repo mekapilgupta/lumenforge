@@ -74,3 +74,43 @@ $$ language plpgsql;
 create trigger trg_queue_order_automations
   after update of status on public.orders
   for each row execute function public.queue_order_automations();
+
+-- 5. Immediate Queue Worker Invocation via pg_net
+create extension if not exists pg_net;
+
+create or replace function public.trigger_queue_worker()
+returns trigger as $$
+begin
+  return public.invoke_queue_worker_on_insert();
+end;
+$$ language plpgsql security definer;
+
+create or replace function public.invoke_queue_worker_on_insert()
+returns trigger as $$
+begin
+  if new.status = 'pending' then
+    perform net.http_post(
+      url := 'https://<YOUR_PROJECT_REF>.supabase.co/functions/v1/queue-worker',
+      headers := jsonb_build_object(
+        'Content-Type', 'application/json',
+        'Authorization', 'Bearer <SUPABASE_SERVICE_ROLE_KEY>'
+      ),
+      body := jsonb_build_object(
+        'task_id', new.id,
+        'action_type', new.action_type
+      )
+    );
+  end if;
+  return new;
+exception when others then
+  -- Failures in trigger call will degrade gracefully to polling worker
+  raise warning 'invoke_queue_worker_on_insert failed: %', sqlerrm;
+  return new;
+end;
+$$ language plpgsql security definer;
+
+drop trigger if exists trg_invoke_queue_worker on public.automation_queue;
+create trigger trg_invoke_queue_worker
+  after insert on public.automation_queue
+  for each row execute function public.invoke_queue_worker_on_insert();
+

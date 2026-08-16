@@ -18,7 +18,7 @@
     returns: 0,
     actions: 0
   });
-  let badgePollInterval: any = null;
+  let actionChannel: any = null;
 
   onMount(async () => {
     await authStore.init();
@@ -32,12 +32,29 @@
       return;
     }
     await loadBadgeCounts();
-    // Poll every 30s
+    // Poll every 30s as fallback
     badgePollInterval = setInterval(loadBadgeCounts, 30000);
+
+    // Realtime channel for admin actions across admin layout
+    actionChannel = supabase
+      .channel('admin-layout-actions')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'admin_actions' },
+        (payload) => {
+          if (payload.eventType === 'INSERT') {
+            const actionType = payload.new.type?.replace('_', ' ') || 'action';
+            uiStore.addToast(`⚡ New action required: ${actionType}`, 'info');
+          }
+          loadBadgeCounts();
+        }
+      )
+      .subscribe();
   });
 
   onDestroy(() => {
     if (badgePollInterval) clearInterval(badgePollInterval);
+    if (actionChannel) supabase.removeChannel(actionChannel);
   });
 
   async function loadBadgeCounts() {

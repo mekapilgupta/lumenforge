@@ -198,6 +198,7 @@
         size: item.size,
         color: item.color.name
       }));
+      const capturedTotal = totalPaise / 100; // capture before cart is cleared
       const userId = authStore.user!.id;
       const shippingAddr = addresses.find(a => a.id === selectedAddressId)!;
 
@@ -288,7 +289,7 @@
           eventType: 'Checkout',
           details: {
             orderNumber: order.order_number,
-            amount: totalPaise / 100,
+            amount: capturedTotal,
             customerEmail: authStore.user?.email ?? '',
             customerName: authStore.profile?.full_name ?? 'Customer',
             items: itemsSnapshot
@@ -318,6 +319,7 @@
         size: item.size,
         color: item.color.name
       }));
+      const capturedTotal = totalPaise / 100; // snapshot before cart is cleared
       const userId = authStore.user!.id;
       const receiptId = `ft_${Date.now()}`;
       const shippingAddr = addresses.find(a => a.id === selectedAddressId)!;
@@ -438,7 +440,7 @@
                 eventType: 'Checkout',
                 details: {
                   orderNumber: createData.order.receipt,
-                  amount: totalPaise / 100,
+                  amount: capturedTotal,
                   customerEmail: authStore.user?.email ?? '',
                   customerName: authStore.profile?.full_name ?? 'Customer',
                   items: itemsSnapshot

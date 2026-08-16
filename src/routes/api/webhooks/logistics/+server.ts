@@ -48,11 +48,31 @@ export async function POST({ request }) {
 
         console.log(`[Logistics Webhook] Mapping status "${shiprocketStatus}" to database status "${dbStatus}"`);
 
+        // Fetch current order to check payment details
+        const { data: existingOrder } = await supabaseAdmin
+            .from('orders')
+            .select('payment_method, payment_status')
+            .eq('id', orderId)
+            .maybeSingle();
+
+        const updateData: Record<string, any> = {
+            status: dbStatus,
+            awb_code: awbCode || undefined,
+            shiprocket_status: shiprocketStatus,
+            shiprocket_last_synced_at: new Date().toISOString()
+        };
+
+        // If order is COD and status shifts to delivered, mark payment_status as paid
+        if (dbStatus === 'delivered' && existingOrder?.payment_method?.toLowerCase() === 'cod') {
+            updateData.payment_status = 'paid';
+            console.log(`[Logistics Webhook] COD order ${orderId} delivered — updating payment_status to "paid".`);
+        }
+
         // Update Orders Table
         console.log(`[Logistics Webhook] Updating orders table for order: ${orderId}`);
         const { error: orderError } = await supabaseAdmin
             .from('orders')
-            .update({ status: dbStatus, awb_code: awbCode })
+            .update(updateData)
             .eq('id', orderId);
 
         if (orderError) {

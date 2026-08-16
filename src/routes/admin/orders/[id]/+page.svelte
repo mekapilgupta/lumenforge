@@ -90,6 +90,11 @@
     refunded: [
       "Refund processed via Razorpay. Refund ID: pay_",
       "Refunded. The amount will reflect in your account within 5-7 days."
+    ],
+    cancelled: [
+      "Cancellation approved. Full refund queued to original payment method.",
+      "Cancellation approved as requested. Return to origin confirmed.",
+      "Cancellation approved. Amount issued as store credit / manual refund."
     ]
   };
 
@@ -611,6 +616,20 @@
     <div class="rounded-2xl p-6 w-full max-w-md" style="background: #1e2030; border: 1px solid rgba(255,255,255,0.2);">
       <h2 class="font-bold text-white text-lg mb-2">Approve Order Cancellation?</h2>
       <p class="text-gray-400 text-xs mb-4">This will cancel the order and send a confirmation email. Stock will be restored automatically.</p>
+
+      <div class="mb-3">
+        <span class="text-xs font-semibold text-gray-400 block mb-1.5">Quick Templates:</span>
+        <div class="flex flex-col gap-1 max-h-28 overflow-y-auto pr-1">
+          {#each (STATUS_TEMPLATES.cancelled ?? []) as temp}
+            <button
+              onclick={() => cancelActionComment = temp}
+              class="text-left text-xs text-indigo-300 hover:bg-white/5 p-1.5 rounded border border-white/5 transition-colors"
+            >
+              {temp}
+            </button>
+          {/each}
+        </div>
+      </div>
 
       <div class="flex flex-col gap-1 mb-5">
         <label for="cancel-approve-comment" class="text-xs font-semibold text-gray-400">Cancellation Note to Customer (optional)</label>

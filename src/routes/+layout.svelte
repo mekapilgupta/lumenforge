@@ -15,7 +15,7 @@
   let showError = $state(false);
   let isUnlockedState = $state(false);
 
-  let isUnlocked = $derived(data?.isUnlocked || isUnlockedState);
+  let isUnlocked = true; // Lock feature disabled for now
 
   onMount(() => {
     authStore.init();

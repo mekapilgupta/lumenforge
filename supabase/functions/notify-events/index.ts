@@ -14,9 +14,9 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 const supabaseAdmin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!, {
   auth: { autoRefreshToken: false, persistSession: false },
 });
-const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
-const ADMIN_EMAIL = Deno.env.get("ADMIN_EMAIL");
-const EMAIL_FROM = Deno.env.get("EMAIL_FROM") ?? "alerts@yourdomain.com";
+const ADMIN_EMAILS = ["kapilgupta@duck.com", "hello@frenchtoes.in", "FRENCHTOESAPPARELS@GMAIL.COM"];
+const BREVO_API_KEY = Deno.env.get("BREVO_API_KEY") ?? "";
+const EMAIL_FROM = Deno.env.get("EMAIL_FROM") ?? "alerts@frenchtoes.in";
 const NOTIFY_EVENTS_SECRET = Deno.env.get("NOTIFY_EVENTS_SECRET");
 
 function log(reqId: string, level: "info" | "warn" | "error", msg: string, meta: Record<string, unknown> = {}) {
@@ -26,17 +26,35 @@ function log(reqId: string, level: "info" | "warn" | "error", msg: string, meta:
 }
 
 async function sendEmail(reqId: string, subject: string, html: string) {
-  if (!RESEND_API_KEY || !ADMIN_EMAIL) {
-    log(reqId, "warn", "Email skipped — RESEND_API_KEY/ADMIN_EMAIL not set");
+  if (!BREVO_API_KEY || ADMIN_EMAILS.length === 0) {
+    log(reqId, "warn", "Email skipped — BREVO_API_KEY or ADMIN_EMAILS not set");
     return;
   }
-  const res = await fetch("https://api.resend.com/emails", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${RESEND_API_KEY}` },
-    body: JSON.stringify({ from: EMAIL_FROM, to: ADMIN_EMAIL, subject, html }),
-  });
-  if (!res.ok) log(reqId, "warn", "Email send failed", { status: res.status, body: await res.text().catch(() => "") });
-  else log(reqId, "info", "Email sent", { subject });
+  for (const email of ADMIN_EMAILS) {
+    try {
+      const res = await fetch("https://api.brevo.com/v3/smtp/email", {
+        method: "POST",
+        headers: {
+          "Accept": "application/json",
+          "Content-Type": "application/json",
+          "api-key": BREVO_API_KEY,
+        },
+        body: JSON.stringify({
+          sender: { name: "FrenchToes Alerts", email: EMAIL_FROM },
+          to: [{ email, name: "Admin" }],
+          subject,
+          htmlContent: html,
+        }),
+      });
+      if (!res.ok) {
+        log(reqId, "warn", `Email send failed to ${email}`, { status: res.status, body: await res.text().catch(() => "") });
+      } else {
+        log(reqId, "info", `Email sent to ${email}`, { subject });
+      }
+    } catch (e) {
+      log(reqId, "warn", `Email send threw for ${email}`, { error: (e as Error).message });
+    }
+  }
 }
 
 serve(async (req) => {
