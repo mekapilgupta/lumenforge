@@ -33,6 +33,8 @@ drop policy if exists "Admin full access to queue" on public.automation_queue;
 create policy "Admin full access to queue" on public.automation_queue for all using (is_admin());
 
 -- 4. The Magic Trigger: Auto-Queue Tasks on Order Status Change
+-- SECURITY DEFINER: runs as DB owner, bypasses RLS so customers cancelling
+--                   orders can insert into automation_queue without admin rights.
 create or replace function public.queue_order_automations()
 returns trigger as $$
 begin
@@ -69,7 +71,7 @@ begin
 
   return new;
 end;
-$$ language plpgsql;
+$$ language plpgsql security definer;
 
 create trigger trg_queue_order_automations
   after update of status on public.orders

@@ -40,7 +40,7 @@ export async function POST({ request }) {
                 <div style="font-family: sans-serif; color: #333; max-width: 600px; margin: 0 auto; padding: 25px; border: 1px solid #f4a7c3; border-radius: 16px; background-color: #fffdf9;">
                     <h2 style="color: #5c3d2e; font-family: Georgia, serif; border-bottom: 2px solid #f4a7c3; padding-bottom: 10px; margin-top: 0;">Thank you for your order, ${recipientName || 'Customer'}!</h2>
                     <p style="font-size: 15px; color: #5c3d2e; line-height: 1.5;">We have successfully received your order (<strong>#${payloadData?.orderId || 'N/A'}</strong>).</p>
-                    <p style="font-size: 15px; color: #5c3d2e; line-height: 1.5;">Your order total is <strong>₹${(payloadData?.amount ? (payloadData.amount / 100).toLocaleString('en-IN') : 'the total amount')}</strong>. Your order is now being processed and will be shipped soon.</p>
+                    <p style="font-size: 15px; color: #5c3d2e; line-height: 1.5;">Your order is confirmed and is now being processed. We'll notify you once it ships! 🌸</p>
                 </div>
             `;
         } else if (type === 'status_update') {
