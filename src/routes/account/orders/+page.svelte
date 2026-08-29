@@ -303,10 +303,16 @@
         {@const ret = activeReturn(order)}
         {@const refund = order.payment_gateway_response?.refund}
         <div class="rounded-2xl border overflow-hidden" style="border-color: var(--color-blush); background: white;">
-          <div class="flex items-center justify-between px-5 py-4 border-b" style="border-color: var(--color-blush); background: var(--color-blush);">
-            <div>
+          <div class="flex items-center justify-between px-5 py-4 border-b flex-wrap gap-2" style="border-color: var(--color-blush); background: var(--color-blush);">
+            <div class="flex items-center gap-2 flex-wrap">
               <span class="font-mono text-sm font-bold" style="color: var(--color-blush-deep);">{order.order_number}</span>
-              <span class="text-xs ml-2" style="color: var(--color-text-soft);">{formatDate(order.created_at)}</span>
+              <span class="text-xs" style="color: var(--color-text-soft);">{formatDate(order.created_at)}</span>
+              {#if order.awb_code}
+                <span class="inline-flex items-center gap-1 text-[11px] font-mono px-2 py-0.5 rounded-md bg-white border border-pink-200 text-gray-700">
+                  <span>🚚</span>
+                  <span>{order.courier_name || 'Courier'}: {order.awb_code}</span>
+                </span>
+              {/if}
             </div>
             <div class="flex items-center gap-3">
               <span class="px-3 py-1 rounded-full text-xs font-semibold text-white" style="background: {orderStatusColor(order.status)};">

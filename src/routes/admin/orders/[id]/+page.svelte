@@ -526,6 +526,59 @@
     uiStore.addToast('Message sent to customer', 'success');
   }
 
+  let syncingShiprocket = $state(false);
+  let pushingShiprocket = $state(false);
+
+  async function syncShiprocket() {
+    if (syncingShiprocket || !order) return;
+    syncingShiprocket = true;
+    uiStore.addToast('Syncing with Shiprocket API...', 'info');
+
+    try {
+      const res = await fetch('/api/shiprocket/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ orderId: order.id, awb: order.awb_code }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        uiStore.addToast(`Shiprocket synced! Status: ${data.trackingData?.status || data.order?.shiprocket_status || 'Updated'}`, 'success');
+        await loadOrder();
+      } else {
+        uiStore.addToast(`Shiprocket sync failed: ${data.error || 'Unknown error'}`, 'error');
+      }
+    } catch (e: any) {
+      uiStore.addToast(`Sync error: ${e.message}`, 'error');
+    } finally {
+      syncingShiprocket = false;
+    }
+  }
+
+  async function pushToShiprocket() {
+    if (pushingShiprocket || !order) return;
+    pushingShiprocket = true;
+    uiStore.addToast('Pushing order to Shiprocket...', 'info');
+
+    try {
+      const res = await fetch('/api/shiprocket/push', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ orderId: order.id }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        uiStore.addToast(`Pushed to Shiprocket! Order ID: ${data.shiprocket_order_id}`, 'success');
+        await loadOrder();
+      } else {
+        uiStore.addToast(`Push failed: ${data.error || 'Unknown error'}`, 'error');
+      }
+    } catch (e: any) {
+      uiStore.addToast(`Push error: ${e.message}`, 'error');
+    } finally {
+      pushingShiprocket = false;
+    }
+  }
+
   function fmt(paise: number) {
     return '₹' + ((paise ?? 0) / 100).toLocaleString('en-IN', { maximumFractionDigits: 0 });
   }
@@ -885,8 +938,94 @@
         </div>
       </div>
 
-      <!-- Right: Customer + Address + Pricing -->
+      <!-- Right: Logistics + Customer + Address + Pricing -->
       <div class="flex flex-col gap-4">
+        <!-- Shiprocket Logistics Control Card -->
+        <div class="rounded-xl p-4 border border-indigo-500/30 bg-gradient-to-br from-indigo-950/40 via-purple-950/20 to-black/40 shadow-lg">
+          <div class="flex items-center justify-between mb-3">
+            <div class="flex items-center gap-2">
+              <span class="text-lg">🚀</span>
+              <h2 class="font-bold text-white text-sm">Shiprocket Logistics</h2>
+            </div>
+            <button
+              onclick={syncShiprocket}
+              disabled={syncingShiprocket}
+              class="px-2.5 py-1 rounded-lg text-xs font-semibold text-indigo-200 bg-indigo-600/30 hover:bg-indigo-600/50 border border-indigo-400/30 transition-all flex items-center gap-1 cursor-pointer disabled:opacity-50"
+            >
+              <span class={syncingShiprocket ? "animate-spin" : ""}>🔄</span>
+              <span>{syncingShiprocket ? "Syncing..." : "Sync Live"}</span>
+            </button>
+          </div>
+
+          <div class="space-y-2.5 text-xs">
+            <div class="flex justify-between items-center py-1 border-b border-white/5">
+              <span class="text-gray-400">Shiprocket Status:</span>
+              <span class="font-bold px-2 py-0.5 rounded text-[11px] {order.shiprocket_status === 'DELIVERED' ? 'bg-green-900/60 text-green-300 border border-green-700' : 'bg-indigo-900/60 text-indigo-300 border border-indigo-700'}">
+                {order.shiprocket_status || 'NOT PUSHED'}
+              </span>
+            </div>
+
+            <div class="flex justify-between items-center py-1 border-b border-white/5">
+              <span class="text-gray-400">Courier Partner:</span>
+              <span class="text-white font-medium">{order.courier_name || '—'}</span>
+            </div>
+
+            <div class="flex justify-between items-center py-1 border-b border-white/5">
+              <span class="text-gray-400">AWB Tracking Number:</span>
+              {#if order.awb_code}
+                <span class="font-mono font-bold text-amber-300 bg-black/40 px-2 py-0.5 rounded border border-amber-500/20">{order.awb_code}</span>
+              {:else}
+                <span class="text-gray-500">Not assigned</span>
+              {/if}
+            </div>
+
+            {#if order.shiprocket_order_id}
+              <div class="flex justify-between items-center py-1 border-b border-white/5">
+                <span class="text-gray-400">SR Order ID:</span>
+                <span class="font-mono text-gray-300">{order.shiprocket_order_id}</span>
+              </div>
+            {/if}
+
+            {#if order.estimated_delivery_date}
+              <div class="flex justify-between items-center py-1 border-b border-white/5">
+                <span class="text-gray-400">Expected Delivery:</span>
+                <span class="text-green-400 font-medium">{order.estimated_delivery_date}</span>
+              </div>
+            {/if}
+
+            {#if order.shiprocket_last_synced_at}
+              <div class="flex justify-between items-center py-1 border-b border-white/5">
+                <span class="text-gray-500 text-[10px]">Last Synced:</span>
+                <span class="text-gray-400 text-[10px]">{formatDateTime(order.shiprocket_last_synced_at)}</span>
+              </div>
+            {/if}
+
+            <div class="pt-2 flex flex-col gap-2">
+              {#if order.awb_code}
+                <a
+                  href={`https://shiprocket.co/tracking/${order.awb_code}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="w-full text-center py-2 px-3 rounded-lg text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-500 transition-all shadow"
+                >
+                  Track on Shiprocket (Public) ↗
+                </a>
+              {/if}
+
+              {#if !order.shiprocket_order_id}
+                <button
+                  onclick={pushToShiprocket}
+                  disabled={pushingShiprocket}
+                  class="w-full py-2 px-3 rounded-lg text-xs font-bold text-white bg-amber-600 hover:bg-amber-500 transition-all flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+                >
+                  <span>🚀</span>
+                  <span>{pushingShiprocket ? "Pushing..." : "Push Order to Shiprocket"}</span>
+                </button>
+              {/if}
+            </div>
+          </div>
+        </div>
+
         <!-- Customer info -->
         <div class="rounded-xl p-4" style="background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1);">
           <h2 class="font-semibold text-white text-sm mb-3">Customer</h2>

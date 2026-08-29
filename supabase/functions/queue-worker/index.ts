@@ -51,11 +51,12 @@ try {
   env = {} as Record<string, string>;
 }
 
-// Optional — email alerts degrade gracefully if these are missing rather than
-// crashing the whole worker (a missed email is better than a failed refund).
-const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
-const ADMIN_EMAIL = Deno.env.get("ADMIN_EMAIL");
-const EMAIL_FROM = Deno.env.get("EMAIL_FROM") ?? "alerts@yourdomain.com";
+const BREVO_API_KEY = Deno.env.get("BREVO_API_KEY");
+const ADMIN_EMAILS = (Deno.env.get("ADMIN_EMAILS") ?? "kapilgupta@duck.com,hello@frenchtoes.in,FRENCHTOESAPPARELS@GMAIL.COM")
+  .split(",")
+  .map(email => email.trim())
+  .filter(email => email.length > 0);
+const EMAIL_FROM = Deno.env.get("EMAIL_FROM") ?? "alerts@frenchtoes.in";
 
 // Your warehouse / return-to address — used as the "shipping" (destination)
 // side of every Shiprocket return order. Fill these in as env vars.
@@ -94,27 +95,77 @@ function log(runId: string, level: "info" | "warn" | "error", msg: string, meta:
 // different provider — every call site elsewhere stays the same.
 // ---------------------------------------------------------------------------
 async function sendAdminEmail(runId: string, subject: string, html: string) {
-  if (!RESEND_API_KEY || !ADMIN_EMAIL) {
-    log(runId, "warn", "Email alert skipped — RESEND_API_KEY or ADMIN_EMAIL not configured", { subject });
+  if (!BREVO_API_KEY || ADMIN_EMAILS.length === 0) {
+    log(runId, "warn", "Email alert skipped — BREVO_API_KEY or ADMIN_EMAILS not configured", { subject });
+    return;
+  }
+  for (const adminEmail of ADMIN_EMAILS) {
+    try {
+      const res = await fetchWithTimeout("https://api.brevo.com/v3/smtp/email", {
+        method: "POST",
+        headers: {
+          "Accept": "application/json",
+          "Content-Type": "application/json",
+          "api-key": BREVO_API_KEY,
+        },
+        body: JSON.stringify({
+          sender: { name: "FrenchToes Alerts", email: EMAIL_FROM },
+          to: [{ email: adminEmail, name: "Admin" }],
+          subject,
+          htmlContent: html,
+        }),
+      }, 10_000);
+      if (!res.ok) {
+        const body = await res.text().catch(() => "");
+        log(runId, "warn", "Email alert failed to send to recipient", {
+          subject, recipient: adminEmail, status: res.status, body
+        });
+      } else {
+        const data = await res.json().catch(() => ({}));
+        log(runId, "info", "Email alert sent to recipient", { subject, recipient: adminEmail, messageId: data.messageId });
+      }
+    } catch (e) {
+      log(runId, "warn", "Email alert threw an error (non-fatal)", {
+        subject, recipient: adminEmail, error: (e as Error).message
+      });
+    }
+  }
+}
+async function sendCustomerEmail(runId: string, recipientEmail: string, recipientName: string, subject: string, html: string) {
+  if (!BREVO_API_KEY) {
+    log(runId, "warn", "Customer email skipped — BREVO_API_KEY not configured", { subject });
     return;
   }
   try {
-    const res = await fetchWithTimeout("https://api.resend.com/emails", {
+    const res = await fetchWithTimeout("https://api.brevo.com/v3/smtp/email", {
       method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${RESEND_API_KEY}` },
-      body: JSON.stringify({ from: EMAIL_FROM, to: ADMIN_EMAIL, subject, html }),
+      headers: {
+        "Accept": "application/json",
+        "Content-Type": "application/json",
+        "api-key": BREVO_API_KEY,
+      },
+      body: JSON.stringify({
+        sender: { name: "FrenchToes", email: EMAIL_FROM },
+        to: [{ email: recipientEmail, name: recipientName || "Customer" }],
+        subject,
+        htmlContent: html,
+      }),
     }, 10_000);
     if (!res.ok) {
       const body = await res.text().catch(() => "");
-      log(runId, "warn", "Email alert failed to send", { subject, status: res.status, body });
+      log(runId, "warn", "Customer email failed to send", {
+        subject, recipient: recipientEmail, status: res.status, body
+      });
     } else {
-      log(runId, "info", "Email alert sent", { subject });
+      const data = await res.json().catch(() => ({}));
+      log(runId, "info", "Customer email sent successfully", { subject, recipient: recipientEmail, messageId: data.messageId });
     }
   } catch (e) {
-    log(runId, "warn", "Email alert threw an error (non-fatal)", { subject, error: (e as Error).message });
+    log(runId, "warn", "Customer email threw an error (non-fatal)", {
+      subject, recipient: recipientEmail, error: (e as Error).message
+    });
   }
 }
-
 // ---------------------------------------------------------------------------
 // Fetch with timeout
 // ---------------------------------------------------------------------------
@@ -198,7 +249,10 @@ async function handleProcessRefund(runId: string, task: any) {
   }
 
   const { data: order, error: orderFetchErr } = await supabaseAdmin
-    .from("orders").select("id, payment_status, payment_gateway_response").eq("id", task.order_id).maybeSingle();
+    .from("orders")
+    .select("id, order_number, payment_status, payment_gateway_response, user_id, profiles(email, full_name)")
+    .eq("id", task.order_id)
+    .maybeSingle();
   if (orderFetchErr) {
     log(runId, "warn", "Could not verify order before refund, proceeding cautiously", { orderId: task.order_id, error: orderFetchErr.message });
   }
@@ -227,17 +281,17 @@ async function handleProcessRefund(runId: string, task: any) {
     const description: string = refundData?.error?.description ?? JSON.stringify(refundData);
     const alreadyRefunded = /already.*refund/i.test(description);
     if (alreadyRefunded) {
-      await finalizeRefund(runId, task.order_id, order_return_id, amount, refundData, order?.payment_gateway_response);
+      await finalizeRefund(runId, task.order_id, order_return_id, amount, refundData, order);
       return;
     }
     throw new TaskError(`Razorpay refund failed (${refundRes.status}): ${description}`, refundRes.status >= 500);
   }
 
-  await finalizeRefund(runId, task.order_id, order_return_id, amount, refundData, order?.payment_gateway_response);
+  await finalizeRefund(runId, task.order_id, order_return_id, amount, refundData, order);
 }
 
-async function finalizeRefund(runId: string, orderId: string, orderReturnId: string | undefined, amount: number, refundData: any, existingGatewayResponse: any) {
-  const mergedGatewayResponse = { ...(existingGatewayResponse ?? {}), refund: refundData };
+async function finalizeRefund(runId: string, orderId: string, orderReturnId: string | undefined, amount: number, refundData: any, order: any) {
+  const mergedGatewayResponse = { ...(order?.payment_gateway_response ?? {}), refund: refundData };
 
   const { error: orderUpdateErr } = await supabaseAdmin
     .from("orders")
@@ -264,8 +318,27 @@ async function finalizeRefund(runId: string, orderId: string, orderReturnId: str
   await writeOrderLog(runId, orderId, "refunded",
     `System: Refund of ₹${(amount / 100).toFixed(2)} processed via Razorpay. Refund ID: ${refundData.id ?? "N/A"}`);
 
+  // Send admin notification
   await sendAdminEmail(runId, `Refund completed — Order ${orderId}`,
     `<p>Refund of <b>₹${(amount / 100).toFixed(2)}</b> completed for order <b>${orderId}</b>.</p><p>Razorpay Refund ID: ${refundData.id ?? "N/A"}</p>`);
+
+  // Send customer notification
+  const customerEmail = order?.profiles?.email;
+  const customerName = order?.profiles?.full_name ?? "Customer";
+  const orderNumber = order?.order_number ?? "Order";
+
+  if (customerEmail) {
+    const customerHtml = `
+      <div style="font-family: sans-serif; color: #333; max-width: 600px; margin: 0 auto; padding: 25px; border: 1px solid #f4a7c3; border-radius: 16px; background-color: #fffdf9;">
+        <h2 style="color: #5c3d2e; font-family: Georgia, serif; border-bottom: 2px solid #f4a7c3; padding-bottom: 10px; margin-top: 0;">Refund Initiated 🌸</h2>
+        <p style="font-size: 15px; color: #5c3d2e; line-height: 1.5;">Dear ${customerName},</p>
+        <p style="font-size: 15px; color: #5c3d2e; line-height: 1.5;">A refund of <strong>₹${(amount / 100).toFixed(2)}</strong> has been successfully initiated for your order (<strong>#${orderNumber}</strong>).</p>
+        <p style="font-size: 15px; color: #5c3d2e; line-height: 1.5;">It will be credited back to your original payment method within 5-7 business days.</p>
+        <p style="font-size: 13px; color: #8b6f5e; margin-top: 20px;">If you have any questions, feel free to reply to this email or contact support.</p>
+      </div>
+    `;
+    await sendCustomerEmail(runId, customerEmail, customerName, `Refund Initiated for Order #${orderNumber}`, customerHtml);
+  }
 
   log(runId, "info", "Refund finalized", { orderId, refundId: refundData.id, amount });
 }
@@ -432,6 +505,44 @@ async function handleCreateExchangeShipment(runId: string, task: any) {
 }
 
 // ---------------------------------------------------------------------------
+// Handler: send_cancellation_email
+// ---------------------------------------------------------------------------
+async function handleSendCancellationEmail(runId: string, task: any) {
+  log(runId, "info", "Sending cancellation email to customer", { orderId: task.order_id });
+
+  const { data: order, error: orderErr } = await supabaseAdmin
+    .from("orders")
+    .select("id, order_number, user_id, profiles(email, full_name)")
+    .eq("id", task.order_id)
+    .maybeSingle();
+
+  if (orderErr || !order) {
+    throw new TaskError(`Could not fetch order data: ${orderErr?.message ?? "not found"}`, true);
+  }
+
+  const email = order?.profiles?.email;
+  const name = order?.profiles?.full_name ?? "Customer";
+  const orderNumber = order?.order_number ?? "Order";
+
+  if (!email) {
+    log(runId, "warn", "No customer email found for order — skipping cancellation email", { orderId: task.order_id });
+    return;
+  }
+
+  const html = `
+    <div style="font-family: sans-serif; color: #333; max-width: 600px; margin: 0 auto; padding: 25px; border: 1px solid #ff7f6e; border-radius: 16px; background-color: #fffdf9;">
+      <h2 style="color: #ff7f6e; font-family: Georgia, serif; border-bottom: 2px solid #ff7f6e; padding-bottom: 10px; margin-top: 0;">Order Cancelled 💔</h2>
+      <p style="font-size: 15px; color: #5c3d2e; line-height: 1.5;">Dear ${name},</p>
+      <p style="font-size: 15px; color: #5c3d2e; line-height: 1.5;">Your order (<strong>#${orderNumber}</strong>) has been successfully cancelled.</p>
+      <p style="font-size: 15px; color: #5c3d2e; line-height: 1.5;">If you made a payment online, your refund will be processed back to your original payment method within 5–7 business days.</p>
+      <p style="font-size: 13px; color: #8b6f5e; margin-top: 20px;">If you have any questions or did not request this cancellation, please reply to this email or contact support immediately.</p>
+    </div>
+  `;
+
+  await sendCustomerEmail(runId, email, name, `Order Cancelled: #${orderNumber}`, html);
+}
+
+// ---------------------------------------------------------------------------
 // Claim / complete / fail (unchanged from previous version)
 // ---------------------------------------------------------------------------
 async function claimTask(runId: string, task: any): Promise<any | null> {
@@ -529,6 +640,7 @@ serve(async (req) => {
           case "cancel_shipment": await handleCancelShipment(runId, claimed); break;
           case "create_reverse_pickup": await handleCreateReversePickup(runId, claimed); break;
           case "create_exchange_shipment": await handleCreateExchangeShipment(runId, claimed); break;
+          case "send_cancellation_email": await handleSendCancellationEmail(runId, claimed); break;
           default: throw new TaskError(`Unknown action_type: ${claimed.action_type}`, false);
         }
         await markCompleted(runId, claimed.id);

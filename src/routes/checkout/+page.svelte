@@ -762,9 +762,11 @@
                     <span class="w-5 text-center text-xs font-semibold" style="color: var(--color-text-dark);">{item.quantity}</span>
                     <button
                       onclick={() => cartStore.updateQty(item.id, item.quantity + 1)}
-                      class="w-6 h-6 rounded-full border flex items-center justify-center text-xs font-bold transition-colors hover:bg-pink-50"
+                      disabled={item.quantity >= 5}
+                      class="w-6 h-6 rounded-full border flex items-center justify-center text-xs font-bold transition-colors hover:bg-pink-50 disabled:opacity-40 disabled:cursor-not-allowed"
                       style="border-color: var(--color-blush-deep); color: var(--color-blush-deep);"
                       aria-label="Increase quantity"
+                      title={item.quantity >= 5 ? 'Maximum 5 pairs allowed per item' : 'Increase quantity'}
                     >+</button>
                     <button
                       onclick={() => cartStore.removeItem(item.id)}
@@ -847,9 +849,11 @@
                       <span class="w-6 text-center text-sm font-semibold" style="color: var(--color-text-dark);">{item.quantity}</span>
                       <button
                         onclick={() => cartStore.updateQty(item.id, item.quantity + 1)}
-                        class="w-7 h-7 rounded-full border flex items-center justify-center text-sm font-bold transition-colors hover:bg-pink-50"
+                        disabled={item.quantity >= 5}
+                        class="w-7 h-7 rounded-full border flex items-center justify-center text-sm font-bold transition-colors hover:bg-pink-50 disabled:opacity-40 disabled:cursor-not-allowed"
                         style="border-color: var(--color-blush-deep); color: var(--color-blush-deep);"
                         aria-label="Increase quantity"
+                        title={item.quantity >= 5 ? 'Maximum 5 pairs allowed per item' : 'Increase quantity'}
                       >+</button>
                     </div>
                     <button

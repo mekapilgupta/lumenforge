@@ -158,6 +158,15 @@ export interface Order {
   razorpay_signature: string | null;
   payment_gateway_response: Record<string, unknown> | null;
   payment_completed_at: string | null;
+  refund_amount?: number | null;
+  refund_completed_at?: string | null;
+  // Shiprocket Logistics fields
+  awb_code?: string | null;
+  courier_name?: string | null;
+  shiprocket_order_id?: string | null;
+  shiprocket_shipment_id?: string | null;
+  shiprocket_status?: string | null;
+  shiprocket_last_synced_at?: string | null;
   created_at: string;
   updated_at: string;
   // joined / computed fields:

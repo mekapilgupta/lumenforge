@@ -155,13 +155,19 @@ serve(async (req) => {
       "billing_email": email,
       "billing_phone": phone,
       "shipping_is_billing": true,
-      "order_items": (fullOrder.items || []).map((item: any) => ({
-        "name": item.product_name || "Slipper Item",
-        "sku": item.product_sku || "FT-DEFAULT-SKU",
-        "units": item.quantity || 1,
-        "selling_price": (item.unit_price || 0) / 100,
-        "discount": (item.discount_amount || 0) / 100,
-      })),
+      "order_items": (fullOrder.items || []).map((item: any) => {
+        const size = item.variant_info?.size || item.size || '';
+        const color = item.variant_info?.color || item.color || '';
+        const variantSuffix = [color, size ? `Size ${size}` : ''].filter(Boolean).join(' - ');
+        const itemName = variantSuffix ? `${item.product_name} (${variantSuffix})` : (item.product_name || "Slipper Item");
+        return {
+          "name": itemName,
+          "sku": item.product_sku || (item.product_id ? `FT-${item.product_id.substring(0, 8)}-${size || 'STD'}` : "FT-DEFAULT-SKU"),
+          "units": item.quantity || 1,
+          "selling_price": (item.unit_price || 0) / 100,
+          "discount": (item.discount_amount || 0) / 100,
+        };
+      }),
       "payment_method": isCod ? "COD" : "Prepaid",
       "sub_total": (fullOrder.subtotal || fullOrder.total_amount || 0) / 100,
       "shipping_charges": (fullOrder.shipping_charges || 0) / 100,

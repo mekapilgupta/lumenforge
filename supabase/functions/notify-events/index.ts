@@ -1,21 +1,11 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-/* Generic admin-email dispatcher. Currently called by the pg_net trigger on
- * order_returns insert (see 02_returns_and_reverse_logistics.sql), but built
- * to take an `event` field so you can point future DB triggers at it too
- * without adding another function.
- *
- * Env vars needed: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, RESEND_API_KEY,
- * ADMIN_EMAIL, NOTIFY_EVENTS_SECRET (must match what's hardcoded in the
- * pg_net trigger's Authorization header).
- */
-
 const supabaseAdmin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!, {
   auth: { autoRefreshToken: false, persistSession: false },
 });
 const ADMIN_EMAILS = ["kapilgupta@duck.com", "hello@frenchtoes.in", "FRENCHTOESAPPARELS@GMAIL.COM"];
-const BREVO_API_KEY = Deno.env.get("BREVO_API_KEY") ?? "";
+const BREVO_API_KEY = Deno.env.get("BREVO_API_KEY");
 const EMAIL_FROM = Deno.env.get("EMAIL_FROM") ?? "alerts@frenchtoes.in";
 const NOTIFY_EVENTS_SECRET = Deno.env.get("NOTIFY_EVENTS_SECRET");
 
@@ -49,7 +39,8 @@ async function sendEmail(reqId: string, subject: string, html: string) {
       if (!res.ok) {
         log(reqId, "warn", `Email send failed to ${email}`, { status: res.status, body: await res.text().catch(() => "") });
       } else {
-        log(reqId, "info", `Email sent to ${email}`, { subject });
+        const data = await res.json().catch(() => ({}));
+        log(reqId, "info", `Email sent to ${email}`, { subject, messageId: data.messageId });
       }
     } catch (e) {
       log(reqId, "warn", `Email send threw for ${email}`, { error: (e as Error).message });

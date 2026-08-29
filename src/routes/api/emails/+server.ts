@@ -100,6 +100,69 @@ export async function POST({ request }) {
                     ` : ''}
                 </div>
             `;
+        } else if (type === 'order_shipped') {
+            console.log('[Email API] Processing order_shipped email for:', recipientEmail, 'orderNumber:', payloadData?.orderNumber);
+            const awb = payloadData?.awb || 'N/A';
+            const courier = payloadData?.courier || 'our delivery partner';
+            const trackingUrl = payloadData?.trackingUrl || (awb !== 'N/A' ? `https://shiprocket.co/tracking/${awb}` : 'https://frenchtoes.in/account/orders');
+            subject = `Your French Toes Order #${payloadData?.orderNumber || ''} is on its way! 🚚`;
+            htmlContent = `
+                <div style="font-family: sans-serif; color: #333; max-width: 600px; margin: 0 auto; padding: 25px; border: 1px solid #f4a7c3; border-radius: 16px; background-color: #fffdf9;">
+                    <h2 style="color: #5c3d2e; font-family: Georgia, serif; border-bottom: 2px solid #f4a7c3; padding-bottom: 10px; margin-top: 0;">Good news! Your order has shipped! 🚚</h2>
+                    <p style="font-size: 15px; color: #5c3d2e; line-height: 1.5;">Dear ${recipientName || 'Customer'},</p>
+                    <p style="font-size: 15px; color: #5c3d2e; line-height: 1.5;">Your French Toes order (<strong>#${payloadData?.orderNumber || 'N/A'}</strong>) has been handed over to <strong>${courier}</strong>.</p>
+                    
+                    <div style="margin: 20px 0; padding: 18px; background-color: #faf5f0; border: 1px solid #f4a7c3; border-radius: 12px;">
+                        <p style="margin: 0 0 8px 0; font-size: 14px; color: #5c3d2e;"><strong>Courier Partner:</strong> ${courier}</p>
+                        <p style="margin: 0 0 12px 0; font-size: 14px; color: #5c3d2e;"><strong>Tracking Number (AWB):</strong> <span style="font-family: monospace; font-weight: bold; background: #fff; padding: 3px 8px; border-radius: 4px; border: 1px solid #e0d0c5;">${awb}</span></p>
+                        ${payloadData?.etd ? `<p style="margin: 0 0 12px 0; font-size: 14px; color: #5c3d2e;"><strong>Estimated Delivery:</strong> ${payloadData.etd}</p>` : ''}
+                        <div style="margin-top: 15px;">
+                            <a href="${trackingUrl}" target="_blank" style="display: inline-block; background-color: #ff7f6e; color: #ffffff; text-decoration: none; padding: 10px 20px; border-radius: 8px; font-weight: bold; font-size: 14px;">Track Your Shipment →</a>
+                        </div>
+                    </div>
+
+                    <p style="font-size: 13px; color: #8b6f5e;">You can also track your live order checkpoints anytime by logging in to your <a href="https://frenchtoes.in/account/orders" style="color: #ff7f6e;">French Toes account</a>.</p>
+                </div>
+            `;
+        } else if (type === 'order_out_for_delivery') {
+            console.log('[Email API] Processing order_out_for_delivery email for:', recipientEmail, 'orderNumber:', payloadData?.orderNumber);
+            const awb = payloadData?.awb || 'N/A';
+            const courier = payloadData?.courier || 'Our delivery partner';
+            const trackingUrl = payloadData?.trackingUrl || (awb !== 'N/A' ? `https://shiprocket.co/tracking/${awb}` : 'https://frenchtoes.in/account/orders');
+            subject = `Your French Toes Order #${payloadData?.orderNumber || ''} is Out for Delivery today! 🏃`;
+            htmlContent = `
+                <div style="font-family: sans-serif; color: #333; max-width: 600px; margin: 0 auto; padding: 25px; border: 1px solid #f4a7c3; border-radius: 16px; background-color: #fffdf9;">
+                    <h2 style="color: #5c3d2e; font-family: Georgia, serif; border-bottom: 2px solid #f4a7c3; padding-bottom: 10px; margin-top: 0;">Out for Delivery Today! 🏃💨</h2>
+                    <p style="font-size: 15px; color: #5c3d2e; line-height: 1.5;">Dear ${recipientName || 'Customer'},</p>
+                    <p style="font-size: 15px; color: #5c3d2e; line-height: 1.5;">Your package (Order <strong>#${payloadData?.orderNumber || 'N/A'}</strong>) is out for delivery with ${courier} and will arrive today!</p>
+                    
+                    <div style="margin: 20px 0; padding: 18px; background-color: #faf5f0; border: 1px solid #f4a7c3; border-radius: 12px;">
+                        <p style="margin: 0 0 8px 0; font-size: 14px; color: #5c3d2e;"><strong>Tracking Number (AWB):</strong> ${awb}</p>
+                        <p style="margin: 0; font-size: 13px; color: #8b6f5e;">Please keep your phone handy. The delivery associate may contact you upon arrival.</p>
+                        <div style="margin-top: 15px;">
+                            <a href="${trackingUrl}" target="_blank" style="display: inline-block; background-color: #ff7f6e; color: #ffffff; text-decoration: none; padding: 10px 20px; border-radius: 8px; font-weight: bold; font-size: 14px;">View Live Status →</a>
+                        </div>
+                    </div>
+                </div>
+            `;
+        } else if (type === 'order_delivered') {
+            console.log('[Email API] Processing order_delivered email for:', recipientEmail, 'orderNumber:', payloadData?.orderNumber);
+            subject = `Delivered! Your French Toes Order #${payloadData?.orderNumber || ''} has arrived 🎉`;
+            htmlContent = `
+                <div style="font-family: sans-serif; color: #333; max-width: 600px; margin: 0 auto; padding: 25px; border: 1px solid #7ecba1; border-radius: 16px; background-color: #fffdf9;">
+                    <h2 style="color: #2e7d32; font-family: Georgia, serif; border-bottom: 2px solid #7ecba1; padding-bottom: 10px; margin-top: 0;">Your Order has been Delivered! 🎉</h2>
+                    <p style="font-size: 15px; color: #5c3d2e; line-height: 1.5;">Dear ${recipientName || 'Customer'},</p>
+                    <p style="font-size: 15px; color: #5c3d2e; line-height: 1.5;">Your French Toes order (<strong>#${payloadData?.orderNumber || 'N/A'}</strong>) was successfully delivered. We hope you fall in love with your new pairs! ✨</p>
+                    
+                    <div style="margin: 20px 0; padding: 18px; background-color: #f1f8e9; border: 1px solid #a5d6a7; border-radius: 12px;">
+                        <p style="margin: 0 0 10px 0; font-size: 14px; color: #2e7d32; font-weight: bold;">How did we do?</p>
+                        <p style="margin: 0 0 15px 0; font-size: 14px; color: #5c3d2e;">We would love to hear your feedback on the comfort, fit, and style!</p>
+                        <a href="https://frenchtoes.in/account/orders" style="display: inline-block; background-color: #2e7d32; color: #ffffff; text-decoration: none; padding: 10px 20px; border-radius: 8px; font-weight: bold; font-size: 14px;">Leave a Review / View Order →</a>
+                    </div>
+
+                    <p style="font-size: 13px; color: #8b6f5e;">Need an exchange or return? You can initiate it easily within 15 days directly from your account dashboard.</p>
+                </div>
+            `;
         } else {
             console.log('[Email API] Invalid email type:', type);
             return json({ error: 'Invalid email type' }, { status: 400 });

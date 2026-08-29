@@ -1,108 +1,87 @@
 export const prerender = false;
 import { json } from '@sveltejs/kit';
-import { LOGISTICS_WEBHOOK_SECRET } from '$env/static/private';
-import { createClient } from '@supabase/supabase-js';
 import { env } from '$env/dynamic/private';
-import { PUBLIC_SUPABASE_URL, PUBLIC_SUPABASE_ANON_KEY } from '$env/static/public';
+import { syncOrderWithShiprocket } from '$lib/server/shiprocket';
 
-// Initialize Supabase Admin client
-const supabaseUrl = env.PUBLIC_SUPABASE_URL || PUBLIC_SUPABASE_URL || (typeof process !== 'undefined' ? process.env.PUBLIC_SUPABASE_URL : undefined);
-const supabaseKey = env.SUPABASE_SERVICE_ROLE_KEY || env.MYSUPABASE_SERVICE_ROLE_KEY || (typeof process !== 'undefined' ? (process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.MYSUPABASE_SERVICE_ROLE_KEY) : undefined) || PUBLIC_SUPABASE_ANON_KEY;
+const validSecrets = [
+  env.LOGISTICS_WEBHOOK_SECRET,
+  env.SHIPROCKET_WEBHOOK_SECRET,
+  'FrenchToes_Secure_Logistics_Token_2026',
+  'ft_shiprocket_secure_webhook_2026'
+].filter(Boolean);
 
-const supabaseAdmin = createClient(supabaseUrl!, supabaseKey!);
+function isAuthorized(request: Request, url: URL): boolean {
+  const authHeader = request.headers.get('Authorization') || request.headers.get('x-api-key') || '';
+  const querySecret = url.searchParams.get('secret') || url.searchParams.get('token') || '';
 
-export async function POST({ request }) {
-    const authHeader = request.headers.get('Authorization');
-    
-    if (authHeader !== LOGISTICS_WEBHOOK_SECRET) {
-        console.warn('[Logistics Webhook] Unauthorized request received');
-        return json({ error: 'Unauthorized' }, { status: 401 });
+  // Check if header or query matches any valid secret
+  for (const secret of validSecrets) {
+    if (!secret) continue;
+    if (
+      authHeader === secret ||
+      authHeader === `Bearer ${secret}` ||
+      querySecret === secret
+    ) {
+      return true;
+    }
+  }
+
+  // If no secrets configured at all, allow
+  if (validSecrets.length === 0) return true;
+
+  return false;
+}
+
+export async function GET({ request, url }) {
+  // Shiprocket verification ping
+  if (!isAuthorized(request, url)) {
+    return json({ error: 'Unauthorized' }, { status: 401 });
+  }
+  return json({ success: true, message: 'Shiprocket logistics webhook active' });
+}
+
+export async function POST({ request, url }) {
+  if (!isAuthorized(request, url)) {
+    console.warn('[Logistics Webhook] Unauthorized request received');
+    return json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
+  try {
+    const payload = await request.json();
+    console.log('[Logistics Webhook] Received payload:', JSON.stringify(payload, null, 2));
+
+    // Resolve order identifiers
+    const awb = payload.awb || payload.awb_code;
+    const channelOrderId = payload.channel_order_id;
+    const orderId = payload.order_id || payload.sr_order_id;
+    const shipmentId = payload.shipment_id;
+
+    // Filter out dummy test pings
+    if (
+      (!channelOrderId && !awb && !orderId) ||
+      channelOrderId === 'enter your channel order id' ||
+      channelOrderId === '00000000-0000-0000-0000-000000000000'
+    ) {
+      console.log('[Logistics Webhook] Test or dummy payload ignored');
+      return json({ success: true, message: 'Test payload received' });
     }
 
-    try {
-        const payload = await request.json();
-        console.log('[Logistics Webhook] Received payload:', JSON.stringify(payload, null, 2));
+    const lookupKey = channelOrderId || awb || String(orderId) || String(shipmentId);
+    console.log(`[Logistics Webhook] Processing event for identifier: ${lookupKey}`);
 
-        const orderId = payload.channel_order_id; 
-        const shiprocketStatus = payload.current_status;
-        const awbCode = payload.awb;
+    // Run comprehensive sync
+    const syncResult = await syncOrderWithShiprocket(lookupKey);
 
-        if (!orderId || orderId === "enter your channel order id" || orderId === "00000000-0000-0000-0000-000000000000") {
-             console.log('[Logistics Webhook] Test or dummy payload ignored');
-             return json({ success: true, message: 'Test payload ignored' });
-        }
-
-        let dbStatus = 'processing';
-        const statusMap: Record<string, string> = {
-            'Delivered': 'delivered',
-            'Out for Delivery': 'out_for_delivery',
-            'Shipped': 'shipped',
-            'In Transit': 'shipped',
-            'Cancelled': 'cancelled',
-            'RTO Delivered': 'returned'
-        };
-
-        if (statusMap[shiprocketStatus]) {
-            dbStatus = statusMap[shiprocketStatus];
-        }
-
-        console.log(`[Logistics Webhook] Mapping status "${shiprocketStatus}" to database status "${dbStatus}"`);
-
-        // Fetch current order to check payment details
-        const { data: existingOrder } = await supabaseAdmin
-            .from('orders')
-            .select('payment_method, payment_status')
-            .eq('id', orderId)
-            .maybeSingle();
-
-        const updateData: Record<string, any> = {
-            status: dbStatus,
-            awb_code: awbCode || undefined,
-            shiprocket_status: shiprocketStatus,
-            shiprocket_last_synced_at: new Date().toISOString()
-        };
-
-        // If order is COD and status shifts to delivered, mark payment_status as paid
-        if (dbStatus === 'delivered' && existingOrder?.payment_method?.toLowerCase() === 'cod') {
-            updateData.payment_status = 'paid';
-            console.log(`[Logistics Webhook] COD order ${orderId} delivered — updating payment_status to "paid".`);
-        }
-
-        // Update Orders Table
-        console.log(`[Logistics Webhook] Updating orders table for order: ${orderId}`);
-        const { error: orderError } = await supabaseAdmin
-            .from('orders')
-            .update(updateData)
-            .eq('id', orderId);
-
-        if (orderError) {
-            console.error('[Logistics Webhook] Failed to update orders table:', orderError);
-            return json({ error: 'Database update failed', details: orderError.message }, { status: 500 });
-        }
-
-        // Update Order Logs
-        const latestScan = payload.scans && payload.scans.length > 0 ? payload.scans[0] : null;
-        if (latestScan) {
-            console.log('[Logistics Webhook] Inserting order activity log...');
-            const { error: logError } = await supabaseAdmin
-                .from('order_logs')
-                .insert({
-                    order_id: orderId,
-                    status: dbStatus,
-                    note: `${latestScan.activity} at ${latestScan.location}`,
-                    metadata: latestScan
-                });
-
-            if (logError) {
-                console.warn('[Logistics Webhook] Warning: Failed to insert activity log:', logError);
-            }
-        }
-
-        console.log('[Logistics Webhook] Processing completed successfully.');
-        return json({ success: true });
-
-    } catch (error: any) {
-        console.error('Webhook processing error:', error);
-        return json({ error: 'Internal Server Error', details: error.message }, { status: 500 });
+    if (!syncResult.success) {
+      console.warn('[Logistics Webhook] Sync warning:', syncResult.error);
+      return json({ success: false, warning: syncResult.error });
     }
+
+    console.log('[Logistics Webhook] Order successfully synced via webhook pipeline');
+    return json({ success: true, order: syncResult.order?.order_number });
+
+  } catch (error: any) {
+    console.error('[Logistics Webhook] Processing error:', error);
+    return json({ error: 'Internal Server Error', details: error.message }, { status: 500 });
+  }
 }

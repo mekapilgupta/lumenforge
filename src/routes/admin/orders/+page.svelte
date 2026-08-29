@@ -445,13 +445,79 @@
     );
     await loadOrders();
   }
+
+  let syncingAllShiprocket = $state(false);
+  let syncingSingleId = $state<string | null>(null);
+
+  async function syncAllShiprocket() {
+    if (syncingAllShiprocket) return;
+    syncingAllShiprocket = true;
+    uiStore.addToast("Syncing all open orders with Shiprocket...", "info");
+
+    try {
+      const res = await fetch("/api/shiprocket/sync", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ syncAll: true }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        uiStore.addToast(`Shiprocket sync completed! Synced ${data.synced}/${data.total} orders.`, "success");
+        await loadOrders();
+      } else {
+        uiStore.addToast(`Sync failed: ${data.error || "Unknown error"}`, "error");
+      }
+    } catch (e: any) {
+      uiStore.addToast(`Sync error: ${e.message}`, "error");
+    } finally {
+      syncingAllShiprocket = false;
+    }
+  }
+
+  async function syncSingleOrder(orderId: string) {
+    if (syncingSingleId) return;
+    syncingSingleId = orderId;
+    uiStore.addToast("Syncing order with Shiprocket...", "info");
+
+    try {
+      const res = await fetch("/api/shiprocket/sync", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ orderId }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        uiStore.addToast(`Shiprocket synced: ${data.trackingData?.status || "Updated"}`, "success");
+        await loadOrders();
+        if (selectedOrder?.id === orderId) {
+          selectedOrder = data.order || selectedOrder;
+        }
+      } else {
+        uiStore.addToast(`Sync failed: ${data.error || "Error"}`, "error");
+      }
+    } catch (e: any) {
+      uiStore.addToast(`Sync error: ${e.message}`, "error");
+    } finally {
+      syncingSingleId = null;
+    }
+  }
 </script>
 
 <svelte:head><title>Orders — Admin French Toes</title></svelte:head>
 
 <div class="flex flex-col gap-6 relative">
   <div class="flex items-center justify-between flex-wrap gap-3">
-    <h1 class="text-2xl font-bold text-white">Orders Management</h1>
+    <div class="flex items-center gap-3">
+      <h1 class="text-2xl font-bold text-white">Orders Management</h1>
+      <button
+        onclick={syncAllShiprocket}
+        disabled={syncingAllShiprocket}
+        class="px-3 py-1.5 rounded-xl text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-500 border border-indigo-400/30 transition-all flex items-center gap-1.5 cursor-pointer shadow-sm disabled:opacity-50"
+      >
+        <span class={syncingAllShiprocket ? "animate-spin" : ""}>🔄</span>
+        <span>{syncingAllShiprocket ? "Syncing Orders..." : "Sync Shiprocket Orders"}</span>
+      </button>
+    </div>
     <div class="relative">
       <svg
         class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
@@ -955,8 +1021,61 @@
     {/if}
 
     <div class="rounded-xl p-4 bg-white/5 border border-white/10 space-y-3">
+      <div class="flex items-center justify-between">
+        <h3 class="text-xs font-semibold text-gray-400 uppercase tracking-wider">
+          Shiprocket Logistics
+        </h3>
+        <button
+          onclick={() => syncSingleOrder(selectedOrder.id)}
+          disabled={syncingSingleId === selectedOrder.id}
+          class="px-2 py-0.5 rounded text-[11px] font-semibold text-indigo-300 bg-indigo-900/50 hover:bg-indigo-800/60 border border-indigo-700/50 cursor-pointer disabled:opacity-50"
+        >
+          {syncingSingleId === selectedOrder.id ? "Syncing..." : "🔄 Sync"}
+        </button>
+      </div>
+      <div class="grid grid-cols-2 gap-x-4 gap-y-2.5 text-xs">
+        <div>
+          <p class="text-[9px] uppercase text-gray-500">Live Status</p>
+          <p class="text-white font-bold mt-0.5">
+            {selectedOrder.shiprocket_status || selectedOrder.status || "—"}
+          </p>
+        </div>
+        <div>
+          <p class="text-[9px] uppercase text-gray-500">Courier Partner</p>
+          <p class="text-white font-medium mt-0.5">
+            {selectedOrder.courier_name || "—"}
+          </p>
+        </div>
+        {#if selectedOrder.awb_code}
+          <div class="col-span-2">
+            <p class="text-[9px] uppercase text-gray-500">AWB Tracking #</p>
+            <div class="flex items-center justify-between mt-0.5">
+              <span class="font-mono text-amber-300 font-bold select-all">{selectedOrder.awb_code}</span>
+              <a
+                href={`https://shiprocket.co/tracking/${selectedOrder.awb_code}`}
+                target="_blank"
+                rel="noopener"
+                class="text-[10px] text-indigo-400 hover:underline"
+              >
+                Track ↗
+              </a>
+            </div>
+          </div>
+        {/if}
+        {#if selectedOrder.shiprocket_order_id}
+          <div class="col-span-2">
+            <p class="text-[9px] uppercase text-gray-500">SR Order ID</p>
+            <p class="font-mono text-gray-300 select-all mt-0.5">
+              {selectedOrder.shiprocket_order_id}
+            </p>
+          </div>
+        {/if}
+      </div>
+    </div>
+
+    <div class="rounded-xl p-4 bg-white/5 border border-white/10 space-y-3">
       <h3 class="text-xs font-semibold text-gray-400 uppercase tracking-wider">
-        Integrations & Payments
+        Payment & Gateway
       </h3>
       <div class="grid grid-cols-2 gap-x-4 gap-y-3 text-xs">
         <div>
@@ -984,20 +1103,6 @@
             <p class="font-mono text-indigo-300 break-all select-all mt-0.5">
               {selectedOrder.razorpay_payment_id}
             </p>
-          </div>{/if}
-        {#if selectedOrder.shiprocket_order_id}<div class="col-span-2">
-            <p class="text-[9px] uppercase text-gray-500">
-              Shiprocket Order ID
-            </p>
-            <p class="font-mono text-indigo-300 break-all select-all mt-0.5">
-              {selectedOrder.shiprocket_order_id}
-            </p>
-          </div>{/if}
-        {#if selectedOrder.shiprocket_status}<div class="col-span-2">
-            <p class="text-[9px] uppercase text-gray-500">
-              Live Shiprocket Status
-            </p>
-            <p class="text-white mt-0.5">{selectedOrder.shiprocket_status}</p>
           </div>{/if}
       </div>
     </div>

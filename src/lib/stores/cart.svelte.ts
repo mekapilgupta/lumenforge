@@ -1,6 +1,9 @@
 // ─── Cart Store — Svelte 5 Runes (Functional Closure) ───────────────────────
 import type { CartItem, ColorVariant } from '$lib/types';
 import { supabase } from '$lib/supabaseClient';
+import { uiStore } from '$lib/stores/ui.svelte';
+
+export const MAX_QTY_PER_ITEM = 5;
 
 function createCartStore() {
   let items = $state<CartItem[]>([]);
@@ -31,6 +34,27 @@ function createCartStore() {
       localStorage.setItem('ft_cart', JSON.stringify(newItems));
     } catch (e) {
       console.error('Error saving local cart:', e);
+    }
+  }
+
+  function _loadLocalMeta(): Record<string, { size: number; color: ColorVariant }> {
+    if (typeof window === 'undefined') return {};
+    try {
+      const stored = localStorage.getItem('ft_cart_meta');
+      return stored ? JSON.parse(stored) : {};
+    } catch (e) {
+      return {};
+    }
+  }
+
+  function _saveLocalMeta(key: string, meta: { size: number; color: ColorVariant }) {
+    if (typeof window === 'undefined') return;
+    try {
+      const current = _loadLocalMeta();
+      current[key] = meta;
+      localStorage.setItem('ft_cart_meta', JSON.stringify(current));
+    } catch (e) {
+      console.error('Error saving local cart meta:', e);
     }
   }
 
@@ -184,6 +208,7 @@ function createCartStore() {
   }
 
   function _mapDbRowsToItems(rows: any[]): CartItem[] {
+    const localMeta = _loadLocalMeta();
     return rows.map((row: any) => {
       const p = row.product;
       if (!p) return null;
@@ -195,11 +220,19 @@ function createCartStore() {
       
       const colors = (p.colors ?? []) as ColorVariant[];
       const colorName = v?.color;
+      const cached = localMeta[row.id] || localMeta[row.product_id];
+
       const matchedColor = colors.find((c) => c.name.toLowerCase() === colorName?.toLowerCase()) 
+        || cached?.color
         || colors[0] 
         || { name: colorName || 'Default', hex: '#f4a7c3' };
 
-      const size = v?.size ? parseInt(v.size) : (parseInt((p.sizes ?? ['38'])[0]) || 38);
+      // Preserve exact chosen size from variant or cached metadata, never blindly default to first size
+      const size = v?.size 
+        ? parseInt(v.size) 
+        : (cached?.size 
+          ? cached.size 
+          : (parseInt((p.sizes ?? ['38'])[0]) || 38));
       
       // Calculate unit price in rupees: (product base price + variant adjustment) / 100
       const basePricePaise = p.price ?? 0;
@@ -207,7 +240,6 @@ function createCartStore() {
       const priceRupees = Math.round((basePricePaise + adjustmentPaise) / 100);
       const originalPriceRupees = p.original_price ? Math.round(p.original_price / 100) : undefined;
 
-      // Unique ID for frontend rendering and removal (match DB ID)
       return {
         id: row.id,
         productId: p.id,
@@ -218,7 +250,7 @@ function createCartStore() {
         originalPrice: originalPriceRupees,
         color: matchedColor,
         size: size,
-        quantity: row.quantity,
+        quantity: Math.min(row.quantity, MAX_QTY_PER_ITEM),
       };
     }).filter(Boolean) as CartItem[];
   }
@@ -244,15 +276,28 @@ function createCartStore() {
   }) {
     const { productId, slug, name, image, price, originalPrice, color, size, quantity = 1 } = params;
 
+    // Check existing quantity for this item
+    const existing = items.find(
+      (item) => item.productId === productId && item.color.name.toLowerCase() === color.name.toLowerCase() && item.size === size
+    );
+    const existingQty = existing ? existing.quantity : 0;
+
+    if (existingQty >= MAX_QTY_PER_ITEM) {
+      uiStore.addToast(`Maximum limit of ${MAX_QTY_PER_ITEM} pairs per item reached.`, 'info');
+      return;
+    }
+
+    const qtyToAdd = Math.min(quantity, MAX_QTY_PER_ITEM - existingQty);
+
     if (!_userId) {
       // Local storage mode for anonymous users
       const localItems = _loadLocalCart();
       const existingIndex = localItems.findIndex(
-        (item) => item.productId === productId && item.color.name === color.name && item.size === size
+        (item) => item.productId === productId && item.color.name.toLowerCase() === color.name.toLowerCase() && item.size === size
       );
       
       if (existingIndex > -1) {
-        localItems[existingIndex].quantity += quantity;
+        localItems[existingIndex].quantity = Math.min(localItems[existingIndex].quantity + qtyToAdd, MAX_QTY_PER_ITEM);
       } else {
         const id = `anon-${productId}-${color.name}-${size}`;
         localItems.push({
@@ -265,8 +310,9 @@ function createCartStore() {
           originalPrice,
           color,
           size,
-          quantity
+          quantity: qtyToAdd
         });
+        _saveLocalMeta(id, { size, color });
       }
       
       items = localItems;
@@ -290,8 +336,11 @@ function createCartStore() {
             .eq('is_active', true)
             .limit(1);
           
-          if (variantError) throw variantError;
-          variantId = variants?.[0]?.id || null;
+          if (!variantError && variants && variants.length > 0) {
+            variantId = variants[0].id;
+          } else {
+            variantId = null;
+          }
         }
 
         // Query existing cart row
@@ -311,27 +360,34 @@ function createCartStore() {
         if (findError) throw findError;
 
         if (existingRows && existingRows.length > 0) {
-          // Update quantity
-          const newQty = existingRows[0].quantity + quantity;
+          // Update quantity (capped at MAX_QTY_PER_ITEM)
+          const newQty = Math.min(existingRows[0].quantity + qtyToAdd, MAX_QTY_PER_ITEM);
           const { error: updateError } = await supabase
             .from('cart')
             .update({ quantity: newQty })
             .eq('id', existingRows[0].id);
           
           if (updateError) throw updateError;
+          _saveLocalMeta(existingRows[0].id, { size, color });
         } else {
           // Insert new row
-          const { error: insertError } = await supabase
+          const { data: insertedRow, error: insertError } = await supabase
             .from('cart')
             .insert({
               user_id: _userId!,
               product_id: productId,
               variant_id: variantId || null,
-              quantity: quantity
-            });
+              quantity: qtyToAdd
+            })
+            .select('id')
+            .single();
 
           if (insertError) throw insertError;
+          if (insertedRow) {
+            _saveLocalMeta(insertedRow.id, { size, color });
+          }
         }
+        _saveLocalMeta(productId, { size, color });
       });
 
       // Sync abandoned cart
@@ -374,6 +430,11 @@ function createCartStore() {
   }
 
   async function updateQty(id: string, quantity: number) {
+    if (quantity > MAX_QTY_PER_ITEM) {
+      uiStore.addToast(`Maximum limit of ${MAX_QTY_PER_ITEM} pairs per item.`, 'info');
+      quantity = MAX_QTY_PER_ITEM;
+    }
+
     if (!_userId) {
       if (quantity < 1) {
         await removeItem(id);

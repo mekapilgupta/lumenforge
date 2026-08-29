@@ -8,7 +8,9 @@ begin
     create type queue_status as enum ('pending', 'processing', 'completed', 'failed');
   end if;
   if not exists (select 1 from pg_type where typname = 'queue_action') then
-    create type queue_action as enum ('create_shipment', 'cancel_shipment', 'process_refund');
+    create type queue_action as enum ('create_shipment', 'cancel_shipment', 'process_refund', 'send_cancellation_email');
+  else
+    alter type queue_action add value if not exists 'send_cancellation_email';
   end if;
 end$$;
 
@@ -55,6 +57,10 @@ begin
         'amount', new.total_amount
       ));
     end if;
+
+    -- 3. Queue cancellation email to the customer
+    insert into public.automation_queue (order_id, action_type, payload)
+    values (new.id, 'send_cancellation_email', jsonb_build_object('order_id', new.id));
   end if;
 
   -- SCENARIO B: Order is Returned (After Shipping)

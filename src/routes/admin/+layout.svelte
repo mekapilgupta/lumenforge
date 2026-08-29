@@ -19,6 +19,7 @@
     actions: 0
   });
   let actionChannel: any = null;
+  let badgePollInterval: any = null;
 
   onMount(async () => {
     await authStore.init();

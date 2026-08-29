@@ -539,14 +539,60 @@
           </div>
         {/if}
 
-        <!-- Tracking info -->
-        {#if order.tracking_id}
-          <div class="rounded-2xl p-4 border" style="border-color: var(--color-blush); background: white;">
-            <h3 class="font-semibold text-sm mb-2" style="color: var(--color-text-dark);">Tracking</h3>
-            <p class="font-mono text-sm" style="color: var(--color-blush-deep);">{order.tracking_id}</p>
-            {#if order.tracking_url}
-              <a href={order.tracking_url} target="_blank" rel="noopener" class="text-xs mt-1 block" style="color: var(--color-blush-deep);">Track shipment →</a>
-            {/if}
+        <!-- Shipment & Delivery Tracking -->
+        {#if order.awb_code || order.tracking_id || order.shiprocket_order_id}
+          <div class="rounded-2xl p-4 border animate-fade-in" style="border-color: #f4a7c3; background: #fffdf9;">
+            <div class="flex items-center justify-between mb-3">
+              <h3 class="font-semibold text-sm" style="color: var(--color-text-dark);">🚚 Shipment &amp; Tracking</h3>
+              {#if order.shiprocket_status}
+                <span class="px-2.5 py-0.5 rounded-full text-[11px] font-bold tracking-wide uppercase" style="background: rgba(244, 167, 195, 0.2); color: #b84a62; border: 1px solid rgba(244, 167, 195, 0.4);">
+                  {order.shiprocket_status}
+                </span>
+              {/if}
+            </div>
+
+            <div class="space-y-2.5 text-xs">
+              {#if order.courier_name}
+                <div class="flex justify-between items-center">
+                  <span style="color: var(--color-text-soft);">Courier Partner:</span>
+                  <span class="font-semibold text-sm" style="color: var(--color-text-dark);">{order.courier_name}</span>
+                </div>
+              {/if}
+
+              {#if order.awb_code || order.tracking_id}
+                {@const awb = order.awb_code || order.tracking_id}
+                <div class="flex justify-between items-center">
+                  <span style="color: var(--color-text-soft);">Tracking Number (AWB):</span>
+                  <div class="flex items-center gap-1.5">
+                    <span class="font-mono font-bold text-xs px-2 py-0.5 rounded" style="background: #faf5f0; border: 1px solid #e0d0c5; color: var(--color-text-dark);">
+                      {awb}
+                    </span>
+                  </div>
+                </div>
+              {/if}
+
+              {#if order.estimated_delivery_date}
+                <div class="flex justify-between items-center">
+                  <span style="color: var(--color-text-soft);">Estimated Delivery:</span>
+                  <span class="font-medium" style="color: #2e7d32;">{order.estimated_delivery_date}</span>
+                </div>
+              {/if}
+
+              {#if order.tracking_url || order.awb_code}
+                <div class="pt-2 border-t mt-2" style="border-color: rgba(244, 167, 195, 0.3);">
+                  <a
+                    href={order.tracking_url || `https://shiprocket.co/tracking/${order.awb_code}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    class="w-full flex items-center justify-center gap-2 py-2 px-4 rounded-xl text-xs font-bold text-white transition-transform active:scale-95 shadow-sm"
+                    style="background: linear-gradient(135deg, #ff7f6e 0%, #f4a7c3 100%);"
+                  >
+                    <span>Track Live on Courier Partner</span>
+                    <span>→</span>
+                  </a>
+                </div>
+              {/if}
+            </div>
           </div>
         {/if}
       </div>

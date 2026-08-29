@@ -478,7 +478,19 @@
             <div class="flex items-center gap-2">
               <button onclick={() => quantity = Math.max(1, quantity - 1)} class="w-9 h-9 rounded-full border flex items-center justify-center font-bold transition-all hover:bg-pink-50 active:scale-95" style="border-color: var(--color-blush-deep); color: var(--color-blush-deep);">−</button>
               <span class="w-8 text-center font-semibold">{quantity}</span>
-              <button onclick={() => quantity = quantity + 1} class="w-9 h-9 rounded-full border flex items-center justify-center font-bold transition-all hover:bg-pink-50 active:scale-95" style="border-color: var(--color-blush-deep); color: var(--color-blush-deep);">+</button>
+              <button
+                onclick={() => {
+                  if (quantity < 5) {
+                    quantity = quantity + 1;
+                  } else {
+                    uiStore.addToast('Maximum limit of 5 pairs per item.', 'info');
+                  }
+                }}
+                disabled={quantity >= 5}
+                class="w-9 h-9 rounded-full border flex items-center justify-center font-bold transition-all hover:bg-pink-50 active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed"
+                style="border-color: var(--color-blush-deep); color: var(--color-blush-deep);"
+                title={quantity >= 5 ? 'Maximum 5 pairs allowed per item' : 'Increase quantity'}
+              >+</button>
             </div>
           </div>
 
