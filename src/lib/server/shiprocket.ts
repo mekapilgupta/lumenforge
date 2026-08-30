@@ -576,28 +576,253 @@ async function sendTransactionalEmail(type: string, recipientEmail: string, reci
 }
 
 /**
- * Send Admin Alert Email helper
+ * Create a Reverse Pickup Order on Shiprocket
+ * Endpoint: https://apiv2.shiprocket.in/v1/external/orders/create/return
  */
-async function sendAdminEmail(subject: string, htmlContent: string) {
-  if (!brevoApiKey || ADMIN_EMAILS.length === 0) return;
-  for (const adminEmail of ADMIN_EMAILS) {
-    try {
-      await fetch('https://api.brevo.com/v3/smtp/email', {
-        method: 'POST',
-        headers: {
-          'Accept': 'application/json',
-          'Content-Type': 'application/json',
-          'api-key': brevoApiKey,
-        },
-        body: JSON.stringify({
-          sender: { name: 'French Toes System', email: 'alerts@frenchtoes.in' },
-          to: [{ email: adminEmail, name: 'Admin' }],
-          subject,
-          htmlContent,
-        }),
-      });
-    } catch (e) {
-      console.warn(`[Shiprocket Admin Email] Failed for ${adminEmail}:`, (e as Error).message);
-    }
+export async function createShiprocketReturnOrder(returnId: string): Promise<{ success: boolean; return_order_id?: string; shipment_id?: string; awb?: string; error?: string }> {
+  console.log(`[Shiprocket Return] Initiating reverse pickup for return ID: ${returnId}`);
+
+  // Fetch return record with order and address
+  const { data: ret, error: retErr } = await supabaseAdmin
+    .from('order_returns')
+    .select(`
+      *,
+      order:orders(
+        id,
+        order_number,
+        shipping_address_id,
+        user_id,
+        total_amount,
+        shipping_address:addresses!shipping_address_id(*),
+        items:order_items(*),
+        profile:user_id(full_name, email, phone)
+      )
+    `)
+    .eq('id', returnId)
+    .single();
+
+  if (retErr || !ret) {
+    return { success: false, error: retErr?.message || 'Return record not found' };
   }
+
+  const order = ret.order;
+  const address = order?.shipping_address;
+  const profile = order?.profile;
+
+  const customerName = address?.full_name || profile?.full_name || 'Customer';
+  const add1 = address?.address_line1 || 'No Address Provided';
+  const add2 = address?.address_line2 || '';
+  const city = address?.city || 'Delhi';
+  const state = address?.state || 'Delhi';
+  const pincode = address?.pincode || '110001';
+  const phone = address?.phone || profile?.phone || '9999999999';
+  const email = profile?.email || 'customer@frenchtoes.in';
+
+  const returnItems = (order?.items || []).map((item: any) => ({
+    name: item.product_name || 'French Toes Slipper',
+    sku: item.product_sku || 'FT-ITEM-RETURN',
+    units: item.quantity || 1,
+    selling_price: (item.unit_price || 0) / 100,
+    discount: (item.discount_amount || 0) / 100,
+  }));
+
+  const token = await getShiprocketToken();
+  const returnPayload = {
+    order_id: `RET-${order?.order_number || Date.now()}-${ret.id.substring(0, 4).toUpperCase()}`,
+    order_date: new Date().toISOString().split('T')[0],
+    channel_id: '11173693',
+    pickup_customer_name: customerName,
+    pickup_last_name: '',
+    pickup_address: add1,
+    pickup_address_2: add2,
+    pickup_city: city,
+    pickup_state: state,
+    pickup_country: 'India',
+    pickup_pincode: pincode,
+    pickup_email: email,
+    pickup_phone: phone,
+    pickup_location: 'Primary',
+    shipping_customer_name: 'French Toes Returns Warehouse',
+    shipping_address: 'French Toes Logistics Hub, Primary Warehouse',
+    shipping_city: 'New Delhi',
+    shipping_state: 'Delhi',
+    shipping_country: 'India',
+    shipping_pincode: '110001',
+    shipping_phone: '9999999999',
+    shipping_is_billing: true,
+    order_items: returnItems,
+    sub_total: (order?.total_amount || 79900) / 100,
+    length: 30,
+    breadth: 20,
+    height: 10,
+    weight: 0.8,
+  };
+
+  console.log('[Shiprocket Return] Payload:', JSON.stringify(returnPayload, null, 2));
+
+  const res = await fetch('https://apiv2.shiprocket.in/v1/external/orders/create/return', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(returnPayload),
+  });
+
+  const resData = await res.json();
+  console.log('[Shiprocket Return] Response:', res.status, JSON.stringify(resData, null, 2));
+
+  if (!res.ok || (!resData.order_id && !resData.shipment_id)) {
+    return { success: false, error: resData.message || resData.error || 'Failed to create return order on Shiprocket' };
+  }
+
+  const returnOrderId = String(resData.order_id || '');
+  const shipmentId = String(resData.shipment_id || '');
+  const returnAwb = String(resData.awb_code || shipmentId);
+
+  // Update order_returns in database
+  await supabaseAdmin
+    .from('order_returns')
+    .update({
+      shiprocket_return_order_id: returnOrderId,
+      shiprocket_return_shipment_id: shipmentId,
+      shiprocket_return_awb: returnAwb,
+      shiprocket_return_status: 'PICKUP_SCHEDULED',
+      status: 'pickup_scheduled',
+      pickup_scheduled_for: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', returnId);
+
+  // Log in order_logs
+  await supabaseAdmin
+    .from('order_logs')
+    .insert({
+      order_id: order.id,
+      status: 'pickup_scheduled',
+      note: `Shiprocket reverse pickup created. Return Order ID: ${returnOrderId}, AWB: ${returnAwb}`,
+      created_at: new Date().toISOString(),
+    });
+
+  // Send email to customer
+  if (email) {
+    await sendShiprocketEmail(
+      email,
+      customerName,
+      'Your Return Pickup Has Been Scheduled! 🚚',
+      'order_shipped',
+      {
+        orderNumber: order.order_number,
+        awb: returnAwb,
+        courier: 'Shiprocket Reverse Logistics',
+        trackingUrl: `https://shiprocket.co//tracking/${returnAwb}`,
+      }
+    );
+  }
+
+  return {
+    success: true,
+    return_order_id: returnOrderId,
+    shipment_id: shipmentId,
+    awb: returnAwb,
+  };
 }
+
+/**
+ * Create an Exchange Replacement Forward Order on Shiprocket
+ */
+export async function createShiprocketExchangeOrder(returnId: string): Promise<{ success: boolean; exchange_order_id?: string; error?: string }> {
+  console.log(`[Shiprocket Exchange] Creating forward replacement dispatch for return ID: ${returnId}`);
+
+  const { data: ret, error: retErr } = await supabaseAdmin
+    .from('order_returns')
+    .select(`
+      *,
+      order:orders(
+        id,
+        order_number,
+        shipping_address_id,
+        user_id,
+        shipping_address:addresses!shipping_address_id(*),
+        profile:user_id(full_name, email, phone)
+      )
+    `)
+    .eq('id', returnId)
+    .single();
+
+  if (retErr || !ret) {
+    return { success: false, error: retErr?.message || 'Return record not found' };
+  }
+
+  const order = ret.order;
+  const address = order?.shipping_address;
+  const profile = order?.profile;
+
+  const customerName = address?.full_name || profile?.full_name || 'Customer';
+  const token = await getShiprocketToken();
+
+  const exchangeSize = ret.exchange_size || 'Standard';
+  const exchangeColor = ret.exchange_color || 'Default';
+
+  const payload = {
+    order_id: `EXC-${order?.order_number}-${Date.now().toString().slice(-4)}`,
+    order_date: new Date().toISOString().split('T')[0],
+    pickup_location: 'Primary',
+    channel_id: '11173693',
+    billing_customer_name: customerName,
+    billing_last_name: '',
+    billing_address: address?.address_line1 || '',
+    billing_address_2: address?.address_line2 || '',
+    billing_city: address?.city || 'Delhi',
+    billing_pincode: address?.pincode || '110001',
+    billing_state: address?.state || 'Delhi',
+    billing_country: 'India',
+    billing_email: profile?.email || 'customer@frenchtoes.in',
+    billing_phone: address?.phone || profile?.phone || '9999999999',
+    shipping_is_billing: true,
+    order_items: [
+      {
+        name: `French Toes Exchange Replacement (${exchangeColor} - Size ${exchangeSize})`,
+        sku: `FT-EXC-${exchangeSize}`,
+        units: 1,
+        selling_price: 0,
+        discount: 0,
+      }
+    ],
+    payment_method: 'Prepaid',
+    sub_total: 0,
+    shipping_charges: 0,
+    discount: 0,
+    cod_amount: 0,
+    length: 30,
+    breadth: 20,
+    height: 10,
+    weight: 1.0,
+  };
+
+  const res = await fetch('https://apiv2.shiprocket.in/v1/external/orders/create/adhoc', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(payload),
+  });
+
+  const resData = await res.json();
+  if (!res.ok || !resData.order_id) {
+    return { success: false, error: resData.message || 'Failed to create exchange order on Shiprocket' };
+  }
+
+  await supabaseAdmin
+    .from('order_returns')
+    .update({
+      shiprocket_exchange_order_id: String(resData.order_id),
+      status: 'exchange_shipped',
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', returnId);
+
+  return { success: true, exchange_order_id: String(resData.order_id) };
+}
+

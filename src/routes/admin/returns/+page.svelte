@@ -162,32 +162,72 @@
   // --- ACTIONS ---
 
   async function approveReturn(ret: any) {
-    if (!confirm(`Approve this ${ret.type} request and schedule a Shiprocket pickup?`)) return;
+    if (!confirm(`Approve this ${ret.type} request and schedule automated Shiprocket reverse pickup?`)) return;
     actionLoading = true;
-    const { error: updErr } = await supabase
-      .from("order_returns")
-      .update({ status: "approved", updated_at: new Date().toISOString() })
-      .eq("id", ret.id);
-    if (updErr) {
-      uiStore.addToast("Failed to approve: " + updErr.message, "error");
-      actionLoading = false;
-      return;
-    }
+    uiStore.addToast("Scheduling Shiprocket reverse pickup...", "info");
 
-    const { error: queueErr } = await supabase.from("automation_queue").insert({
-      order_id: ret.order_id,
-      action_type: "create_reverse_pickup",
-      payload: { order_return_id: ret.id },
-    });
-    actionLoading = false;
-    if (queueErr) {
-      uiStore.addToast("Approved, but failed to queue reverse pickup: " + queueErr.message, "error");
-      return;
+    try {
+      const res = await fetch("/api/returns/approve", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ returnId: ret.id, mode: "shiprocket" })
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        uiStore.addToast(data.message, "success");
+        await loadReturns();
+        if (selectedReturn?.id === ret.id) {
+          selectedReturn = {
+            ...selectedReturn,
+            status: "pickup_scheduled",
+            shiprocket_return_awb: data.data?.awb,
+            shiprocket_return_order_id: data.data?.return_order_id
+          };
+        }
+      } else {
+        uiStore.addToast(data.error || "Failed to schedule reverse pickup", "error");
+        if (data.canFallbackToManual) {
+          courierName = "";
+          awbTrackingId = "";
+          showManualPickupModal = true;
+        }
+      }
+    } catch (err: any) {
+      uiStore.addToast("API error: " + err.message, "error");
+    } finally {
+      actionLoading = false;
     }
-    uiStore.addToast("Request approved. Reverse pickup queued with Shiprocket.", "success");
-    await loadReturns();
-    if (selectedReturn?.id === ret.id) {
-      selectedReturn = { ...selectedReturn, status: "approved" };
+  }
+
+  async function dispatchExchangeOrder(ret: any) {
+    if (!confirm(`Dispatch replacement shipment via Shiprocket for ${ret.order?.order_number}?`)) return;
+    actionLoading = true;
+    uiStore.addToast("Creating replacement shipment on Shiprocket...", "info");
+
+    try {
+      const res = await fetch("/api/returns/exchange", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ returnId: ret.id })
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        uiStore.addToast(data.message, "success");
+        await loadReturns();
+        if (selectedReturn?.id === ret.id) {
+          selectedReturn = {
+            ...selectedReturn,
+            status: "exchange_shipped",
+            shiprocket_exchange_order_id: data.exchange_order_id
+          };
+        }
+      } else {
+        uiStore.addToast(data.error || "Failed to dispatch exchange", "error");
+      }
+    } catch (err: any) {
+      uiStore.addToast("Exchange API error: " + err.message, "error");
+    } finally {
+      actionLoading = false;
     }
   }
 
@@ -227,38 +267,32 @@
     }
     const paise = Math.round(rupees * 100);
 
-    if (!ret.order?.razorpay_payment_id) {
-      uiStore.addToast("This order has no Razorpay payment ID on file — cannot auto-refund.", "error");
-      return;
-    }
-
     actionLoading = true;
-    await supabase
-      .from("order_returns")
-      .update({
-        admin_refund_amount: paise,
-        updated_at: new Date().toISOString()
-      })
-      .eq("id", ret.id);
-
-    const { error } = await supabase.from("automation_queue").insert({
-      order_id: ret.order_id,
-      action_type: "process_refund",
-      payload: {
-        razorpay_payment_id: ret.order.razorpay_payment_id,
-        amount: paise,
-        order_return_id: ret.id,
-      },
-    });
-    actionLoading = false;
-    if (error) {
-      uiStore.addToast("Failed to queue refund: " + error.message, "error");
-      return;
-    }
-    uiStore.addToast(`Refund of ₹${rupees} queued via Razorpay.`, "success");
-    await loadReturns();
-    if (selectedReturn?.id === ret.id) {
-      selectedReturn = { ...selectedReturn, admin_refund_amount: paise, status: "refunded" };
+    try {
+      const res = await fetch("/api/admin/refund", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          orderId: ret.order_id,
+          amountPaise: paise,
+          returnId: ret.id,
+          note: `Refund for return #${ret.id.substring(0, 8)}`,
+        })
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        uiStore.addToast(`Refund of ₹${rupees} processed successfully via Razorpay!`, "success");
+        await loadReturns();
+        if (selectedReturn?.id === ret.id) {
+          selectedReturn = { ...selectedReturn, admin_refund_amount: paise, status: "refunded" };
+        }
+      } else {
+        uiStore.addToast(data.error || "Refund failed. Try manual settlement.", "error");
+      }
+    } catch (e: any) {
+      uiStore.addToast("Refund error: " + e.message, "error");
+    } finally {
+      actionLoading = false;
     }
   }
 
@@ -1076,13 +1110,13 @@
                 </button>
               {/if}
 
-              {#if selectedReturn.type === "exchange"}
+              {#if selectedReturn.type === "exchange" || selectedReturn.exchange_size}
                 <button
-                  onclick={() => approveExchangeRequest(selectedReturn)}
+                  onclick={() => dispatchExchangeOrder(selectedReturn)}
                   disabled={actionLoading}
-                  class="px-3 py-2 rounded-xl text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 cursor-pointer"
+                  class="px-3 py-2 rounded-xl text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 cursor-pointer flex items-center gap-1.5"
                 >
-                  Approve Exchange (Create Order)
+                  <span>📦 Dispatch Replacement on Shiprocket</span>
                 </button>
               {/if}
             {/if}
@@ -1090,6 +1124,47 @@
         </div>
       </div>
     </div>
+
+    <!-- Customer COD Refund Info (if submitted) -->
+    {#if selectedReturn.bank_upi_id || selectedReturn.bank_account_no}
+      <div class="rounded-xl p-4 bg-amber-950/30 border border-amber-500/40 space-y-2">
+        <div class="flex items-center justify-between">
+          <h3 class="text-xs font-bold text-amber-300 uppercase tracking-wider">
+            🏦 Customer Refund Details (COD)
+          </h3>
+          <span class="text-[10px] bg-amber-500/20 text-amber-300 px-2 py-0.5 rounded border border-amber-500/30">
+            Payout Info
+          </span>
+        </div>
+        {#if selectedReturn.bank_upi_id}
+          <div class="flex items-center justify-between bg-black/40 p-2.5 rounded-lg border border-white/10">
+            <div>
+              <span class="text-[10px] text-gray-400 block font-semibold">UPI ID</span>
+              <span class="font-mono text-xs text-white font-bold">{selectedReturn.bank_upi_id}</span>
+            </div>
+            <button
+              type="button"
+              onclick={() => { navigator.clipboard.writeText(selectedReturn.bank_upi_id); uiStore.addToast('UPI ID copied!', 'success'); }}
+              class="px-2.5 py-1 rounded bg-amber-600 hover:bg-amber-500 text-[10px] font-bold text-white transition-colors cursor-pointer"
+            >
+              📋 Copy
+            </button>
+          </div>
+        {/if}
+        {#if selectedReturn.bank_account_no}
+          <div class="grid grid-cols-2 gap-2 text-xs text-gray-300 bg-black/40 p-2.5 rounded-lg border border-white/10">
+            <div>
+              <span class="text-[10px] text-gray-400 block font-semibold">Account Number</span>
+              <span class="font-mono text-white font-bold">{selectedReturn.bank_account_no}</span>
+            </div>
+            <div>
+              <span class="text-[10px] text-gray-400 block font-semibold">IFSC Code</span>
+              <span class="font-mono text-white font-bold">{selectedReturn.bank_ifsc || '—'}</span>
+            </div>
+          </div>
+        {/if}
+      </div>
+    {/if}
 
     <!-- Customer info -->
     <div class="rounded-xl p-4 bg-white/5 border border-white/10 space-y-2">
