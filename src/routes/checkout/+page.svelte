@@ -475,9 +475,18 @@
           color: '#f4a7c3',
         },
         modal: {
-          ondismiss: function () {
-            console.log('[Razorpay] Checkout dismissed by user');
+          ondismiss: async function () {
+            console.log('[Razorpay] Checkout dismissed by user without completing payment');
             razorpayLoading = false;
+            if (createData?.dbOrderId) {
+              try {
+                await supabase.from('order_items').delete().eq('order_id', createData.dbOrderId);
+                await supabase.from('orders').delete().eq('id', createData.dbOrderId);
+              } catch (e) {
+                console.warn('[Checkout] Failed to clean up abandoned order row:', e);
+              }
+            }
+            uiStore.addToast('Payment was cancelled. Your cart items are preserved.', 'info');
           },
         },
       };

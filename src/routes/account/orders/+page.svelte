@@ -78,7 +78,14 @@
       uiStore.addToast('Could not load orders: ' + error.message, 'error');
       return;
     }
-    orders = (data ?? []) as Order[];
+    // Filter out abandoned checkout attempts where online payment was never completed
+    const validOrders = (data ?? []).filter((o: any) => {
+      if (o.status === 'pending' && o.payment_method === 'razorpay' && o.payment_status === 'pending') {
+        return false;
+      }
+      return true;
+    });
+    orders = validOrders as Order[];
   }
 
   const filtered = $derived(
