@@ -282,11 +282,11 @@
       <!-- Footer Link to Full Action Center -->
       <div class="p-2.5 border-t border-white/10 text-center bg-white/5">
         <a
-          href="/admin/notifications"
+          href="/admin/actions"
           onclick={() => isOpen = false}
           class="text-xs font-bold text-pink-400 hover:text-pink-300 transition-colors block"
         >
-          View Full Notifications &amp; Action Center →
+          Open Action Center →
         </a>
       </div>
     </div>

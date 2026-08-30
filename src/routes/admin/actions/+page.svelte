@@ -109,18 +109,50 @@
     })
   );
 
+  async function resolveAction(actionId: string) {
+    try {
+      const response = await fetch('/api/admin/actions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action_id: actionId, status: 'resolved' })
+      });
+      if (response.ok) {
+        actions = actions.filter(a => a.id !== actionId);
+        uiStore.addToast('Action resolved and removed from queue ✅', 'success');
+      } else {
+        const result = await response.json();
+        uiStore.addToast('Failed to resolve action: ' + result.error, 'error');
+      }
+    } catch (err: any) {
+      uiStore.addToast('Error: ' + err.message, 'error');
+    }
+  }
+
+  async function resolveAllActions() {
+    try {
+      const promises = actions.map(a => 
+        fetch('/api/admin/actions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action_id: a.id, status: 'resolved' })
+        })
+      );
+      await Promise.all(promises);
+      actions = [];
+      uiStore.addToast('All actions resolved! 🎉', 'success');
+    } catch (err: any) {
+      uiStore.addToast('Failed to resolve all actions: ' + err.message, 'error');
+    }
+  }
+
   async function handleActionClick(action: any) {
     if (!action.seen_at) {
       try {
-        const response = await fetch('/api/admin/actions', {
+        await fetch('/api/admin/actions', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ action_id: action.id, seen: true })
         });
-        if (!response.ok) {
-          const result = await response.json();
-          console.error('Failed to mark action as seen:', result.error);
-        }
       } catch (err: any) {
         console.error('Error marking action as seen:', err.message);
       }
@@ -153,24 +185,38 @@
 
 <div class="flex flex-col gap-6 relative">
   <div class="flex items-center justify-between flex-wrap gap-3">
-    <h1 class="text-2xl font-bold text-white">Action Center</h1>
-    <div class="relative">
-      <svg
-        class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
-        width="14"
-        height="14"
-        fill="none"
-        stroke="currentColor"
-        stroke-width="2"
-        viewBox="0 0 24 24"
-      ><circle cx="11" cy="11" r="8" /><path d="m21 21-4.35-4.35" /></svg>
-      <input
-        bind:value={search}
-        type="search"
-        placeholder="Search action items..."
-        class="pl-9 pr-4 py-2 rounded-xl text-sm outline-none text-white placeholder-gray-500 w-64 focus:ring-1 focus:ring-indigo-500 font-sans"
-        style="background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2);"
-      />
+    <div>
+      <h1 class="text-2xl font-bold text-white">Action Center</h1>
+      <p class="text-xs text-gray-400 mt-1">Pending tasks and critical store events requiring your review.</p>
+    </div>
+    
+    <div class="flex items-center gap-3">
+      {#if actions.length > 0}
+        <button
+          onclick={resolveAllActions}
+          class="px-4 py-2 rounded-xl text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-500 shadow transition-colors cursor-pointer"
+        >
+          ✓ Mark All as Resolved
+        </button>
+      {/if}
+      <div class="relative">
+        <svg
+          class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
+          width="14"
+          height="14"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          viewBox="0 0 24 24"
+        ><circle cx="11" cy="11" r="8" /><path d="m21 21-4.35-4.35" /></svg>
+        <input
+          bind:value={search}
+          type="search"
+          placeholder="Search action items..."
+          class="pl-9 pr-4 py-2 rounded-xl text-sm outline-none text-white placeholder-gray-500 w-64 focus:ring-1 focus:ring-indigo-500 font-sans"
+          style="background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2);"
+        />
+      </div>
     </div>
   </div>
 
@@ -191,8 +237,10 @@
       <div class="w-8 h-8 border-4 rounded-full animate-spin border-gray-600 border-t-indigo-500"></div>
     </div>
   {:else if filteredActions.length === 0}
-    <div class="text-center py-16 rounded-xl" style="background: rgba(255,255,255,0.05);">
-      <p class="text-gray-400 text-sm">No pending actions found in this view</p>
+    <div class="text-center py-16 rounded-xl border border-white/10" style="background: rgba(255,255,255,0.05);">
+      <span class="text-3xl block mb-2">🎉</span>
+      <p class="text-white font-semibold text-sm">All Clear!</p>
+      <p class="text-gray-400 text-xs mt-1">No pending actions found in this view</p>
     </div>
   {:else}
     <div class="rounded-xl overflow-hidden shadow-lg border" style="background: rgba(255,255,255,0.05); border-color: rgba(255,255,255,0.1);">
@@ -205,7 +253,7 @@
               <th class="px-5 py-3.5 text-xs font-semibold tracking-wider uppercase">Type</th>
               <th class="px-5 py-3.5 text-xs font-semibold tracking-wider uppercase">Priority</th>
               <th class="px-5 py-3.5 text-xs font-semibold tracking-wider uppercase">Age</th>
-              <th class="px-5 py-3.5 text-xs font-semibold tracking-wider uppercase">Status</th>
+              <th class="px-5 py-3.5 text-xs font-semibold tracking-wider uppercase text-right">Actions</th>
             </tr>
           </thead>
           <tbody class="divide-y divide-white/5">
@@ -243,8 +291,15 @@
                     <span class="text-[9px] uppercase bg-red-950 text-red-400 px-1 py-0.5 rounded ml-1">Overdue</span>
                   {/if}
                 </td>
-                <td class="px-5 py-4 text-xs text-gray-300">
-                  <span class="capitalize">{action.status.replace('_', ' ')}</span>
+                <td class="px-5 py-4 text-xs text-right">
+                  <button
+                    type="button"
+                    title="Mark as Resolved"
+                    onclick={(e) => { e.stopPropagation(); resolveAction(action.id); }}
+                    class="px-3 py-1.5 rounded-lg bg-emerald-950/60 hover:bg-emerald-800 text-emerald-300 border border-emerald-500/40 text-xs font-bold transition-all cursor-pointer inline-flex items-center gap-1"
+                  >
+                    <span>✓ Resolve</span>
+                  </button>
                 </td>
               </tr>
             {/each}
