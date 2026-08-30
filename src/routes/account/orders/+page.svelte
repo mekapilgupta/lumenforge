@@ -12,100 +12,30 @@
 
   // --- Return/Exchange dialog state ---
   let returnDialogOrder = $state<any>(null);
-  let returnType = $state<'refund' | 'exchange'>('refund');
-  let selectedItems = $state<Record<string, number>>({}); // order_item_id -> qty
-  let reasonCode = $state('changed_mind');
-  let customerNote = $state('');
+  let returnType = $state<'exchange' | 'return'>('exchange');
+  let exchangeSize = $state('6');
+  let returnReason = $state('Size too small / Need larger size');
+  let returnComments = $state('');
+  let returnImages = $state<string[]>([]);
+  let uploadingImage = $state(false);
   let submittingReturn = $state(false);
+  let bankUpiId = $state('');
+  let bankAccountNo = $state('');
+  let bankIfsc = $state('');
+  let bankHolderName = $state('');
 
-  let availableVariants = $state<any[]>([]);
-  let loadingVariants = $state(false);
-  let selectedVariantId = $state<string>('');
-  let exchangePriceDiff = $state(0); // in paise
-  let productBasePrice = $state(0);
-  let activeExchangeProductId = $state<string>('');
-
-  $effect(() => {
-    if (returnType === 'exchange') {
-      const selectedItemIds = Object.keys(selectedItems);
-      if (selectedItemIds.length > 0 && returnDialogOrder) {
-        const firstItem = returnDialogOrder.items.find((it: any) => it.id === selectedItemIds[0]);
-        if (firstItem && firstItem.product_id !== activeExchangeProductId) {
-          activeExchangeProductId = firstItem.product_id;
-          loadVariantsForExchange(firstItem.product_id);
-        }
-      } else {
-        activeExchangeProductId = '';
-        availableVariants = [];
-        selectedVariantId = '';
-        exchangePriceDiff = 0;
-      }
-    } else {
-      activeExchangeProductId = '';
-      availableVariants = [];
-      selectedVariantId = '';
-      exchangePriceDiff = 0;
-    }
-  });
-
-  async function loadVariantsForExchange(productId: string) {
-    loadingVariants = true;
-    const [pRes, vRes] = await Promise.all([
-      supabase.from('products').select('price').eq('id', productId).single(),
-      supabase.from('product_variants').select('*').eq('product_id', productId).gt('stock_quantity', 0)
-    ]);
-    loadingVariants = false;
-    
-    if (pRes.error || vRes.error) {
-      console.error('Error loading product/variants:', pRes.error?.message || vRes.error?.message);
-      return;
-    }
-    
-    productBasePrice = pRes.data?.price ?? 0;
-    availableVariants = vRes.data ?? [];
-    if (availableVariants.length > 0) {
-      selectedVariantId = availableVariants[0].id;
-      calculatePriceDiff();
-    } else {
-      selectedVariantId = '';
-      exchangePriceDiff = 0;
-    }
-  }
-
-  function calculatePriceDiff() {
-    if (!selectedVariantId || !returnDialogOrder) {
-      exchangePriceDiff = 0;
-      return;
-    }
-    const selectedItemIds = Object.keys(selectedItems);
-    if (selectedItemIds.length === 0) {
-      exchangePriceDiff = 0;
-      return;
-    }
-    const firstItem = returnDialogOrder.items.find((it: any) => it.id === selectedItemIds[0]);
-    if (!firstItem) {
-      exchangePriceDiff = 0;
-      return;
-    }
-
-    const variant = availableVariants.find(v => v.id === selectedVariantId);
-    if (!variant) {
-      exchangePriceDiff = 0;
-      return;
-    }
-
-    const newPrice = productBasePrice + (variant.price_adjustment ?? 0);
-    const oldPrice = firstItem.unit_price;
-    exchangePriceDiff = newPrice - oldPrice;
-  }
-
-  const REASONS = [
-    { id: 'damaged', label: 'Item arrived damaged' },
-    { id: 'wrong_item', label: 'Wrong item received' },
-    { id: 'size_issue', label: "Size / fit issue" },
-    { id: 'quality_issue', label: 'Not as described / quality issue' },
-    { id: 'changed_mind', label: 'Changed my mind' },
-    { id: 'other', label: 'Other' },
+  const SIZE_OPTIONS = ['4', '5', '6', '7', '8', '36', '37', '38', '39', '40', '41', '42'];
+  const EXCHANGE_REASONS = [
+    'Size too small / Need larger size',
+    'Size too large / Need smaller size',
+    'Different color / variant preferred',
+    'Defective / Damaged pair received',
+  ];
+  const RETURN_REASONS = [
+    'Size issue & preferred replacement unavailable',
+    'Defective or damaged product',
+    'Quality not as expected',
+    'Received wrong product',
   ];
 
   const RETURN_STATUS_LABEL: Record<string, string> = {
@@ -131,31 +61,23 @@
   ];
 
   onMount(async () => {
-    console.log('[My Orders Page] onMount starting...');
     await authStore.init();
-    console.log('[My Orders Page] authStore initialized. user:', authStore.user);
     if (authStore.user) {
       await loadOrders();
-    } else {
-      console.warn('[My Orders Page] No authenticated user found after authStore.init()!');
     }
     loading = false;
-    console.log('[My Orders Page] loading set to false. orders count:', orders.length);
   });
 
   async function loadOrders() {
-    console.log('[My Orders Page] loadOrders: fetching orders for user:', authStore.user!.id);
     const { data, error } = await supabase
       .from('orders')
       .select('*, items:order_items(*), returns:order_returns!order_id(*), shipping_address:addresses!shipping_address_id(*)')
       .eq('user_id', authStore.user!.id)
       .order('created_at', { ascending: false });
     if (error) {
-      console.error('[My Orders Page] loadOrders error:', error);
       uiStore.addToast('Could not load orders: ' + error.message, 'error');
       return;
     }
-    console.log('[My Orders Page] loadOrders success. data:', data);
     orders = (data ?? []) as Order[];
   }
 
@@ -179,89 +101,117 @@
     }
   }
 
-  // Most recent non-rejected return thread for an order (there's only ever
-  // one active thread per order, enforced by a DB constraint).
   function activeReturn(order: any) {
     return (order.returns ?? []).find((r: any) => r.status !== 'rejected') ??
       (order.returns ?? []).slice(-1)[0] ?? null;
   }
 
+  function isEligibleForReturn(order: any) {
+    if (order.status !== 'delivered') return { eligible: false, daysLeft: 0, expired: false };
+    const deliveryTime = order.delivered_at ? new Date(order.delivered_at).getTime() : 0;
+    if (!deliveryTime) return { eligible: true, daysLeft: 5, expired: false };
+    const daysSince = Math.floor((Date.now() - deliveryTime) / (1000 * 60 * 60 * 24));
+    if (daysSince <= 5) {
+      return { eligible: true, daysLeft: Math.max(0, 5 - daysSince), expired: false };
+    }
+    return { eligible: false, daysLeft: 0, expired: true };
+  }
+
   function openReturnDialog(order: any) {
     returnDialogOrder = order;
-    returnType = 'refund';
-    selectedItems = {};
-    reasonCode = 'changed_mind';
-    customerNote = '';
-    availableVariants = [];
-    selectedVariantId = '';
-    exchangePriceDiff = 0;
+    returnType = 'exchange';
+    exchangeSize = '6';
+    returnReason = EXCHANGE_REASONS[0];
+    returnComments = '';
+    returnImages = [];
+    bankUpiId = '';
+    bankAccountNo = '';
+    bankIfsc = '';
+    bankHolderName = '';
   }
 
   function closeReturnDialog() {
     returnDialogOrder = null;
   }
 
-  function toggleItem(item: any, checked: boolean) {
-    const next = { ...selectedItems };
-    if (checked) next[item.id] = 1;
-    else delete next[item.id];
-    selectedItems = next;
-    if (returnType === 'exchange') {
-      calculatePriceDiff();
-    }
-  }
-
-  function setQty(itemId: string, qty: number, max: number) {
-    selectedItems = { ...selectedItems, [itemId]: Math.max(1, Math.min(qty, max)) };
-    if (returnType === 'exchange') {
-      calculatePriceDiff();
+  async function handleReturnImageUpload(e: Event) {
+    const target = e.target as HTMLInputElement;
+    const files = target.files;
+    if (!files || files.length === 0) return;
+    
+    uploadingImage = true;
+    try {
+      const formData = new FormData();
+      for (let i = 0; i < files.length; i++) {
+        formData.append('images', files[i]);
+      }
+      const res = await fetch('/api/admin/upload-image', {
+        method: 'POST',
+        body: formData
+      });
+      const data = await res.json();
+      if (data.success && data.urls) {
+        returnImages = [...returnImages, ...data.urls];
+        uiStore.addToast('Photo uploaded successfully', 'success');
+      } else {
+        uiStore.addToast(data.error || 'Failed to upload photo', 'error');
+      }
+    } catch (err: any) {
+      uiStore.addToast(err.message || 'Upload failed', 'error');
+    } finally {
+      uploadingImage = false;
     }
   }
 
   async function submitReturn() {
-    if (!returnDialogOrder) return;
-    const itemIds = Object.keys(selectedItems);
-    if (itemIds.length === 0) {
-      uiStore.addToast('Select at least one item.', 'error');
+    if (!returnDialogOrder || submittingReturn) return;
+    if (returnType === 'exchange' && !exchangeSize) {
+      uiStore.addToast('Please select your desired exchange size', 'error');
       return;
     }
-
-    const items = returnDialogOrder.items
-      .filter((it: any) => selectedItems[it.id])
-      .map((it: any) => ({
-        order_item_id: it.id,
-        product_name: it.product_name,
-        sku: it.sku ?? null,
-        quantity: selectedItems[it.id],
-        unit_price: it.unit_price,
-      }));
-
-    const requestedRefundAmount = items.reduce((sum: number, it: any) => sum + it.unit_price * it.quantity, 0);
-    const priceDiffRupees = returnType === 'exchange' ? (exchangePriceDiff / 100) : 0;
-    const requestedVariantId = returnType === 'exchange' ? selectedVariantId : null;
+    if (!returnReason) {
+      uiStore.addToast('Please select a reason', 'error');
+      return;
+    }
+    if (returnType === 'return' && returnDialogOrder.payment_method === 'cod' && !bankUpiId.trim() && !bankAccountNo.trim()) {
+      uiStore.addToast('Please provide your UPI ID or Bank Details for the COD cash balance refund', 'error');
+      return;
+    }
 
     submittingReturn = true;
-    const { error } = await supabase.from('order_returns').insert({
-      order_id: returnDialogOrder.id,
-      customer_id: authStore.user!.id,
-      type: returnType,
-      items,
-      reason_code: reasonCode,
-      customer_note: customerNote || null,
-      requested_refund_amount: requestedRefundAmount,
-      requested_variant_id: requestedVariantId,
-      price_difference: priceDiffRupees
-    });
-    submittingReturn = false;
-
-    if (error) {
-      uiStore.addToast('Could not submit request: ' + error.message, 'error');
-      return;
+    try {
+      const res = await fetch('/api/returns/create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          orderId: returnDialogOrder.id,
+          userId: authStore.user!.id,
+          type: returnType,
+          reason: returnReason,
+          comments: returnComments,
+          images: returnImages,
+          exchangeSize: returnType === 'exchange' ? exchangeSize : null,
+          bankDetails: {
+            upiId: bankUpiId.trim(),
+            accountNo: bankAccountNo.trim(),
+            ifsc: bankIfsc.trim().toUpperCase(),
+            holderName: bankHolderName.trim(),
+          }
+        })
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        uiStore.addToast(data.message, 'success');
+        closeReturnDialog();
+        await loadOrders();
+      } else {
+        uiStore.addToast(data.error || 'Failed to submit request', 'error');
+      }
+    } catch (err: any) {
+      uiStore.addToast(err.message || 'Network error', 'error');
+    } finally {
+      submittingReturn = false;
     }
-
-    uiStore.addToast('Your request has been submitted. We\'ll review it shortly.', 'success');
-    closeReturnDialog();
-    await loadOrders();
   }
 </script>
 
@@ -410,16 +360,24 @@
             </div>
           </div>
 
-          <!-- Return/Exchange entry point — gated strictly on delivered + no active thread -->
+          <!-- Return/Exchange entry point — strictly gated on delivered + 5-day window -->
           {#if order.status === 'delivered' && !ret}
+            {@const elig = isEligibleForReturn(order)}
             <div class="px-5 pb-4">
-              <button
-                onclick={() => openReturnDialog(order)}
-                class="w-full py-2 rounded-xl text-xs font-semibold border transition-all"
-                style="border-color: var(--color-blush-deep); color: var(--color-blush-deep);"
-              >
-                Request Return or Exchange
-              </button>
+              {#if elig.eligible}
+                <button
+                  onclick={() => openReturnDialog(order)}
+                  class="w-full py-2.5 rounded-xl text-xs font-bold text-white transition-all shadow-sm flex items-center justify-center gap-1.5 active:scale-95 cursor-pointer"
+                  style="background: linear-gradient(135deg, #ec4899 0%, #f43f5e 100%);"
+                >
+                  <span>🔄 Exchange / Return</span>
+                  <span class="text-[10px] opacity-90">({elig.daysLeft}d left)</span>
+                </button>
+              {:else}
+                <div class="w-full py-2 rounded-xl text-xs font-medium text-center bg-gray-50 text-gray-500 border border-gray-200">
+                  🔒 Return &amp; Exchange Window Closed (5-day limit passed)
+                </div>
+              {/if}
             </div>
           {/if}
         </div>
@@ -428,101 +386,192 @@
   {/if}
 </div>
 
-<!-- Return/Exchange dialog -->
+<!-- Return/Exchange Modern Modal -->
 {#if returnDialogOrder}
   <!-- svelte-ignore a11y_click_events_have_key_events -->
-  <div class="fixed inset-0 bg-black/50 z-40" onclick={closeReturnDialog} role="button" tabindex="0" aria-label="Close"></div>
-  <div class="fixed inset-x-4 top-1/2 -translate-y-1/2 md:inset-x-auto md:left-1/2 md:-translate-x-1/2 md:w-full md:max-w-lg bg-white rounded-2xl p-6 z-50 shadow-2xl max-h-[85vh] overflow-y-auto flex flex-col gap-4">
-    <h3 class="font-display text-lg font-bold" style="color: var(--color-text-dark);">Request Return or Exchange</h3>
-    <p class="text-xs" style="color: var(--color-text-soft);">Order {returnDialogOrder.order_number}</p>
-
-    <div class="flex flex-col gap-2">
-      <p class="text-xs font-semibold" style="color: var(--color-text-dark);">Select item(s)</p>
-      {#each returnDialogOrder.items as item}
-        <label class="flex items-center gap-3 p-2 rounded-lg border" style="border-color: var(--color-blush);">
-          <input type="checkbox" checked={!!selectedItems[item.id]} onchange={(e) => toggleItem(item, e.currentTarget.checked)} />
-          <span class="flex-1 text-xs" style="color: var(--color-text-dark);">{item.product_name}</span>
-          {#if selectedItems[item.id]}
-            <input
-              type="number" min="1" max={item.quantity}
-              value={selectedItems[item.id]}
-              oninput={(e) => setQty(item.id, Number(e.currentTarget.value), item.quantity)}
-              class="w-14 text-xs border rounded px-1 py-0.5"
-              style="border-color: var(--color-blush);"
-            />
-            <span class="text-[10px]" style="color: var(--color-text-soft);">/ {item.quantity}</span>
-          {/if}
-        </label>
-      {/each}
-    </div>
-
-    <div class="flex gap-3">
-      <label class="flex items-center gap-1.5 text-xs">
-        <input type="radio" name="return_type" value="refund" checked={returnType === 'refund'} onchange={() => returnType = 'refund'} />
-        Refund
-      </label>
-      <label class="flex items-center gap-1.5 text-xs">
-        <input type="radio" name="return_type" value="exchange" checked={returnType === 'exchange'} onchange={() => returnType = 'exchange'} />
-        Exchange for replacement
-      </label>
-    </div>
-
-    {#if returnType === 'exchange'}
-      <div class="flex flex-col gap-2 p-3 bg-pink-50/20 rounded-xl border border-pink-100/30">
-        <p class="text-xs font-semibold text-gray-700">Choose Replacement Variant</p>
-        {#if loadingVariants}
-          <p class="text-xs text-gray-500 animate-pulse">Loading available options...</p>
-        {:else if availableVariants.length === 0}
-          <p class="text-xs text-red-500 font-medium">Sorry, no other variants of this product have stock currently.</p>
-        {:else}
-          <select 
-            bind:value={selectedVariantId} 
-            onchange={calculatePriceDiff}
-            class="text-xs border rounded-lg px-2 py-1.5 bg-white outline-none"
-            style="border-color: var(--color-blush); color: var(--color-text-dark);"
-          >
-            {#each availableVariants as v}
-              <option value={v.id}>
-                Size: {v.size} / Color: {v.color} 
-                ({v.stock_quantity} left) 
-                {#if (productBasePrice + (v.price_adjustment ?? 0)) !== productBasePrice}
-                  — ₹{((productBasePrice + (v.price_adjustment ?? 0)) / 100).toFixed(0)}
-                {/if}
-              </option>
-            {/each}
-          </select>
-          
-          <div class="flex justify-between items-center mt-2 text-xs">
-            <span class="text-gray-600">Price difference:</span>
-            <span class="font-bold {exchangePriceDiff > 0 ? 'text-red-500' : exchangePriceDiff < 0 ? 'text-green-600' : 'text-gray-700'}">
-              {exchangePriceDiff > 0 ? `You pay ₹${(exchangePriceDiff / 100).toFixed(0)}` : 
-               exchangePriceDiff < 0 ? `Refund ₹${(Math.abs(exchangePriceDiff) / 100).toFixed(0)}` : 
-               'No difference'}
-            </span>
-          </div>
-        {/if}
+  <div
+    class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm"
+    onclick={closeReturnDialog}
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="return-list-modal-title"
+  >
+    <div
+      class="w-full max-w-lg bg-white rounded-3xl overflow-hidden shadow-2xl transition-all border border-pink-100 flex flex-col p-6 max-h-[90vh] overflow-y-auto text-left"
+      onclick={(e) => e.stopPropagation()}
+    >
+      <div class="flex items-center justify-between pb-3 border-b border-pink-100 mb-4">
+        <div>
+          <h3 id="return-list-modal-title" class="font-display font-bold text-xl text-gray-900">Exchange or Return 🌸</h3>
+          <p class="text-xs text-gray-500 mt-0.5 font-mono">Order #{returnDialogOrder.order_number}</p>
+        </div>
+        <button onclick={closeReturnDialog} class="text-gray-400 hover:text-gray-600 text-lg cursor-pointer">✕</button>
       </div>
-    {/if}
 
-    <div class="flex flex-col gap-1">
-      <label class="text-xs font-semibold" style="color: var(--color-text-dark);" for="reason">Reason</label>
-      <select id="reason" bind:value={reasonCode} class="text-xs border rounded-lg px-2 py-1.5" style="border-color: var(--color-blush);">
-        {#each REASONS as r}
-          <option value={r.id}>{r.label}</option>
-        {/each}
-      </select>
-    </div>
+      <!-- Type Selector Tabs -->
+      <div class="grid grid-cols-2 p-1 rounded-2xl bg-pink-50 border border-pink-200 mb-5">
+        <button
+          type="button"
+          onclick={() => { returnType = 'exchange'; returnReason = EXCHANGE_REASONS[0]; }}
+          class="py-2.5 px-3 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer {returnType === 'exchange' ? 'bg-white shadow-sm text-pink-700' : 'text-gray-600'}"
+        >
+          <span>🔄 Exchange Size</span>
+          <span class="text-[9px] bg-pink-100 text-pink-700 px-1.5 py-0.5 rounded-full font-semibold">Recommended</span>
+        </button>
+        <button
+          type="button"
+          onclick={() => { returnType = 'return'; returnReason = RETURN_REASONS[0]; }}
+          class="py-2.5 px-3 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer {returnType === 'return' ? 'bg-white shadow-sm text-pink-700' : 'text-gray-600'}"
+        >
+          <span>💸 Return &amp; Refund</span>
+        </button>
+      </div>
 
-    <div class="flex flex-col gap-1">
-      <label class="text-xs font-semibold" style="color: var(--color-text-dark);" for="note">Additional notes (optional)</label>
-      <textarea id="note" bind:value={customerNote} rows="2" class="text-xs border rounded-lg px-2 py-1.5" style="border-color: var(--color-blush);"></textarea>
-    </div>
+      <!-- Exchange Form -->
+      {#if returnType === 'exchange'}
+        <div class="space-y-4">
+          <div>
+            <label class="block text-xs font-bold text-gray-700 mb-2">Select Your Preferred Replacement Size *</label>
+            <div class="flex flex-wrap gap-2">
+              {#each SIZE_OPTIONS as s}
+                <button
+                  type="button"
+                  onclick={() => exchangeSize = s}
+                  class="px-3.5 py-2 rounded-xl text-xs font-bold border transition-all cursor-pointer {exchangeSize === s ? 'bg-pink-600 text-white border-pink-600 shadow-sm' : 'bg-gray-50 border-gray-200 text-gray-700 hover:bg-pink-50'}"
+                >
+                  Size {s}
+                </button>
+              {/each}
+            </div>
+          </div>
 
-    <div class="flex gap-3 mt-2">
-      <button onclick={closeReturnDialog} class="flex-1 py-2 rounded-xl text-xs font-semibold border" style="border-color: var(--color-blush);">Cancel</button>
-      <button onclick={submitReturn} disabled={submittingReturn} class="flex-1 py-2 rounded-xl text-xs font-semibold text-white disabled:opacity-50" style="background: var(--color-blush-deep);">
-        {submittingReturn ? 'Submitting...' : 'Submit Request'}
-      </button>
+          <div>
+            <label for="exchange-reason-select-list" class="block text-xs font-bold text-gray-700 mb-1.5">Reason for exchange *</label>
+            <select
+              id="exchange-reason-select-list"
+              bind:value={returnReason}
+              class="w-full px-3 py-2.5 rounded-xl border text-xs bg-white outline-none focus:border-pink-500 border-pink-200"
+            >
+              {#each EXCHANGE_REASONS as r}
+                <option value={r}>{r}</option>
+              {/each}
+            </select>
+          </div>
+        </div>
+      {:else}
+        <!-- Return Form -->
+        <div class="space-y-4">
+          <div>
+            <label for="return-reason-select-list" class="block text-xs font-bold text-gray-700 mb-1.5">Reason for return *</label>
+            <select
+              id="return-reason-select-list"
+              bind:value={returnReason}
+              class="w-full px-3 py-2.5 rounded-xl border text-xs bg-white outline-none focus:border-pink-500 border-pink-200"
+            >
+              {#each RETURN_REASONS as r}
+                <option value={r}>{r}</option>
+              {/each}
+            </select>
+          </div>
+
+          <!-- COD Bank / UPI Payout Info -->
+          {#if returnDialogOrder.payment_method === 'cod'}
+            <div class="p-3.5 rounded-2xl bg-amber-50/70 border border-amber-200 space-y-3">
+              <div class="flex items-center gap-1.5">
+                <span class="text-sm">🏦</span>
+                <p class="text-xs font-bold text-amber-900">Refund Destination (For Cash on Delivery Balance)</p>
+              </div>
+              <p class="text-[11px] text-amber-800">
+                Your ₹50 advance will be refunded to original payment mode. Please enter your UPI ID or Bank details below for the remaining cash balance refund:
+              </p>
+              <div>
+                <label for="bank-upi-input-list" class="block text-[11px] font-semibold text-gray-700 mb-1">UPI ID (e.g. yourname@okhdfcbank, yourname@paytm)</label>
+                <input
+                  id="bank-upi-input-list"
+                  type="text"
+                  bind:value={bankUpiId}
+                  placeholder="e.g. mobile@upi or name@okaxis"
+                  class="w-full px-3 py-2 rounded-xl border text-xs bg-white outline-none focus:border-pink-500 border-gray-300"
+                />
+              </div>
+              <div class="grid grid-cols-2 gap-2 pt-1 border-t border-amber-200/60">
+                <div>
+                  <label for="bank-acc-input-list" class="block text-[10px] font-semibold text-gray-700 mb-1">Or Bank Account Number</label>
+                  <input
+                    id="bank-acc-input-list"
+                    type="text"
+                    bind:value={bankAccountNo}
+                    placeholder="Account No"
+                    class="w-full px-2.5 py-1.5 rounded-xl border text-xs bg-white outline-none focus:border-pink-500 border-gray-300"
+                  />
+                </div>
+                <div>
+                  <label for="bank-ifsc-input-list" class="block text-[10px] font-semibold text-gray-700 mb-1">Bank IFSC Code</label>
+                  <input
+                    id="bank-ifsc-input-list"
+                    type="text"
+                    bind:value={bankIfsc}
+                    placeholder="e.g. HDFC0001234"
+                    class="w-full px-2.5 py-1.5 rounded-xl border text-xs bg-white outline-none uppercase focus:border-pink-500 border-gray-300 font-mono"
+                  />
+                </div>
+              </div>
+            </div>
+          {/if}
+        </div>
+      {/if}
+
+      <!-- Upload photo evidence -->
+      <div class="mt-4 pt-3 border-t border-pink-100">
+        <label class="block text-xs font-bold text-gray-700 mb-1.5">Add Photos of Product (Optional / Recommended)</label>
+        <div class="flex items-center gap-3 flex-wrap">
+          <label class="px-3.5 py-2 rounded-xl text-xs font-semibold border border-pink-300 bg-pink-50 text-pink-700 hover:bg-pink-100 cursor-pointer transition-colors shrink-0">
+            {uploadingImage ? 'Uploading...' : '📷 Upload Photo'}
+            <input type="file" accept="image/*" multiple onchange={handleReturnImageUpload} disabled={uploadingImage} class="hidden" />
+          </label>
+          {#each returnImages as img, idx}
+            <div class="relative w-12 h-12 rounded-lg overflow-hidden border border-pink-200">
+              <img src={img} alt="Evidence" class="w-full h-full object-cover" />
+              <button
+                type="button"
+                onclick={() => returnImages = returnImages.filter((_, i) => i !== idx)}
+                class="absolute top-0 right-0 bg-black/60 text-white text-[10px] w-4 h-4 flex items-center justify-center rounded-bl cursor-pointer"
+              >✕</button>
+            </div>
+          {/each}
+        </div>
+      </div>
+
+      <!-- Comments -->
+      <div class="mt-3">
+        <label for="return-comments-input-list" class="block text-xs font-bold text-gray-700 mb-1">Additional Comments (Optional)</label>
+        <textarea
+          id="return-comments-input-list"
+          bind:value={returnComments}
+          placeholder="Tell us what went wrong..."
+          rows="2"
+          class="w-full px-3 py-2 rounded-xl border text-xs outline-none resize-none focus:border-pink-500 border-pink-200"
+        ></textarea>
+      </div>
+
+      <div class="flex gap-3 mt-5 pt-3 border-t border-pink-100">
+        <button
+          type="button"
+          onclick={closeReturnDialog}
+          class="flex-1 py-3 rounded-full text-xs font-bold border border-gray-300 text-gray-600 hover:bg-gray-50 cursor-pointer"
+        >
+          Cancel
+        </button>
+        <button
+          type="button"
+          onclick={submitReturn}
+          disabled={submittingReturn || uploadingImage}
+          class="flex-1 py-3 rounded-full text-xs font-bold text-white shadow-md active:scale-95 disabled:opacity-50 cursor-pointer"
+          style="background: linear-gradient(135deg, #ec4899 0%, #f43f5e 100%);"
+        >
+          {submittingReturn ? 'Submitting...' : returnType === 'exchange' ? 'Confirm Size Exchange' : 'Submit Return Request'}
+        </button>
+      </div>
     </div>
   </div>
 {/if}
