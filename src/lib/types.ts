@@ -81,6 +81,7 @@ export interface SupabaseProduct {
   category_name: string | null;
   category_slug: string | null;
   images: SupabaseProductImage[] | null;
+  thumbnail_url?: string | null;
   colors: SupabaseProductColor[] | null;
   sizes: string[] | null;
   stock_quantity: number;
