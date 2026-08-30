@@ -13,12 +13,15 @@
     orders: number;
     returns: number;
     actions: number;
+    notifications: number;
   }>({
     orders: 0,
     returns: 0,
-    actions: 0
+    actions: 0,
+    notifications: 0
   });
   let actionChannel: any = null;
+  let notifChannel: any = null;
   let badgePollInterval: any = null;
 
   onMount(async () => {
@@ -51,23 +54,37 @@
         }
       )
       .subscribe();
+
+    // Realtime channel for admin notifications
+    notifChannel = supabase
+      .channel('admin-layout-notifications')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'admin_notifications' },
+        () => {
+          loadBadgeCounts();
+        }
+      )
+      .subscribe();
   });
 
   onDestroy(() => {
     if (badgePollInterval) clearInterval(badgePollInterval);
     if (actionChannel) supabase.removeChannel(actionChannel);
+    if (notifChannel) supabase.removeChannel(notifChannel);
   });
 
   async function loadBadgeCounts() {
     try {
-      const response = await fetch('/api/admin/actions');
-      const result = await response.json();
-      if (!response.ok) {
-        console.warn('Failed to fetch pending actions counts:', result.error || response.statusText);
-        return;
-      }
+      const [actionsRes, notifsRes] = await Promise.all([
+        fetch('/api/admin/actions'),
+        fetch('/api/admin/notifications?unreviewed=true')
+      ]);
 
-      const actions = result.actions ?? [];
+      const actionsResult = await actionsRes.json();
+      const notifsResult = await notifsRes.json();
+
+      const actions = actionsResult.actions ?? [];
       let ordersCount = 0;
       let returnsCount = 0;
       let actionsCount = actions.length;
@@ -83,7 +100,8 @@
       pendingCounts = {
         orders: ordersCount,
         returns: returnsCount,
-        actions: actionsCount
+        actions: actionsCount,
+        notifications: notifsResult.unreviewedCount ?? 0
       };
     } catch (e) {
       console.warn('Failed to fetch badge counts:', e);
@@ -94,6 +112,7 @@
 
   const sidebarLinks = [
     { href: '/admin', label: 'Dashboard', icon: 'M3 3h7v7H3zM14 3h7v7h-7zM14 14h7v7h-7zM3 14h7v7H3z' },
+    { href: '/admin/notifications', label: 'Notifications & Alerts', icon: 'M15 17h5l-1.405-1.405A2.032 2.032 0 0 1 18 14.158V11a6.002 6.002 0 0 0-4-5.659V5a2 2 0 1 0-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 1 1-6 0v-1m6 0H9' },
     { href: '/admin/actions', label: 'Action Center', icon: 'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2' },
     { href: '/admin/orders', label: 'Orders', icon: 'M9 12h6M9 16h6M17 21H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7l5 5v11a2 2 0 0 1-2 2z' },
     { href: '/admin/returns', label: 'Returns & Exchanges', icon: 'M9 15L3 9m0 0l6-6M3 9h12a6 6 0 0 1 0 12h-3' },
@@ -128,7 +147,8 @@
     <!-- Nav links -->
     <nav class="flex-1 py-4 flex flex-col gap-1 px-3">
       {#each sidebarLinks as link}
-        {@const count = link.href === '/admin/actions' ? pendingCounts.actions :
+        {@const count = link.href === '/admin/notifications' ? pendingCounts.notifications :
+                        link.href === '/admin/actions' ? pendingCounts.actions :
                         link.href === '/admin/orders' ? pendingCounts.orders :
                         link.href === '/admin/returns' ? pendingCounts.returns : 0}
         <a
