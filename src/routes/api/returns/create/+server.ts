@@ -1,6 +1,7 @@
 export const prerender = false;
 import { json } from '@sveltejs/kit';
 import { supabaseAdmin } from '$lib/server/shiprocket';
+import { createAdminNotification } from '$lib/server/notifications';
 
 export async function POST({ request }) {
   try {
@@ -115,6 +116,15 @@ export async function POST({ request }) {
         note: `Customer submitted a ${type.toUpperCase()} request. Reason: ${reason}. ${exchangeSize ? `Requested Size: ${exchangeSize}` : ''}`,
         created_at: new Date().toISOString(),
       });
+
+    // 7. Trigger Admin Notification
+    await createAdminNotification({
+      type: type === 'exchange' ? 'exchange_requested' : 'return_requested',
+      title: `${type === 'exchange' ? 'Exchange' : 'Return'} Requested: #${order.order_number}`,
+      message: `Customer requested a ${type} for order #${order.order_number}. Reason: ${reason}.${exchangeSize ? ` Replacement Size: ${exchangeSize}` : ''}`,
+      link_url: `/admin/returns`,
+      reference_id: newReturn.id,
+    });
 
     return json({
       success: true,

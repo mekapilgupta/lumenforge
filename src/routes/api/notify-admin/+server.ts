@@ -1,6 +1,7 @@
 export const prerender = false;
 import { json } from '@sveltejs/kit';
 import { env } from '$env/dynamic/private';
+import { createAdminNotification } from '$lib/server/notifications';
 
 const ADMIN_EMAILS = ["kapilgupta@duck.com", "hello@frenchtoes.in", "FRENCHTOESAPPARELS@GMAIL.COM"];
 
@@ -156,8 +157,24 @@ export async function POST({ request }) {
             }
         }
 
+        // Persist notification to admin_notifications table
+        const notifType = eventType === 'Checkout' ? 'new_order' : eventType === 'Signup' ? 'system_alert' : 'system_alert';
+        const notifTitle = eventType === 'Checkout' ? `New Order #${details?.orderNumber || 'N/A'}` : `New User Signup: ${details?.email || 'N/A'}`;
+        const notifMsg = eventType === 'Checkout' 
+            ? `Order #${details?.orderNumber} placed by ${details?.customerName || 'Customer'} for ₹${details?.amount?.toLocaleString('en-IN') || '0'} via ${details?.paymentMethod || 'Razorpay'}.`
+            : `User ${details?.email || 'N/A'} created an account.`;
+        const linkUrl = eventType === 'Checkout' ? `/admin/orders` : `/admin`;
+
+        await createAdminNotification({
+            type: notifType,
+            title: notifTitle,
+            message: notifMsg,
+            link_url: linkUrl,
+            reference_id: details?.orderNumber || details?.userId || null,
+        });
+
         const successCount = results.filter(r => r.success).length;
-        if (successCount === 0) {
+        if (successCount === 0 && results.length > 0) {
             return json({ error: 'Failed to send notification to any admin', results }, { status: 500 });
         }
 

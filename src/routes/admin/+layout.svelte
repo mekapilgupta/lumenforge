@@ -90,9 +90,12 @@
     }
   }
 
+  import AdminNotificationBell from '$lib/components/admin/AdminNotificationBell.svelte';
+
   const sidebarLinks = [
     { href: '/admin', label: 'Dashboard', icon: 'M3 3h7v7H3zM14 3h7v7h-7zM14 14h7v7h-7zM3 14h7v7H3z' },
-    { href: '/admin/actions', label: 'Action Center', icon: 'M15 17h5l-1.405-1.405A2.032 2.032 0 0 1 18 14.158V11a6.002 6.002 0 0 0-4-5.659V5a2 2 0 1 0-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 1 1-6 0v-1m6 0H9' },
+    { href: '/admin/notifications', label: 'Notifications & Alerts', icon: 'M15 17h5l-1.405-1.405A2.032 2.032 0 0 1 18 14.158V11a6.002 6.002 0 0 0-4-5.659V5a2 2 0 1 0-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 1 1-6 0v-1m6 0H9' },
+    { href: '/admin/actions', label: 'Action Center', icon: 'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2' },
     { href: '/admin/orders', label: 'Orders', icon: 'M9 12h6M9 16h6M17 21H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7l5 5v11a2 2 0 0 1-2 2z' },
     { href: '/admin/returns', label: 'Returns & Exchanges', icon: 'M9 15L3 9m0 0l6-6M3 9h12a6 6 0 0 1 0 12h-3' },
     { href: '/admin/products', label: 'Products', icon: 'M20 7H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2zM12 12a2 2 0 1 0 0-4 2 2 0 0 0 0 4z' },
@@ -169,13 +172,18 @@
     <!-- Top bar -->
     <header class="flex items-center justify-between px-6 py-4 border-b" style="border-color: rgba(255,255,255,0.1); background: rgba(255,255,255,0.05);">
       <h1 class="font-display text-xl font-bold text-white">French Toes Admin</h1>
-      <div class="flex items-center gap-3">
-        <div class="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold" style="background: var(--color-blush-deep);">
-          {authStore.initials}
+      <div class="flex items-center gap-4">
+        <!-- Live Notifications Bell -->
+        <AdminNotificationBell />
+
+        <div class="flex items-center gap-3 pl-3 border-l border-white/10">
+          <div class="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold" style="background: var(--color-blush-deep);">
+            {authStore.initials}
+          </div>
+          <span class="text-sm font-medium hidden md:block text-gray-400">
+            {authStore.profile?.full_name ?? authStore.user?.email ?? 'Admin'}
+          </span>
         </div>
-        <span class="text-sm font-medium hidden md:block text-gray-400">
-          {authStore.profile?.full_name ?? authStore.user?.email ?? 'Admin'}
-        </span>
       </div>
     </header>
 

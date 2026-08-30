@@ -462,9 +462,20 @@ export async function syncOrderWithShiprocket(orderIdOrAwb: string): Promise<{ s
     }
   }
 
-  // Admin Notification Email for key events
+  // Admin Notification in DB & Email for key events
   if (statusChanged && (mappedDbStatus === 'delivered' || mappedDbStatus === 'cancelled' || mappedDbStatus === 'returned')) {
     try {
+      await supabaseAdmin.from('admin_notifications').insert({
+        type: mappedDbStatus === 'delivered' ? 'order_delivered' : 'system_alert',
+        title: `Order ${mappedDbStatus === 'delivered' ? 'Delivered' : mappedDbStatus.toUpperCase()}: #${dbOrder.order_number}`,
+        message: `Shiprocket reports status '${rawStatus}' for order #${dbOrder.order_number} (${customerName}). Courier: ${courierName || 'N/A'}, AWB: ${awbCode || 'N/A'}.`,
+        link_url: `/admin/orders/${dbOrder.id}`,
+        reference_id: dbOrder.id,
+        is_read: false,
+        is_reviewed: false,
+        created_at: new Date().toISOString(),
+      });
+
       await sendAdminEmail(
         `Shipment ${rawStatus} — Order #${dbOrder.order_number}`,
         `<p>Shiprocket reports <b>${rawStatus}</b> for order <b>#${dbOrder.order_number}</b> (AWB: ${awbCode || 'N/A'}, Courier: ${courierName || 'N/A'}).</p>
@@ -472,7 +483,7 @@ export async function syncOrderWithShiprocket(orderIdOrAwb: string): Promise<{ s
          <p>Total: ₹${((dbOrder.total_amount || 0) / 100).toFixed(2)} (${dbOrder.payment_method?.toUpperCase() || 'PREPAID'} - ${dbOrder.payment_status?.toUpperCase() || 'PAID'})</p>`
       );
     } catch (e) {
-      console.warn('[Shiprocket Sync] Admin email alert threw error:', (e as Error).message);
+      console.warn('[Shiprocket Sync] Admin alert threw error:', (e as Error).message);
     }
   }
 

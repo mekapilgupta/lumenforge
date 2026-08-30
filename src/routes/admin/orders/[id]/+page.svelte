@@ -37,10 +37,10 @@
     confirmed: [{ next: 'processing', label: '⚙️ Start Processing' }, { next: 'cancelled', label: '✗ Cancel' }],
     processing: [{ next: 'packed', label: '📦 Mark Packed' }],
     packed: [{ next: 'shipped', label: '🚚 Mark Shipped' }],
-    shipped: [{ next: 'out_for_delivery', label: '🏃 Out for Delivery' }, { next: 'returned', label: '↩ Mark Returned' }],
-    out_for_delivery: [{ next: 'delivered', label: '✅ Mark Delivered' }],
-    delivered: [{ next: 'refund_requested', label: '💸 Refund Requested' }, { next: 'returned', label: '↩ Mark Returned' }],
-    refund_requested: [{ next: 'refunded', label: '💰 Refunded' }],
+    shipped: [{ next: 'out_for_delivery', label: '🏃 Out for Delivery' }, { next: 'returned', label: '↩ Return to Origin (RTO)' }],
+    out_for_delivery: [{ next: 'delivered', label: '✅ Mark Delivered' }, { next: 'returned', label: '↩ Delivery Failed (RTO)' }],
+    delivered: [], // Terminal forward state — completed!
+    refund_requested: [{ next: 'refunded', label: '💰 Mark Refunded' }],
     returned: [],
     cancelled: [],
     refunded: [],
@@ -783,7 +783,7 @@
       </div>
     {/if}
 
-    <!-- Status update buttons -->
+    <!-- Status update buttons / Completion Banner -->
     {#if (STATUS_FLOW[order.status] ?? []).length > 0}
       <div class="rounded-xl p-4 flex flex-wrap gap-3" style="background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1);">
         <span class="text-gray-400 text-sm self-center">Update Status:</span>
@@ -791,12 +791,25 @@
           <button
             onclick={() => openStatusModal(step.next)}
             disabled={updating}
-            class="px-4 py-2 rounded-xl text-sm font-semibold text-white transition-all hover:opacity-90"
+            class="px-4 py-2 rounded-xl text-sm font-semibold text-white transition-all hover:opacity-90 cursor-pointer"
             style="background: {step.next === 'cancelled' ? '#ef4444' : '#4f46e5'};"
           >
             {step.label}
           </button>
         {/each}
+      </div>
+    {:else if order.status === 'delivered'}
+      <div class="rounded-xl p-4 flex items-center justify-between border bg-emerald-950/30 border-emerald-500/40 text-emerald-300">
+        <div class="flex items-center gap-2.5">
+          <span class="text-xl">🎉</span>
+          <div>
+            <p class="text-sm font-bold text-emerald-200">Order Completed & Delivered</p>
+            <p class="text-xs text-emerald-400/80 mt-0.5">Package was delivered successfully. 5-day return and exchange window is active for the customer.</p>
+          </div>
+        </div>
+        <span class="px-3 py-1 rounded-full text-xs font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
+          Delivery Finalized
+        </span>
       </div>
     {/if}
 
