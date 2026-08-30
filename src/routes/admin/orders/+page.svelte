@@ -62,6 +62,8 @@
   };
   const PAYMENT_STATUS_COLOR: Record<string, string> = {
     paid: "bg-green-900/40 text-green-300 border-green-800",
+    partial_paid: "bg-amber-900/40 text-amber-300 border-amber-800",
+    paid_advance: "bg-amber-900/40 text-amber-300 border-amber-800",
     pending: "bg-yellow-900/40 text-yellow-300 border-yellow-800",
     refunded: "bg-gray-800 text-gray-400 border-gray-700",
     failed: "bg-red-900/40 text-red-300 border-red-800",

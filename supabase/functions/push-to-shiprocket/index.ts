@@ -172,7 +172,7 @@ serve(async (req) => {
       "sub_total": (fullOrder.subtotal || fullOrder.total_amount || 0) / 100,
       "shipping_charges": (fullOrder.shipping_charges || 0) / 100,
       "discount": (fullOrder.discount_amount || 0) / 100,
-      "cod_amount": isCod ? (fullOrder.total_amount || 0) / 100 : 0, // Required for COD
+      "cod_amount": isCod ? (((fullOrder.cod_balance_due !== null && fullOrder.cod_balance_due !== undefined) ? fullOrder.cod_balance_due : (fullOrder.total_amount - (fullOrder.advance_amount || 0))) || 0) / 100 : 0, // Remaining balance to collect on delivery
       "length": 30,
       "breadth": 20,
       "height": 10,

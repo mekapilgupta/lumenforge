@@ -131,7 +131,19 @@
             <div>
               <p class="font-semibold" style="color: var(--color-text-dark);">Payment Method</p>
               <p style="color: var(--color-text-mid);">
-                {order.payment_method === 'cod' ? 'Cash on Delivery (COD)' : 'Online Payment (Razorpay)'}
+                {#if order.payment_method === 'cod'}
+                  <span class="font-semibold text-pink-600">Cash on Delivery</span>
+                  {#if order.advance_amount}
+                    <span class="block text-xs text-gray-500 mt-0.5">
+                      ✓ {fmt(order.advance_amount)} Advance Paid Online
+                    </span>
+                    <span class="block text-xs font-semibold text-emerald-700 mt-0.5">
+                      💵 {fmt(order.cod_balance_due ?? (order.total_amount - order.advance_amount))} Due on Delivery
+                    </span>
+                  {/if}
+                {:else}
+                  <span class="font-semibold text-emerald-600">Online Paid (Razorpay)</span>
+                {/if}
               </p>
             </div>
             <div>

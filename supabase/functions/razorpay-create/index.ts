@@ -103,10 +103,14 @@ serve(async (req) => {
       gstAmount = 0,
       totalAmount,
       items,
+      isCodAdvance = false,
+      paymentMethod = isCodAdvance ? "cod" : "razorpay",
+      advanceAmount = isCodAdvance ? amount : (totalAmount ?? amount),
+      codBalanceDue = isCodAdvance ? Math.max(0, (totalAmount ?? amount) - amount) : 0,
     } = body;
 
-    console.log(`[1/5] amount: ${amount}, receiptId: ${receiptId}, userId: ${userId}`);
-    console.log(`[1/5] subtotal: ${subtotal}, discount: ${discountAmount}, shipping: ${shippingCharges}, cod: ${codCharges}, gst: ${gstAmount}, total: ${totalAmount}`);
+    console.log(`[1/5] amount to charge online: ${amount}, isCodAdvance: ${isCodAdvance}, receiptId: ${receiptId}, userId: ${userId}`);
+    console.log(`[1/5] subtotal: ${subtotal}, discount: ${discountAmount}, advanceAmount: ${advanceAmount}, codBalanceDue: ${codBalanceDue}, total: ${totalAmount}`);
 
     if (!amount || typeof amount !== "number" || amount < 100) {
       return jsonResponse(
@@ -127,7 +131,7 @@ serve(async (req) => {
       return jsonResponse({ success: false, error: "At least one order item is required" }, 400);
     }
 
-    // 4. Create order on Razorpay
+    // 4. Create order on Razorpay for the upfront amount (e.g. ₹50 for COD, or 100% for prepaid)
     console.log("[2/5] Creating Razorpay order...");
     const razorpayOrder = await razorpayApi("/orders", "POST", {
       amount,
@@ -137,21 +141,23 @@ serve(async (req) => {
 
     console.log(`[2/5] Razorpay order created: ${razorpayOrder.id}`);
 
-    // 5. Insert pending order into Supabase (only columns that exist in schema)
+    // 5. Insert pending order into Supabase (with advance_amount and cod_balance_due)
     console.log("[3/5] Inserting pending order into Supabase...");
     const { data: orderRow, error: insertError } = await supabaseAdmin
       .from("orders")
       .insert({
         user_id: userId ?? null,
         razorpay_order_id: razorpayOrder.id,
-        payment_method: "razorpay",
+        payment_method: paymentMethod,
         payment_status: "pending",
         status: "pending",
-        subtotal: subtotal ?? amount,
+        subtotal: subtotal ?? (totalAmount ?? amount),
         discount_amount: discountAmount,
         shipping_charges: shippingCharges,
         cod_charges: codCharges,
         gst_amount: gstAmount,
+        advance_amount: advanceAmount,
+        cod_balance_due: codBalanceDue,
         total_amount: totalAmount ?? amount,
         coupon_code: couponCode ?? null,
         shipping_address_id: shippingAddressId,

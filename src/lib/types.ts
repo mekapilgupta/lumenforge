@@ -124,7 +124,7 @@ export type OrderStatus =
   | 'refunded'
   | 'returned';
 
-export type PaymentStatus = 'pending' | 'paid' | 'failed' | 'cod' | 'refunded' | 'partial_refund';
+export type PaymentStatus = 'pending' | 'paid' | 'partial_paid' | 'paid_advance' | 'failed' | 'cod' | 'refunded' | 'partial_refund';
 
 export interface Order {
   id: string;
@@ -137,6 +137,8 @@ export interface Order {
   discount_amount: number;      // paise
   shipping_charges: number;     // paise
   cod_charges: number;          // paise
+  advance_amount?: number | null; // paise (e.g. 5000 = ₹50 anti-spam COD advance)
+  cod_balance_due?: number | null; // paise (e.g. 74900 = ₹749 balance due on delivery)
   gst_amount: number;           // paise
   total_amount: number;         // paise
   coupon_id: string | null;

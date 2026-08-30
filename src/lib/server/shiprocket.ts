@@ -214,7 +214,7 @@ export async function pushOrderToShiprocket(orderId: string): Promise<{ success:
     sub_total: (order.subtotal || order.total_amount || 0) / 100,
     shipping_charges: (order.shipping_charges || 0) / 100,
     discount: (order.discount_amount || 0) / 100,
-    cod_amount: isCod ? (order.total_amount || 0) / 100 : 0,
+    cod_amount: isCod ? (((order.cod_balance_due !== null && order.cod_balance_due !== undefined) ? order.cod_balance_due : (order.total_amount - (order.advance_amount || 0))) || 0) / 100 : 0,
     length: 30,
     breadth: 20,
     height: 10,

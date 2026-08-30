@@ -61,6 +61,7 @@
   ];
 
   // ─── Price calculations (all in paise) ────────────────────────────────────
+  const COD_ADVANCE_PAISE = 5000; // ₹50 anti-spam advance fee
   const subtotalPaise = $derived(cartStore.subtotal * 100);
   const shippingPaise = 0;
   const codPaise = 0;
@@ -74,6 +75,11 @@
   const totalPaise = $derived(
     Math.max(0, subtotalPaise - couponDiscount - prepaidDiscountPaise + shippingPaise + codPaise + gstPaise)
   );
+
+  // COD advance calculation (₹50 advance paid online, balance on delivery)
+  const codAdvancePaise = $derived(paymentMethod === 'cod' ? Math.min(COD_ADVANCE_PAISE, totalPaise) : totalPaise);
+  const codBalanceDuePaise = $derived(paymentMethod === 'cod' ? Math.max(0, totalPaise - COD_ADVANCE_PAISE) : 0);
+  const onlineAmountToChargePaise = $derived(paymentMethod === 'cod' ? codAdvancePaise : totalPaise);
 
   function fmt(paise: number): string {
     return '₹' + (paise / 100).toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
@@ -303,8 +309,8 @@
     }
   }
 
-  // ─── Place order via Razorpay ─────────────────────────────────────────────
-  async function placeOrderRazorpay() {
+  // ─── Place order via Razorpay (Handles both Prepaid and COD Advance Confirmation) ──
+  async function placeOrder() {
     if (razorpayLoading || !razorpayScriptLoaded) {
       uiStore.addToast('Payment system loading, please wait...', 'info');
       return;
@@ -319,13 +325,14 @@
         size: item.size,
         color: item.color.name
       }));
-      const capturedTotal = totalPaise / 100; // snapshot before cart is cleared
+      const capturedTotal = totalPaise / 100;
       const userId = authStore.user!.id;
       const receiptId = `ft_${Date.now()}`;
       const shippingAddr = addresses.find(a => a.id === selectedAddressId)!;
+      const isCod = paymentMethod === 'cod';
 
-      // Step 1: Call Edge Function to create Razorpay order + pending DB row
-      console.log('[Razorpay] Creating order via Edge Function...');
+      // Step 1: Call Edge Function to create Razorpay order for online amount (₹50 for COD or 100% for Prepaid)
+      console.log(`[Checkout] Creating ${isCod ? 'COD Advance (₹50)' : 'Prepaid'} order via Edge Function...`);
       const createRes = await fetch(`${PUBLIC_SUPABASE_URL}/functions/v1/razorpay-create`, {
         method: 'POST',
         headers: {
@@ -333,7 +340,7 @@
           'Authorization': `Bearer ${PUBLIC_SUPABASE_ANON_KEY}`,
         },
         body: JSON.stringify({
-          amount: totalPaise,
+          amount: onlineAmountToChargePaise,
           currency: 'INR',
           receiptId,
           userId,
@@ -343,9 +350,13 @@
           subtotal: subtotalPaise,
           discountAmount: couponDiscount + prepaidDiscountPaise,
           shippingCharges: shippingPaise,
-          codCharges: codPaise, // 0 for Razorpay, 4900 for COD
+          codCharges: codPaise,
           gstAmount: gstPaise,
           totalAmount: totalPaise,
+          isCodAdvance: isCod,
+          paymentMethod: isCod ? 'cod' : 'razorpay',
+          advanceAmount: isCod ? codAdvancePaise : totalPaise,
+          codBalanceDue: isCod ? codBalanceDuePaise : 0,
           items: cartStore.items.map(item => ({
             product_id: item.productId,
             name: item.name,
@@ -370,7 +381,7 @@
         amount: createData.order.amount,
         currency: createData.order.currency,
         name: 'French Toes',
-        description: `Order ${createData.order.receipt}`,
+        description: isCod ? `COD Advance Confirmation (₹50) — Balance ₹${(codBalanceDuePaise / 100).toFixed(0)} on Delivery` : `Order ${createData.order.receipt}`,
         order_id: createData.order.id,
         handler: async function (response: any) {
           console.log('[Razorpay] Payment completed:', response.razorpay_payment_id);
@@ -394,11 +405,11 @@
             isNavigatingToSuccess = true;
             // Clear cart and mark abandoned cart as recovered
             await cartStore.checkoutSuccess(createData.dbOrderId);
-            uiStore.addToast('Payment successful! Order confirmed 🌸', 'success');
+            uiStore.addToast(isCod ? '₹50 Advance Paid! COD Order confirmed 🌸' : 'Payment successful! Order confirmed 🌸', 'success');
             goto(`/checkout/success?order_id=${createData.dbOrderId}`);
 
-            // Push to Shiprocket (fire-and-forget to avoid blocking UI)
-            console.log('[Checkout] Pushing Razorpay order to Shiprocket...');
+            // Push to Shiprocket (with collectable balance if COD)
+            console.log('[Checkout] Pushing order to Shiprocket...');
             fetch(`${PUBLIC_SUPABASE_URL}/functions/v1/push-to-shiprocket`, {
               method: 'POST',
               headers: { 
@@ -417,7 +428,7 @@
             })
             .catch((err) => console.error('[Checkout] Shiprocket push error:', err));
 
-            // Send order confirmation email (fire-and-forget)
+            // Send order confirmation email
             fetch('/api/emails', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
@@ -427,12 +438,15 @@
                 recipientName: authStore.profile?.full_name ?? 'Customer',
                 payloadData: {
                   orderId: createData.order.receipt,
-                  amount: totalPaise / 100
+                  amount: totalPaise / 100,
+                  isCod,
+                  advancePaid: isCod ? codAdvancePaise / 100 : totalPaise / 100,
+                  codBalance: isCod ? codBalanceDuePaise / 100 : 0
                 }
               })
             }).catch((err) => console.warn('Order confirmation email failed:', err));
 
-            // Send admin notification email (fire-and-forget)
+            // Send admin notification email
             fetch('/api/notify-admin', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
@@ -443,6 +457,7 @@
                   amount: capturedTotal,
                   customerEmail: authStore.user?.email ?? '',
                   customerName: authStore.profile?.full_name ?? 'Customer',
+                  paymentMethod: isCod ? 'COD (₹50 Advance Paid)' : 'Prepaid (Razorpay)',
                   items: itemsSnapshot
                 }
               })
@@ -470,19 +485,10 @@
       const rzp = new (window as any).Razorpay(options);
       rzp.open();
     } catch (err: any) {
-      console.error('[Razorpay] Error:', err);
+      console.error('[Checkout] Error:', err);
       uiStore.addToast('Payment initiation failed: ' + (err?.message ?? 'Unknown error'), 'error');
     } finally {
       razorpayLoading = false;
-    }
-  }
-
-  // Unified placeOrder function that routes to the correct handler
-  async function placeOrder() {
-    if (paymentMethod === 'razorpay') {
-      await placeOrderRazorpay();
-    } else {
-      await placeOrderCOD();
     }
   }
 
@@ -904,17 +910,24 @@
           <div class="rounded-2xl p-4 border" style="border-color: var(--color-blush); background: white;">
             <p class="font-semibold text-sm mb-3" style="color: var(--color-text-dark);">Payment Method</p>
             <div class="flex flex-col gap-3">
-              <!-- COD option -->
+              <!-- COD option with ₹50 Advance Confirmation -->
               {#if serviceabilityResult?.cod !== false}
                 <label
-                  class="flex items-center gap-3 p-3 rounded-xl cursor-pointer transition-all"
+                  class="flex items-start gap-3 p-3.5 rounded-xl cursor-pointer transition-all relative"
                   style="background: {paymentMethod === 'cod' ? 'var(--color-blush)' : 'white'}; border-color: {paymentMethod === 'cod' ? 'var(--color-blush-deep)' : 'var(--color-blush)'}; border-width: 2px; border-style: solid;"
                 >
-                  <input type="radio" name="payment" value="cod" bind:group={paymentMethod} class="accent-[color:var(--color-blush-deep)]" />
-                  <span class="text-xl">💵</span>
-                  <div>
-                    <p class="font-semibold text-sm" style="color: var(--color-text-dark);">Cash on Delivery</p>
-                    <p class="text-xs" style="color: var(--color-text-soft);">Pay when your order arrives</p>
+                  <input type="radio" name="payment" value="cod" bind:group={paymentMethod} class="accent-[color:var(--color-blush-deep)] mt-1" />
+                  <span class="text-xl shrink-0">💵</span>
+                  <div class="flex-1">
+                    <div class="flex items-center justify-between gap-2 flex-wrap mb-1">
+                      <p class="font-semibold text-sm" style="color: var(--color-text-dark);">Cash on Delivery (COD)</p>
+                      <span class="text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0 bg-pink-100 text-pink-700 border border-pink-200">
+                        🛡️ ₹50 Advance Deposit
+                      </span>
+                    </div>
+                    <p class="text-xs text-gray-600 leading-relaxed">
+                      Pay <strong>{fmt(codAdvancePaise)}</strong> advance now via UPI/Card to prevent spam. Remaining <strong>{fmt(codBalanceDuePaise)}</strong> to be paid in cash on delivery.
+                    </p>
                   </div>
                 </label>
               {:else}
@@ -928,21 +941,22 @@
                   </div>
                 </div>
               {/if}
-              <!-- Razorpay option -->
+
+              <!-- Razorpay option (100% Prepaid) -->
               <label
-                class="flex items-center gap-3 p-3 rounded-xl cursor-pointer transition-all relative overflow-hidden"
+                class="flex items-start gap-3 p-3.5 rounded-xl cursor-pointer transition-all relative overflow-hidden"
                 style="background: {paymentMethod === 'razorpay' ? 'var(--color-blush)' : 'white'}; border-color: {paymentMethod === 'razorpay' ? 'var(--color-blush-deep)' : 'var(--color-blush)'}; border-width: 2px; border-style: solid;"
               >
-                <input type="radio" name="payment" value="razorpay" bind:group={paymentMethod} class="accent-[color:var(--color-blush-deep)]" />
-                <span class="text-xl">💳</span>
+                <input type="radio" name="payment" value="razorpay" bind:group={paymentMethod} class="accent-[color:var(--color-blush-deep)] mt-1" />
+                <span class="text-xl shrink-0">💳</span>
                 <div class="flex-1">
-                  <div class="flex items-center justify-between gap-2 flex-wrap">
-                    <p class="font-semibold text-sm" style="color: var(--color-text-dark);">Online Payment (Razorpay)</p>
+                  <div class="flex items-center justify-between gap-2 flex-wrap mb-1">
+                    <p class="font-semibold text-sm" style="color: var(--color-text-dark);">100% Online Payment (Razorpay)</p>
                     <span class="text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0" style="background: var(--color-mint-deep); color: white;">
                       ⚡ 5% EXTRA OFF
                     </span>
                   </div>
-                  <p class="text-xs" style="color: var(--color-text-soft);">UPI, Cards, Net Banking, Wallets</p>
+                  <p class="text-xs text-gray-600">Pay full amount now with UPI, Cards, Net Banking, or Wallets.</p>
                 </div>
               </label>
 
@@ -956,8 +970,8 @@
                 >
                   <span class="text-xl">🎉</span>
                   <div class="flex-1">
-                    <p class="text-xs font-bold text-green-800">Switch to Online Payment & Save {fmt(potentialSavingsPaise)}!</p>
-                    <p class="text-[10px] text-green-700 mt-0.5">Get an additional 5% off on your order instantly.</p>
+                    <p class="text-xs font-bold text-green-800">Switch to 100% Online & Save {fmt(potentialSavingsPaise)}!</p>
+                    <p class="text-[10px] text-green-700 mt-0.5">Pay in full now and get an extra 5% instant discount.</p>
                   </div>
                   <span class="text-xs font-semibold px-2.5 py-1 rounded-full text-white bg-green-600 hover:bg-green-700 shrink-0">
                     Apply 5% Off
@@ -974,12 +988,14 @@
 
             <div class="flex gap-3">
               <button onclick={() => step = 1} class="btn-outline px-6 py-3">← Back</button>
-              <button onclick={placeOrder} disabled={loading} class="btn-primary flex-1 justify-center py-3.5 text-base">
-                {#if loading}
+              <button onclick={placeOrder} disabled={razorpayLoading} class="btn-primary flex-1 justify-center py-3.5 text-base">
+                {#if razorpayLoading}
                   <span class="inline-block w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2"></span>
-                  Placing order...
+                  Opening Payment...
+                {:else if paymentMethod === 'cod'}
+                  🌸 Pay {fmt(codAdvancePaise)} Advance & Confirm COD
                 {:else}
-                  🌸 Place Order — {fmt(totalPaise)}
+                  🌸 Pay {fmt(totalPaise)} & Place Order
                 {/if}
               </button>
             </div>
@@ -1000,10 +1016,26 @@
               {/if}
               <div class="flex justify-between"><span style="color: var(--color-text-mid);">Shipping</span><span style="color: {shippingPaise === 0 ? 'var(--color-mint-deep)' : ''}">{shippingPaise === 0 ? 'FREE' : fmt(shippingPaise)}</span></div>
             </div>
-            <div class="border-t pt-3 mt-3 flex justify-between font-bold" style="border-color: var(--color-blush);">
-              <span style="color: var(--color-text-dark);">Total Amount</span>
-              <span class="text-lg" style="color: var(--color-text-dark);">{fmt(totalPaise)}</span>
+            
+            <div class="border-t pt-3 mt-3 flex justify-between font-bold text-base" style="border-color: var(--color-blush);">
+              <span style="color: var(--color-text-dark);">Total Order Value</span>
+              <span style="color: var(--color-text-dark);">{fmt(totalPaise)}</span>
             </div>
+
+            <!-- COD Advance vs Balance Due Breakdown -->
+            {#if paymentMethod === 'cod'}
+              <div class="mt-4 p-3 rounded-xl bg-pink-50/60 border border-pink-200/80 space-y-1.5 text-xs">
+                <div class="flex justify-between text-pink-950">
+                  <span class="font-semibold">Advance Deposit (Pay Online Now):</span>
+                  <span class="font-bold font-mono">{fmt(codAdvancePaise)}</span>
+                </div>
+                <div class="flex justify-between text-emerald-800 font-semibold border-t border-pink-200/60 pt-1.5">
+                  <span>Payable on Delivery (Cash):</span>
+                  <span class="font-bold font-mono">{fmt(codBalanceDuePaise)}</span>
+                </div>
+              </div>
+            {/if}
+
             <p class="text-xs mt-3 p-2 rounded-lg text-center" style="background: var(--color-blush); color: var(--color-text-mid);">
               🔒 Your order is safe. Price includes all taxes.
             </p>

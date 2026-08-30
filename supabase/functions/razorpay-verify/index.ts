@@ -356,16 +356,27 @@ serve(async (req) => {
 
     console.log(`[3/5] Payment method: ${paymentDetails.method}, status: ${paymentDetails.status}`);
 
-    // 6. Update the order row in Supabase
-    console.log("[4/5] Updating order in Supabase...");
+    // 6. Check existing order record to determine if this was a COD advance payment
+    const { data: existingOrder } = await supabaseAdmin
+      .from("orders")
+      .select("id, payment_method, advance_amount, cod_balance_due, total_amount")
+      .eq("razorpay_order_id", razorpay_order_id)
+      .maybeSingle();
+
+    const isCodOrder = existingOrder?.payment_method === "cod" || (existingOrder?.cod_balance_due && existingOrder.cod_balance_due > 0);
+    const resolvedPaymentStatus = isCodOrder ? "partial_paid" : "paid";
+    const resolvedPaymentMethod = isCodOrder ? "cod" : "razorpay";
+
+    // Update the order row in Supabase
+    console.log(`[4/5] Updating order in Supabase (method: ${resolvedPaymentMethod}, payment_status: ${resolvedPaymentStatus})...`);
     const { error: updateError } = await supabaseAdmin
       .from("orders")
       .update({
-        payment_status: "paid",
+        payment_status: resolvedPaymentStatus,
         status: "confirmed",
         razorpay_payment_id,
         razorpay_signature,
-        payment_method: "razorpay", // Hardcoded to match ENUM; full details stored in payment_gateway_response
+        payment_method: resolvedPaymentMethod,
         payment_gateway_response: paymentDetails,
         payment_completed_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
@@ -377,7 +388,7 @@ serve(async (req) => {
       throw updateError;
     }
 
-    console.log("[4/5] Order updated to 'paid' ✓");
+    console.log(`[4/5] Order updated to '${resolvedPaymentStatus}' ✓`);
 
     // 7. Return success
     console.log("[SUCCESS] Payment verified and stored.");

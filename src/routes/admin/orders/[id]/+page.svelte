@@ -1058,12 +1058,43 @@
             <div class="flex justify-between text-gray-400"><span>COD</span><span class="text-gray-200">{fmt(order.cod_charges)}</span></div>
             <div class="flex justify-between text-gray-400"><span>GST</span><span class="text-gray-200">{fmt(order.gst_amount)}</span></div>
             <div class="border-t pt-1.5 flex justify-between font-bold" style="border-color: rgba(255,255,255,0.1);">
-              <span class="text-white">Total</span>
+              <span class="text-white">Total Order Value</span>
               <span class="text-white">{fmt(order.total_amount)}</span>
             </div>
+            {#if order.payment_method === 'cod' && order.advance_amount}
+              <div class="mt-2 pt-2 border-t border-white/10 space-y-1">
+                <div class="flex justify-between text-pink-300 font-medium">
+                  <span>Advance Paid Online:</span>
+                  <span>{fmt(order.advance_amount)}</span>
+                </div>
+                <div class="flex justify-between text-emerald-400 font-bold">
+                  <span>Collect on Delivery:</span>
+                  <span>{fmt(order.cod_balance_due ?? (order.total_amount - order.advance_amount))}</span>
+                </div>
+              </div>
+            {/if}
           </div>
-          <div class="mt-3 pt-2 border-t text-xs text-gray-500" style="border-color: rgba(255,255,255,0.1);">
-            Payment: <span class="text-gray-300">Cash on Delivery</span>
+          <div class="mt-3 pt-2 border-t text-xs text-gray-400 space-y-1" style="border-color: rgba(255,255,255,0.1);">
+            <div class="flex justify-between">
+              <span>Payment Method:</span>
+              <span class="text-gray-200 font-semibold">
+                {order.payment_method === 'cod' ? (order.advance_amount ? 'COD (₹50 Advance Paid)' : 'Cash on Delivery') : 'Online Prepaid (Razorpay)'}
+              </span>
+            </div>
+            {#if order.razorpay_payment_id}
+              <div class="flex justify-between">
+                <span>Razorpay ID:</span>
+                <span class="text-indigo-300 font-mono">{order.razorpay_payment_id}</span>
+              </div>
+            {/if}
+            {#if order.payment_status}
+              <div class="flex justify-between">
+                <span>Payment Status:</span>
+                <span class="font-bold text-xs uppercase" style="color: {order.payment_status === 'paid' ? '#22c55e' : order.payment_status === 'partial_paid' || order.payment_status === 'paid_advance' ? '#f59e0b' : '#9ca3af'};">
+                  {order.payment_status === 'partial_paid' || order.payment_status === 'paid_advance' ? 'Advance Paid' : order.payment_status}
+                </span>
+              </div>
+            {/if}
           </div>
         </div>
 
