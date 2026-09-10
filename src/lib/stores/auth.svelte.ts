@@ -34,12 +34,13 @@ function createAuthStore() {
     user = session?.user ?? null;
     if (user) {
       if (typeof document !== 'undefined' && session) {
+        const isSecure = typeof location !== 'undefined' && location.protocol === 'https:' ? '; Secure' : '';
         const cookieVal = JSON.stringify({
           access_token: session.access_token,
           refresh_token: session.refresh_token,
           user_id: session.user.id
         });
-        document.cookie = `sb-session=${encodeURIComponent(cookieVal)}; path=/; max-age=${60 * 60 * 24 * 7}; SameSite=Lax; Secure`;
+        document.cookie = `sb-session=${encodeURIComponent(cookieVal)}; path=/; max-age=${60 * 60 * 24 * 7}; SameSite=Lax${isSecure}`;
       }
       await _fetchProfile(user.id);
       // Sync store state for restored sessions (onAuthStateChange skips this since prev was never null)
@@ -58,15 +59,16 @@ function createAuthStore() {
 
       // Update cookie for server-side layouts
       if (typeof document !== 'undefined') {
+        const isSecure = typeof location !== 'undefined' && location.protocol === 'https:' ? '; Secure' : '';
         if (session) {
           const cookieVal = JSON.stringify({
             access_token: session.access_token,
             refresh_token: session.refresh_token,
             user_id: session.user.id
           });
-          document.cookie = `sb-session=${encodeURIComponent(cookieVal)}; path=/; max-age=${60 * 60 * 24 * 7}; SameSite=Lax; Secure`;
+          document.cookie = `sb-session=${encodeURIComponent(cookieVal)}; path=/; max-age=${60 * 60 * 24 * 7}; SameSite=Lax${isSecure}`;
         } else {
-          document.cookie = 'sb-session=; path=/; max-age=0; SameSite=Lax; Secure';
+          document.cookie = `sb-session=; path=/; max-age=0; SameSite=Lax${isSecure}`;
         }
       }
 

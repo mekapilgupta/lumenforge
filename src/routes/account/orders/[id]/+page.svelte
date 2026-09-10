@@ -379,7 +379,11 @@
 
     submittingReturn = true;
     try {
-      const session = (await supabase.auth.getSession()).data.session;
+      let session = (await supabase.auth.getSession()).data.session;
+      if (!session?.access_token) {
+        const refreshed = await supabase.auth.refreshSession();
+        session = refreshed.data.session;
+      }
       const headers: Record<string, string> = { 'Content-Type': 'application/json' };
       if (session?.access_token) {
         headers['Authorization'] = `Bearer ${session.access_token}`;
@@ -390,6 +394,7 @@
         body: JSON.stringify({
           orderId: order.id,
           userId: authStore.user!.id,
+          sessionToken: session?.access_token || '',
           type: returnType,
           reason: returnReason,
           comments: returnComments,

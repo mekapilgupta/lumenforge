@@ -26,18 +26,21 @@ export async function POST({ request, cookies }) {
     }
 
     // Set up user-authenticated client in case service-role key is missing in environment
-    let userClient = supabaseAdmin;
     const sessionCookie = cookies.get('sb-session');
     const authHeader = request.headers.get('authorization');
     let userToken = '';
     if (authHeader?.startsWith('Bearer ')) {
       userToken = authHeader.replace('Bearer ', '').trim();
+    } else if (body.sessionToken) {
+      userToken = String(body.sessionToken).trim();
     } else if (sessionCookie) {
       try {
         const parsed = JSON.parse(decodeURIComponent(sessionCookie));
         userToken = parsed.access_token || '';
       } catch {}
     }
+
+    let userClient = supabaseAdmin;
     if (userToken) {
       userClient = createClient(PUBLIC_SUPABASE_URL, PUBLIC_SUPABASE_ANON_KEY, {
         global: { headers: { Authorization: `Bearer ${userToken}` } }
@@ -45,17 +48,43 @@ export async function POST({ request, cookies }) {
     }
 
     // 1. Fetch Order and verify eligibility
-    const { data: order, error: orderErr } = await supabaseAdmin
-      .from('orders')
-      .select('id, order_number, user_id, status, delivered_at, created_at, updated_at, total_amount, payment_method, advance_amount, cod_balance_due')
-      .eq('id', orderId)
-      .single();
+    // Prefer userClient so RLS policies evaluating auth.uid() = user_id succeed even without service-role key
+    let order: any = null;
+    let orderErr: any = null;
 
-    if (orderErr || !order) {
+    if (userClient !== supabaseAdmin) {
+      const userRes = await userClient
+        .from('orders')
+        .select('id, order_number, user_id, status, delivered_at, created_at, updated_at, total_amount, payment_method, advance_amount, cod_balance_due')
+        .eq('id', orderId)
+        .maybeSingle();
+      if (userRes.data) {
+        order = userRes.data;
+      } else if (userRes.error) {
+        orderErr = userRes.error;
+      }
+    }
+
+    if (!order) {
+      const adminRes = await supabaseAdmin
+        .from('orders')
+        .select('id, order_number, user_id, status, delivered_at, created_at, updated_at, total_amount, payment_method, advance_amount, cod_balance_due')
+        .eq('id', orderId)
+        .maybeSingle();
+      if (adminRes.data) {
+        order = adminRes.data;
+        orderErr = null;
+      } else if (!orderErr) {
+        orderErr = adminRes.error;
+      }
+    }
+
+    if (!order) {
+      console.warn('[Return Create] Order lookup failed:', { orderId, orderErr, hasUserToken: !!userToken });
       return json({ success: false, error: 'Order not found' }, { status: 404 });
     }
 
-    // 2. Strict Delivery and 5-Day Window Check
+    // 2. Strict Delivery and Window Check
     if (order.status !== 'delivered') {
       return json({
         success: false,
@@ -66,7 +95,8 @@ export async function POST({ request, cookies }) {
     // Resolve delivery timestamp: check order.delivered_at, then order_logs, then updated_at
     let deliveryTimestamp = order.delivered_at ? new Date(order.delivered_at).getTime() : 0;
     if (!deliveryTimestamp) {
-      const { data: delivLog } = await supabaseAdmin
+      const activeClient = userClient !== supabaseAdmin ? userClient : supabaseAdmin;
+      const { data: delivLog } = await activeClient
         .from('order_logs')
         .select('created_at')
         .eq('order_id', orderId)
@@ -81,10 +111,14 @@ export async function POST({ request, cookies }) {
 
       // If order is delivered but delivered_at was not yet recorded, persist it
       if (deliveryTimestamp > 0) {
-        await supabaseAdmin
-          .from('orders')
-          .update({ delivered_at: new Date(deliveryTimestamp).toISOString() })
-          .eq('id', order.id);
+        try {
+          await supabaseAdmin
+            .from('orders')
+            .update({ delivered_at: new Date(deliveryTimestamp).toISOString() })
+            .eq('id', order.id);
+        } catch (e) {
+          console.warn('[Return Create] Could not update delivered_at:', e);
+        }
       }
     }
 
@@ -100,12 +134,23 @@ export async function POST({ request, cookies }) {
     }
 
     // 3. Check for existing open return request
-    const { data: existingReturn } = await supabaseAdmin
+    const checkClient = userClient !== supabaseAdmin ? userClient : supabaseAdmin;
+    let { data: existingReturn } = await checkClient
       .from('order_returns')
       .select('id, status')
       .eq('order_id', orderId)
       .in('status', ['requested', 'approved', 'pickup_scheduled', 'picked_up'])
       .maybeSingle();
+
+    if (!existingReturn && checkClient !== supabaseAdmin) {
+      const { data: adminExisting } = await supabaseAdmin
+        .from('order_returns')
+        .select('id, status')
+        .eq('order_id', orderId)
+        .in('status', ['requested', 'approved', 'pickup_scheduled', 'picked_up'])
+        .maybeSingle();
+      if (adminExisting) existingReturn = adminExisting;
+    }
 
     if (existingReturn) {
       return json({
@@ -115,10 +160,21 @@ export async function POST({ request, cookies }) {
     }
 
     // 4. Fetch order items for return record
-    const { data: orderItems } = await supabaseAdmin
+    const itemsClient = userClient !== supabaseAdmin ? userClient : supabaseAdmin;
+    let { data: orderItems } = await itemsClient
       .from('order_items')
       .select('id, product_id, product_name, quantity, unit_price, variant_info, variant_id')
       .eq('order_id', order.id);
+
+    if ((!orderItems || orderItems.length === 0) && itemsClient !== supabaseAdmin) {
+      const { data: adminItems } = await supabaseAdmin
+        .from('order_items')
+        .select('id, product_id, product_name, quantity, unit_price, variant_info, variant_id')
+        .eq('order_id', order.id);
+      if (adminItems && adminItems.length > 0) {
+        orderItems = adminItems;
+      }
+    }
 
     const itemsPayload = (orderItems || []).map((item) => ({
       order_item_id: item.id,
@@ -178,30 +234,31 @@ export async function POST({ request, cookies }) {
     let newReturn: any = null;
     let insertErr: any = null;
 
-    // Try insert via admin client first
-    const adminInsert = await supabaseAdmin
+    // Prefer userClient so RLS policy "Customers insert their own returns" succeeds
+    const primaryClient = userClient !== supabaseAdmin ? userClient : supabaseAdmin;
+    const primaryRes = await primaryClient
       .from('order_returns')
       .insert(payload)
       .select()
-      .single();
+      .maybeSingle();
 
-    if (!adminInsert.error) {
-      newReturn = adminInsert.data;
+    if (!primaryRes.error && primaryRes.data) {
+      newReturn = primaryRes.data;
     } else {
-      // If admin insert had an RLS error, try with user-scoped client
-      if (adminInsert.error.code === '42501' && userClient !== supabaseAdmin) {
-        const userInsert = await userClient
+      const secondaryClient = primaryClient === userClient ? supabaseAdmin : userClient;
+      if (secondaryClient !== primaryClient) {
+        const secondaryRes = await secondaryClient
           .from('order_returns')
           .insert(payload)
           .select()
-          .single();
-        if (!userInsert.error) {
-          newReturn = userInsert.data;
+          .maybeSingle();
+        if (!secondaryRes.error && secondaryRes.data) {
+          newReturn = secondaryRes.data;
         } else {
-          insertErr = userInsert.error;
+          insertErr = primaryRes.error || secondaryRes.error;
         }
       } else {
-        insertErr = adminInsert.error;
+        insertErr = primaryRes.error;
       }
     }
 
@@ -211,23 +268,31 @@ export async function POST({ request, cookies }) {
     }
 
     // 6. Update Order status
-    await supabaseAdmin
-      .from('orders')
-      .update({
-        status: 'refund_requested',
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', order.id);
+    try {
+      await supabaseAdmin
+        .from('orders')
+        .update({
+          status: 'refund_requested',
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', order.id);
+    } catch (e) {
+      console.warn('[Return Create] Could not update order status:', e);
+    }
 
     // 7. Log in order_logs
-    await supabaseAdmin
-      .from('order_logs')
-      .insert({
-        order_id: order.id,
-        status: 'refund_requested',
-        note: `Customer submitted a ${type.toUpperCase()} request. Reason: ${reason}. ${exchangeSize ? `Requested Size: ${exchangeSize}` : ''}`,
-        created_at: new Date().toISOString(),
-      });
+    try {
+      await supabaseAdmin
+        .from('order_logs')
+        .insert({
+          order_id: order.id,
+          status: 'refund_requested',
+          note: `Customer submitted a ${type.toUpperCase()} request. Reason: ${reason}. ${exchangeSize ? `Requested Size: ${exchangeSize}` : ''}`,
+          created_at: new Date().toISOString(),
+        });
+    } catch (e) {
+      console.warn('[Return Create] Could not log to order_logs:', e);
+    }
 
     // 8. Trigger Admin Notification
     try {
