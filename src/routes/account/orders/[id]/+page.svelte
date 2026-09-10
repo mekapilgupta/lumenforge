@@ -334,10 +334,17 @@
   );
 
   const isDelivered = $derived(order?.status === 'delivered');
-  const daysSinceDelivery = $derived(
-    order?.delivered_at ? Math.floor((Date.now() - new Date(order.delivered_at).getTime()) / (1000 * 60 * 60 * 24)) : 0
+  const deliveryTimestamp = $derived(
+    order?.delivered_at
+      ? new Date(order.delivered_at).getTime()
+      : (order?.updated_at ? new Date(order.updated_at).getTime() : (order?.created_at ? new Date(order.created_at).getTime() : 0))
   );
-  const isReturnWindowOpen = $derived(isDelivered && daysSinceDelivery <= 5);
+  const daysSinceDelivery = $derived(
+    deliveryTimestamp ? Math.floor((Date.now() - deliveryTimestamp) / (1000 * 60 * 60 * 24)) : 0
+  );
+  const RETURN_WINDOW_DAYS = 20;
+  const isReturnWindowOpen = $derived(isDelivered && daysSinceDelivery < RETURN_WINDOW_DAYS);
+  const returnDaysLeft = $derived(Math.max(1, RETURN_WINDOW_DAYS - daysSinceDelivery));
 
   const showCancelButton = $derived(
     order && 
@@ -372,9 +379,14 @@
 
     submittingReturn = true;
     try {
+      const session = (await supabase.auth.getSession()).data.session;
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (session?.access_token) {
+        headers['Authorization'] = `Bearer ${session.access_token}`;
+      }
       const res = await fetch('/api/returns/create', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify({
           orderId: order.id,
           userId: authStore.user!.id,
@@ -415,15 +427,17 @@
     try {
       const formData = new FormData();
       for (let i = 0; i < files.length; i++) {
-        formData.append('images', files[i]);
+        formData.append('file', files[i]);
       }
+      formData.append('folder', '/returns');
       const res = await fetch('/api/admin/upload-image', {
         method: 'POST',
         body: formData
       });
       const data = await res.json();
-      if (data.success && data.urls) {
-        returnImages = [...returnImages, ...data.urls];
+      const uploadedUrls = data.urls || (data.url ? [data.url] : []);
+      if (data.success && uploadedUrls.length > 0) {
+        returnImages = [...returnImages, ...uploadedUrls];
         uiStore.addToast('Photo uploaded successfully', 'success');
       } else {
         uiStore.addToast(data.error || 'Failed to upload photo', 'error');
@@ -432,6 +446,7 @@
       uiStore.addToast(err.message || 'Upload failed', 'error');
     } finally {
       uploadingImage = false;
+      target.value = '';
     }
   }
 
@@ -469,15 +484,15 @@
         {#if isReturnWindowOpen && !activeReturn}
           <button
             onclick={() => showReturnModal = true}
-            class="px-4 py-1.5 rounded-full text-sm font-semibold text-white transition-all shadow-sm flex items-center gap-1.5 active:scale-95"
+            class="px-4 py-1.5 rounded-full text-sm font-semibold text-white transition-all shadow-sm flex items-center gap-1.5 active:scale-95 cursor-pointer"
             style="background: linear-gradient(135deg, #ec4899 0%, #f43f5e 100%);"
           >
             <span>🔄 Exchange / Return</span>
-            <span class="text-[10px] opacity-90">({5 - daysSinceDelivery}d left)</span>
+            <span class="text-[10px] opacity-90">({returnDaysLeft}d left)</span>
           </button>
-        {:else if isDelivered && daysSinceDelivery > 5}
-          <span class="text-xs px-3 py-1 rounded-full bg-gray-100 text-gray-500 font-medium">
-            🔒 Return Window Closed
+        {:else if isDelivered && !activeReturn && daysSinceDelivery >= RETURN_WINDOW_DAYS}
+          <span class="text-xs px-3 py-1 rounded-full bg-gray-100 text-gray-500 font-medium border border-gray-200">
+            🔒 Return Window Closed ({RETURN_WINDOW_DAYS}-day limit passed)
           </span>
         {/if}
 

@@ -13,7 +13,7 @@
 
   const trustBadges = [
     { icon: '🔒', title: 'Secure Checkout', sub: '256-bit SSL Encryption' },
-    { icon: '↩', title: 'Easy Returns', sub: '15-day hassle-free returns' },
+    { icon: '↩', title: 'Easy Returns', sub: '5-day hassle-free returns' },
     { icon: '🌞', title: 'Indian Summers', sub: 'Designed for our climate' },
     { icon: '🚚', title: 'Free Shipping', sub: 'On all orders' },
   ];

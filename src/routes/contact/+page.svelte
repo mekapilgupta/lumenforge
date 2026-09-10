@@ -14,7 +14,7 @@
       <div>
         <h2 class="text-lg font-semibold mb-1" style="color: var(--color-text-dark);">📧 Email</h2>
         <p>
-          <a href="mailto:hello@frenchtoes.in" style="color: var(--color-blush-deep);">hello@frenchtoes.in</a>
+          <a href="mailto:frenchtoesapparels@gmail.com" style="color: var(--color-blush-deep);">frenchtoesapparels@gmail.com</a>
         </p>
         <p class="text-sm opacity-60 mt-1">For orders, returns, and general inquiries.</p>
       </div>

@@ -26,7 +26,7 @@
       <p class="mt-2">
         <strong>Company:</strong> Vertex International<br/>
         <strong>Address:</strong> 32 KM, Grand Trunk Rd, Kundli, Sonipat, Haryana 131028, India<br/>
-        <strong>Email:</strong> <a href="mailto:hello@frenchtoes.in" style="color: var(--color-blush-deep);">hello@frenchtoes.in</a>
+        <strong>Email:</strong> <a href="mailto:frenchtoesapparels@gmail.com" style="color: var(--color-blush-deep);">frenchtoesapparels@gmail.com</a>
       </p>
     </div>
 
@@ -107,7 +107,7 @@
       <h2 class="text-lg font-semibold mb-3" style="color: var(--color-text-dark);">10. Contact</h2>
       <p>
         For any questions regarding these Terms, please contact us at
-        <a href="mailto:hello@frenchtoes.in" style="color: var(--color-blush-deep);">hello@frenchtoes.in</a>.
+        <a href="mailto:frenchtoesapparels@gmail.com" style="color: var(--color-blush-deep);">frenchtoesapparels@gmail.com</a>.
       </p>
     </div>
 

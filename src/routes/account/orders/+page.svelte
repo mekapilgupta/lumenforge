@@ -113,13 +113,16 @@
       (order.returns ?? []).slice(-1)[0] ?? null;
   }
 
+  const RETURN_WINDOW_DAYS = 20;
+
   function isEligibleForReturn(order: any) {
     if (order.status !== 'delivered') return { eligible: false, daysLeft: 0, expired: false };
-    const deliveryTime = order.delivered_at ? new Date(order.delivered_at).getTime() : 0;
-    if (!deliveryTime) return { eligible: true, daysLeft: 5, expired: false };
+    const deliveryTime = order.delivered_at
+      ? new Date(order.delivered_at).getTime()
+      : (order.updated_at ? new Date(order.updated_at).getTime() : new Date(order.created_at).getTime());
     const daysSince = Math.floor((Date.now() - deliveryTime) / (1000 * 60 * 60 * 24));
-    if (daysSince <= 5) {
-      return { eligible: true, daysLeft: Math.max(0, 5 - daysSince), expired: false };
+    if (daysSince < RETURN_WINDOW_DAYS) {
+      return { eligible: true, daysLeft: Math.max(1, RETURN_WINDOW_DAYS - daysSince), expired: false };
     }
     return { eligible: false, daysLeft: 0, expired: true };
   }
@@ -150,15 +153,17 @@
     try {
       const formData = new FormData();
       for (let i = 0; i < files.length; i++) {
-        formData.append('images', files[i]);
+        formData.append('file', files[i]);
       }
+      formData.append('folder', '/returns');
       const res = await fetch('/api/admin/upload-image', {
         method: 'POST',
         body: formData
       });
       const data = await res.json();
-      if (data.success && data.urls) {
-        returnImages = [...returnImages, ...data.urls];
+      const uploadedUrls = data.urls || (data.url ? [data.url] : []);
+      if (data.success && uploadedUrls.length > 0) {
+        returnImages = [...returnImages, ...uploadedUrls];
         uiStore.addToast('Photo uploaded successfully', 'success');
       } else {
         uiStore.addToast(data.error || 'Failed to upload photo', 'error');
@@ -167,6 +172,7 @@
       uiStore.addToast(err.message || 'Upload failed', 'error');
     } finally {
       uploadingImage = false;
+      target.value = '';
     }
   }
 
@@ -187,9 +193,14 @@
 
     submittingReturn = true;
     try {
+      const session = (await supabase.auth.getSession()).data.session;
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (session?.access_token) {
+        headers['Authorization'] = `Bearer ${session.access_token}`;
+      }
       const res = await fetch('/api/returns/create', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify({
           orderId: returnDialogOrder.id,
           userId: authStore.user!.id,
@@ -382,7 +393,7 @@
                 </button>
               {:else}
                 <div class="w-full py-2 rounded-xl text-xs font-medium text-center bg-gray-50 text-gray-500 border border-gray-200">
-                  🔒 Return &amp; Exchange Window Closed (5-day limit passed)
+                  🔒 Return &amp; Exchange Window Closed ({RETURN_WINDOW_DAYS}-day limit passed)
                 </div>
               {/if}
             </div>

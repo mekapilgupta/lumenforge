@@ -13,7 +13,7 @@
       <p>
         French Toes is a brand owned and operated by <strong>Vertex International</strong>.<br/>
         32 KM, Grand Trunk Rd, Kundli, Sonipat, Haryana 131028, India.<br/>
-        Email: <a href="mailto:hello@frenchtoes.in" style="color: var(--color-blush-deep);">hello@frenchtoes.in</a>
+        Email: <a href="mailto:frenchtoesapparels@gmail.com" style="color: var(--color-blush-deep);">frenchtoesapparels@gmail.com</a>
       </p>
     </div>
 
@@ -64,7 +64,7 @@
     <div>
       <h2 class="text-lg font-semibold mb-3" style="color: var(--color-text-dark);">5. Order Tracking</h2>
       <p>
-        Once your order is dispatched, you will receive a tracking link via email and SMS. You can track your order on our courier partner's website. If you don't receive tracking updates within 48 hours of placing your order, please contact us at <a href="mailto:hello@frenchtoes.in" style="color: var(--color-blush-deep);">hello@frenchtoes.in</a>.
+        Once your order is dispatched, you will receive a tracking link via email and SMS. You can track your order on our courier partner's website. If you don't receive tracking updates within 48 hours of placing your order, please contact us at <a href="mailto:frenchtoesapparels@gmail.com" style="color: var(--color-blush-deep);">frenchtoesapparels@gmail.com</a>.
       </p>
     </div>
 
@@ -94,7 +94,7 @@
     <div>
       <h2 class="text-lg font-semibold mb-3" style="color: var(--color-text-dark);">9. Contact</h2>
       <p>
-        For shipping-related queries, email us at <a href="mailto:hello@frenchtoes.in" style="color: var(--color-blush-deep);">hello@frenchtoes.in</a>.
+        For shipping-related queries, email us at <a href="mailto:frenchtoesapparels@gmail.com" style="color: var(--color-blush-deep);">frenchtoesapparels@gmail.com</a>.
       </p>
     </div>
 

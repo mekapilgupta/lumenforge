@@ -186,7 +186,13 @@
     showStatusModal = false;
 
     // 1. Update order status
-    const updateData: any = { status: targetStatus };
+    const updateData: any = { status: targetStatus, updated_at: new Date().toISOString() };
+    if (targetStatus === 'delivered' && !order.delivered_at) {
+      updateData.delivered_at = new Date().toISOString();
+    }
+    if (targetStatus === 'shipped' && !order.shipped_at) {
+      updateData.shipped_at = new Date().toISOString();
+    }
     const { error } = await supabase
       .from('orders')
       .update(updateData)

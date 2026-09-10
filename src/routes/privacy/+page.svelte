@@ -18,7 +18,7 @@
         32 KM, Grand Trunk Rd, Kundli, Sonipat, Haryana 131028, India.
       </p>
       <p class="mt-2">
-        For any privacy-related questions, contact us at <a href="mailto:hello@frenchtoes.in" style="color: var(--color-blush-deep);">hello@frenchtoes.in</a>.
+        For any privacy-related questions, contact us at <a href="mailto:frenchtoesapparels@gmail.com" style="color: var(--color-blush-deep);">frenchtoesapparels@gmail.com</a>.
       </p>
     </div>
 
@@ -72,7 +72,7 @@
         <li><strong>Deletion:</strong> Request that we delete your personal data (subject to legal retention requirements).</li>
         <li><strong>Opt-out:</strong> Unsubscribe from marketing emails at any time via the link in the footer of every email.</li>
       </ul>
-      <p class="mt-2">To exercise any of these rights, email us at <a href="mailto:hello@frenchtoes.in" style="color: var(--color-blush-deep);">hello@frenchtoes.in</a>.</p>
+      <p class="mt-2">To exercise any of these rights, email us at <a href="mailto:frenchtoesapparels@gmail.com" style="color: var(--color-blush-deep);">frenchtoesapparels@gmail.com</a>.</p>
     </div>
 
     <div>
@@ -102,7 +102,7 @@
       <p class="mt-2">
         <strong>Vertex International</strong><br/>
         32 KM, Grand Trunk Rd, Kundli, Sonipat, Haryana 131028<br/>
-        Email: <a href="mailto:hello@frenchtoes.in" style="color: var(--color-blush-deep);">hello@frenchtoes.in</a>
+        Email: <a href="mailto:frenchtoesapparels@gmail.com" style="color: var(--color-blush-deep);">frenchtoesapparels@gmail.com</a>
       </p>
     </div>
 

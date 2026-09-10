@@ -160,7 +160,7 @@ export async function POST({ request }) {
                         <a href="https://frenchtoes.in/account/orders" style="display: inline-block; background-color: #2e7d32; color: #ffffff; text-decoration: none; padding: 10px 20px; border-radius: 8px; font-weight: bold; font-size: 14px;">Leave a Review / View Order →</a>
                     </div>
 
-                    <p style="font-size: 13px; color: #8b6f5e;">Need an exchange or return? You can initiate it easily within 15 days directly from your account dashboard.</p>
+                    <p style="font-size: 13px; color: #8b6f5e;">Need an exchange or return? You can initiate it easily within 5 days directly from your account dashboard.</p>
                 </div>
             `;
         } else {

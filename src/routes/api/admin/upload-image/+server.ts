@@ -16,8 +16,14 @@ export async function POST({ request }) {
 
     if (contentType.includes('multipart/form-data')) {
       const formData = await request.formData();
-      const files = formData.getAll('file') as (File | string)[];
-      const folder = (formData.get('folder') as string) || '/products';
+      const files = [
+        ...formData.getAll('file'),
+        ...formData.getAll('files'),
+        ...formData.getAll('images'),
+        ...formData.getAll('image')
+      ].filter(Boolean) as (File | string)[];
+
+      const folder = (formData.get('folder') as string) || '/returns';
       const customFileName = formData.get('fileName') as string | null;
 
       if (!files || files.length === 0) {
@@ -74,6 +80,8 @@ export async function POST({ request }) {
         }
       }
 
+      const successfulUrls = results.filter(r => r.success && r.url).map(r => r.url);
+
       // If single file uploaded, return direct object plus results array
       if (results.length === 1) {
         if (!results[0].success) {
@@ -81,20 +89,24 @@ export async function POST({ request }) {
         }
         return json({
           success: true,
+          url: results[0].url,
+          urls: successfulUrls,
           ...results[0],
           results,
         });
       }
 
       return json({
-        success: results.some(r => r.success),
+        success: successfulUrls.length > 0,
+        url: successfulUrls[0] || null,
+        urls: successfulUrls,
         results,
       });
     }
 
     // Handle JSON payload (base64 string or image URL)
     const body = await request.json();
-    const { file, fileName = `ft_${Date.now()}.jpg`, folder = '/products' } = body;
+    const { file, fileName = `ft_${Date.now()}.jpg`, folder = '/returns' } = body;
 
     if (!file) {
       return json({ success: false, error: 'Missing "file" (base64 or URL) in request body' }, { status: 400 });
@@ -123,6 +135,7 @@ export async function POST({ request }) {
     return json({
       success: true,
       url: data.url,
+      urls: [data.url],
       fileId: data.fileId,
       name: data.name,
       thumbnailUrl: data.thumbnailUrl || data.url,
