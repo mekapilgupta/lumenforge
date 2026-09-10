@@ -679,7 +679,7 @@ export async function createShiprocketReturnOrder(
     .from('order_returns')
     .select(`
       *,
-      order:orders(
+      order:orders!order_id(
         id,
         order_number,
         shipping_address_id,
@@ -700,7 +700,7 @@ export async function createShiprocketReturnOrder(
       .from('order_returns')
       .select(`
         *,
-        order:orders(
+        order:orders!order_id(
           id,
           order_number,
           shipping_address_id,
@@ -716,8 +716,37 @@ export async function createShiprocketReturnOrder(
     if (adminRet) ret = adminRet;
   }
 
+  // Direct fallback if join was not loaded or returned null
+  if (!ret) {
+    const { data: fallbackRet } = await db
+      .from('order_returns')
+      .select('*')
+      .eq('id', returnId)
+      .maybeSingle();
+    if (fallbackRet) ret = fallbackRet;
+  }
+
   if (!ret) {
     return { success: false, error: retErr?.message || 'Return record not found' };
+  }
+
+  // If order wasn't embedded through join, fetch order directly
+  if (!ret.order && ret.order_id) {
+    const { data: orderData } = await db
+      .from('orders')
+      .select(`
+        id,
+        order_number,
+        shipping_address_id,
+        user_id,
+        total_amount,
+        shipping_address:addresses!shipping_address_id(*),
+        items:order_items(*),
+        profile:user_id(full_name, email, phone)
+      `)
+      .eq('id', ret.order_id)
+      .maybeSingle();
+    ret.order = orderData;
   }
 
   const order = ret.order;

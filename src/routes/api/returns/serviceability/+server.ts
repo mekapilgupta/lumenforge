@@ -45,7 +45,7 @@ export async function POST({ request, cookies }) {
           id,
           order_id,
           customer_id,
-          order:orders(
+          order:orders!order_id(
             id,
             order_number,
             shipping_address_id,
@@ -65,7 +65,7 @@ export async function POST({ request, cookies }) {
             id,
             order_id,
             customer_id,
-            order:orders(
+            order:orders!order_id(
               id,
               order_number,
               shipping_address_id,
@@ -77,6 +77,31 @@ export async function POST({ request, cookies }) {
           .eq('id', returnId)
           .maybeSingle();
         if (adminRet) ret = adminRet;
+      }
+
+      if (!ret) {
+        const { data: fallbackRet } = await client
+          .from('order_returns')
+          .select('*')
+          .eq('id', returnId)
+          .maybeSingle();
+        if (fallbackRet) ret = fallbackRet;
+      }
+
+      if (ret && !ret.order && ret.order_id) {
+        const { data: orderData } = await client
+          .from('orders')
+          .select(`
+            id,
+            order_number,
+            shipping_address_id,
+            total_amount,
+            shipping_address:addresses!shipping_address_id(*),
+            profile:user_id(full_name, email, phone)
+          `)
+          .eq('id', ret.order_id)
+          .maybeSingle();
+        ret.order = orderData;
       }
 
       const order = ret?.order;
