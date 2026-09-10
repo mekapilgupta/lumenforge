@@ -587,14 +587,95 @@ async function sendTransactionalEmail(type: string, recipientEmail: string, reci
 }
 
 /**
- * Create a Reverse Pickup Order on Shiprocket
+/**
+ * Check Reverse Courier Serviceability from customer pincode to warehouse
+ * Endpoint: https://apiv2.shiprocket.in/v1/external/courier/serviceability/
+ */
+export async function getShiprocketReturnServiceability(customerPincode: string): Promise<{
+  success: boolean;
+  couriers: Array<{
+    id: number;
+    name: string;
+    rate: number;
+    rating: number;
+    etd: string;
+    isRecommended: boolean;
+  }>;
+  warehousePincode?: string;
+  error?: string;
+}> {
+  try {
+    const cleanPincode = String(customerPincode || '').trim();
+    if (!/^\d{6}$/.test(cleanPincode)) {
+      return { success: false, error: 'Invalid customer pincode', couriers: [] };
+    }
+
+    const token = await getShiprocketToken();
+    const warehousePincode = env.SHIPROCKET_PICKUP_POSTCODE || (typeof process !== 'undefined' ? process.env.SHIPROCKET_PICKUP_POSTCODE : undefined) || '131028';
+
+    const url = `https://apiv2.shiprocket.in/v1/external/courier/serviceability/?pickup_postcode=${cleanPincode}&delivery_postcode=${warehousePincode}&weight=0.8&cod=0&is_return=1`;
+    const res = await fetch(url, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    const data = await res.json();
+    if (!res.ok || data.status !== 200) {
+      return { success: false, error: data.message || 'Could not fetch reverse couriers', couriers: [] };
+    }
+
+    const list = data.data?.available_courier_companies || [];
+    const couriers = list.map((c: any) => ({
+      id: c.courier_company_id,
+      name: c.courier_name,
+      rate: Number(c.rate ?? c.freight_charge ?? 0),
+      rating: Number(c.rating ?? 4.0),
+      etd: c.etd || (c.estimated_delivery_days ? `${c.estimated_delivery_days} days` : '3-5 days'),
+      isRecommended: false,
+    }));
+
+    // Sort by rating desc, then rate asc
+    couriers.sort((a: any, b: any) => (b.rating - a.rating) || (a.rate - b.rate));
+    if (couriers.length > 0) {
+      couriers[0].isRecommended = true;
+    }
+
+    return { success: true, couriers, warehousePincode };
+  } catch (err: any) {
+    console.error('[Shiprocket Return Serviceability Exception]', err);
+    return { success: false, error: err.message || 'Serviceability check failed', couriers: [] };
+  }
+}
+
+/**
+ * Create a Reverse Pickup Order on Shiprocket with automated AWB assignment and pickup request
  * Endpoint: https://apiv2.shiprocket.in/v1/external/orders/create/return
  */
-export async function createShiprocketReturnOrder(returnId: string): Promise<{ success: boolean; return_order_id?: string; shipment_id?: string; awb?: string; error?: string }> {
-  console.log(`[Shiprocket Return] Initiating reverse pickup for return ID: ${returnId}`);
+export async function createShiprocketReturnOrder(
+  returnId: string,
+  options?: {
+    courierId?: number | string;
+    courierName?: string;
+    addressOverride?: {
+      full_name?: string;
+      phone?: string;
+      address_line1?: string;
+      address_line2?: string;
+      city?: string;
+      state?: string;
+      pincode?: string;
+      email?: string;
+    };
+    notes?: string;
+    client?: any;
+  }
+): Promise<{ success: boolean; return_order_id?: string; shipment_id?: string; awb?: string; courier_name?: string; error?: string }> {
+  console.log(`[Shiprocket Return] Initiating reverse pickup for return ID: ${returnId}`, options);
+
+  const db = options?.client || supabaseAdmin;
 
   // Fetch return record with order and address
-  const { data: ret, error: retErr } = await supabaseAdmin
+  let ret: any = null;
+  const { data: directRet, error: retErr } = await db
     .from('order_returns')
     .select(`
       *,
@@ -610,32 +691,64 @@ export async function createShiprocketReturnOrder(returnId: string): Promise<{ s
       )
     `)
     .eq('id', returnId)
-    .single();
+    .maybeSingle();
 
-  if (retErr || !ret) {
+  ret = directRet;
+
+  if (!ret && db !== supabaseAdmin) {
+    const { data: adminRet } = await supabaseAdmin
+      .from('order_returns')
+      .select(`
+        *,
+        order:orders(
+          id,
+          order_number,
+          shipping_address_id,
+          user_id,
+          total_amount,
+          shipping_address:addresses!shipping_address_id(*),
+          items:order_items(*),
+          profile:user_id(full_name, email, phone)
+        )
+      `)
+      .eq('id', returnId)
+      .maybeSingle();
+    if (adminRet) ret = adminRet;
+  }
+
+  if (!ret) {
     return { success: false, error: retErr?.message || 'Return record not found' };
   }
 
   const order = ret.order;
   const address = order?.shipping_address;
   const profile = order?.profile;
+  const override = options?.addressOverride;
 
-  const customerName = address?.full_name || profile?.full_name || 'Customer';
-  const add1 = address?.address_line1 || 'No Address Provided';
-  const add2 = address?.address_line2 || '';
-  const city = address?.city || 'Delhi';
-  const state = address?.state || 'Delhi';
-  const pincode = address?.pincode || '110001';
-  const phone = address?.phone || profile?.phone || '9999999999';
-  const email = profile?.email || 'customer@frenchtoes.in';
+  const customerName = override?.full_name || address?.full_name || profile?.full_name || 'Customer';
+  const add1 = override?.address_line1 || address?.address_line1 || 'Delivered Customer Address';
+  const add2 = override?.address_line2 || address?.address_line2 || '';
+  const city = override?.city || address?.city || 'Delhi';
+  const state = override?.state || address?.state || 'Delhi';
+  const pincode = override?.pincode || address?.pincode || '110001';
+  const phone = override?.phone || address?.phone || profile?.phone || '9811202969';
+  const email = override?.email || profile?.email || 'hello@frenchtoes.in';
 
-  const returnItems = (order?.items || []).map((item: any) => ({
-    name: item.product_name || 'French Toes Slipper',
-    sku: item.product_sku || 'FT-ITEM-RETURN',
-    units: item.quantity || 1,
-    selling_price: (item.unit_price || 0) / 100,
-    discount: (item.discount_amount || 0) / 100,
-  }));
+  const returnItems = (order?.items && order.items.length > 0)
+    ? order.items.map((item: any) => ({
+        name: item.product_name || 'French Toes Footwear',
+        sku: item.product_sku || (item.product_id ? String(item.product_id).substring(0, 10) : 'FT-RET-ITEM'),
+        units: item.quantity || 1,
+        selling_price: Math.max(1, ((item.unit_price || 79900) / 100)),
+        discount: (item.discount_amount || 0) / 100,
+      }))
+    : [{
+        name: 'French Toes Footwear',
+        sku: 'FT-RET-ITEM',
+        units: 1,
+        selling_price: Math.max(1, ((order?.total_amount || 79900) / 100)),
+        discount: 0,
+      }];
 
   const token = await getShiprocketToken();
   const returnPayload = {
@@ -649,27 +762,29 @@ export async function createShiprocketReturnOrder(returnId: string): Promise<{ s
     pickup_city: city,
     pickup_state: state,
     pickup_country: 'India',
-    pickup_pincode: pincode,
+    pickup_pincode: Number(pincode) || pincode,
     pickup_email: email,
     pickup_phone: phone,
     pickup_location: 'Primary',
     shipping_customer_name: 'French Toes Returns Warehouse',
-    shipping_address: 'French Toes Logistics Hub, Primary Warehouse',
-    shipping_city: 'New Delhi',
-    shipping_state: 'Delhi',
+    shipping_address: '32 KM STONE , G.T. ROAD , KUNDLI SONEPAT , HARYANA',
+    shipping_city: 'Sonipat',
+    shipping_state: 'Haryana',
     shipping_country: 'India',
-    shipping_pincode: '110001',
-    shipping_phone: '9999999999',
+    shipping_pincode: 131028,
+    shipping_phone: '9811202969',
+    shipping_email: 'hello@frenchtoes.in',
     shipping_is_billing: true,
     order_items: returnItems,
-    sub_total: (order?.total_amount || 79900) / 100,
+    payment_method: 'PREPAID',
+    sub_total: Math.max(1, ((order?.total_amount || 79900) / 100)),
     length: 30,
     breadth: 20,
     height: 10,
     weight: 0.8,
   };
 
-  console.log('[Shiprocket Return] Payload:', JSON.stringify(returnPayload, null, 2));
+  console.log('[Shiprocket Return] Creating return order with payload:', JSON.stringify(returnPayload, null, 2));
 
   const res = await fetch('https://apiv2.shiprocket.in/v1/external/orders/create/return', {
     method: 'POST',
@@ -689,46 +804,119 @@ export async function createShiprocketReturnOrder(returnId: string): Promise<{ s
 
   const returnOrderId = String(resData.order_id || '');
   const shipmentId = String(resData.shipment_id || '');
-  const returnAwb = String(resData.awb_code || shipmentId);
+  let returnAwb = String(resData.awb_code || '');
+  let assignedCourierName = options?.courierName || '';
+
+  // Assign AWB & Generate Pickup if shipmentId exists
+  if (shipmentId) {
+    try {
+      const awbPayload: any = {
+        shipment_id: Number(shipmentId),
+        is_return: 1,
+      };
+      if (options?.courierId) {
+        awbPayload.courier_id = Number(options.courierId);
+      }
+
+      console.log('[Shiprocket Return] Assigning AWB:', JSON.stringify(awbPayload));
+      const awbRes = await fetch('https://apiv2.shiprocket.in/v1/external/courier/assign/awb', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(awbPayload),
+      });
+
+      const awbData = await awbRes.json();
+      console.log('[Shiprocket Return] AWB Assignment Response:', JSON.stringify(awbData, null, 2));
+
+      const awbObj = awbData.response?.data || awbData.data || awbData;
+      if (awbObj?.awb_code) {
+        returnAwb = String(awbObj.awb_code);
+      }
+      if (awbObj?.courier_name) {
+        assignedCourierName = String(awbObj.courier_name);
+      }
+
+      // Generate pickup request to notify the courier partner
+      const pickupRes = await fetch('https://apiv2.shiprocket.in/v1/external/courier/generate/pickup', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          shipment_id: [Number(shipmentId)],
+        }),
+      });
+      const pickupData = await pickupRes.json();
+      console.log('[Shiprocket Return] Pickup Generation Response:', JSON.stringify(pickupData, null, 2));
+    } catch (awbErr) {
+      console.warn('[Shiprocket Return AWB Warning]', awbErr);
+    }
+  }
+
+  // Fallback AWB if none generated yet
+  if (!returnAwb) {
+    returnAwb = shipmentId || returnOrderId;
+  }
+  if (!assignedCourierName) {
+    assignedCourierName = 'Shiprocket Reverse Logistics';
+  }
 
   // Update order_returns in database
-  await supabaseAdmin
+  const updatePayload: any = {
+    shiprocket_return_order_id: returnOrderId,
+    shiprocket_return_shipment_id: shipmentId,
+    shiprocket_return_awb: returnAwb,
+    shiprocket_return_status: 'PICKUP_SCHEDULED',
+    status: 'pickup_scheduled',
+    courier_name: assignedCourierName,
+    pickup_scheduled_for: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  };
+  if (options?.notes) {
+    updatePayload.admin_notes = options.notes;
+  }
+
+  await db
     .from('order_returns')
-    .update({
-      shiprocket_return_order_id: returnOrderId,
-      shiprocket_return_shipment_id: shipmentId,
-      shiprocket_return_awb: returnAwb,
-      shiprocket_return_status: 'PICKUP_SCHEDULED',
-      status: 'pickup_scheduled',
-      pickup_scheduled_for: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    })
+    .update(updatePayload)
     .eq('id', returnId);
 
   // Log in order_logs
-  await supabaseAdmin
-    .from('order_logs')
-    .insert({
-      order_id: order.id,
-      status: 'pickup_scheduled',
-      note: `Shiprocket reverse pickup created. Return Order ID: ${returnOrderId}, AWB: ${returnAwb}`,
-      created_at: new Date().toISOString(),
-    });
+  try {
+    await db
+      .from('order_logs')
+      .insert({
+        order_id: order?.id,
+        status: 'pickup_scheduled',
+        note: `Shiprocket reverse pickup scheduled via ${assignedCourierName}. Return Order ID: ${returnOrderId}, AWB: ${returnAwb}`,
+        created_at: new Date().toISOString(),
+      });
+  } catch (e) {
+    console.warn('[Order Log Skipped]', e);
+  }
 
   // Send email to customer
-  if (email) {
-    await sendShiprocketEmail(
-      email,
-      customerName,
-      'Your Return Pickup Has Been Scheduled! 🚚',
-      'order_shipped',
-      {
-        orderNumber: order.order_number,
-        awb: returnAwb,
-        courier: 'Shiprocket Reverse Logistics',
-        trackingUrl: `https://shiprocket.co//tracking/${returnAwb}`,
-      }
-    );
+  if (email && order) {
+    try {
+      await sendShiprocketEmail(
+        email,
+        customerName,
+        'Your Return Pickup Has Been Scheduled! 🚚',
+        'order_shipped',
+        {
+          orderNumber: order.order_number,
+          awb: returnAwb,
+          courier: assignedCourierName,
+          trackingUrl: `https://shiprocket.co//tracking/${returnAwb}`,
+        }
+      );
+    } catch (e) {
+      console.warn('[Return Email Skipped]', e);
+    }
   }
 
   return {
@@ -736,6 +924,7 @@ export async function createShiprocketReturnOrder(returnId: string): Promise<{ s
     return_order_id: returnOrderId,
     shipment_id: shipmentId,
     awb: returnAwb,
+    courier_name: assignedCourierName,
   };
 }
 

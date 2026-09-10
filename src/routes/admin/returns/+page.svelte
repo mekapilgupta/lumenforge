@@ -18,13 +18,30 @@
   let loadingAddress = $state(false);
   let actionLoading = $state(false);
 
-  // New modal states for overrides
-  let showManualPickupModal = $state(false);
+  // Reverse Pickup Modal States (Shiprocket Automated + Manual)
+  let showPickupModal = $state(false);
+  let pickupTab = $state<'shiprocket' | 'manual'>('shiprocket');
+  let checkingServiceability = $state(false);
+  let availableCouriers = $state<any[]>([]);
+  let selectedCourierId = $state<number | null>(null);
+  let autoAssignCourier = $state(true);
+
+  // Delivered Customer Pickup Info (Auto-fetched & editable)
+  let pickupCustomerName = $state('');
+  let pickupPhone = $state('');
+  let pickupAddressLine1 = $state('');
+  let pickupAddressLine2 = $state('');
+  let pickupCity = $state('');
+  let pickupState = $state('');
+  let pickupPincode = $state('');
+  let editAddress = $state(false);
+  let pickupNotes = $state('');
+
+  // Manual fallback fields
   let courierName = $state('');
   let courierContact = $state('');
   let awbTrackingId = $state('');
   let pickupScheduledFor = $state('');
-  let pickupNotes = $state('');
 
   let showManualRefundModal = $state(false);
   let refundMethod = $state<'upi' | 'bank_transfer' | 'store_credit'>('upi');
@@ -161,42 +178,151 @@
 
   // --- ACTIONS ---
 
-  async function approveReturn(ret: any) {
-    if (!confirm(`Approve this ${ret.type} request and schedule automated Shiprocket reverse pickup?`)) return;
-    actionLoading = true;
-    uiStore.addToast("Scheduling Shiprocket reverse pickup...", "info");
+  async function openPickupModal(ret: any) {
+    selectedReturn = ret;
+    selectedOrder = ret.order ?? null;
+    pickupTab = 'shiprocket';
+    autoAssignCourier = true;
+    selectedCourierId = null;
+    availableCouriers = [];
+    editAddress = false;
+    pickupNotes = '';
+    courierName = '';
+    courierContact = '';
+    awbTrackingId = '';
+    pickupScheduledFor = '';
 
+    // Auto-fetch delivered customer address
+    let addr = shippingAddress;
+    if (!addr && selectedOrder?.shipping_address_id) {
+      const { data } = await supabase
+        .from('addresses')
+        .select('*')
+        .eq('id', selectedOrder.shipping_address_id)
+        .maybeSingle();
+      if (data) {
+        addr = data;
+        shippingAddress = data;
+      }
+    }
+    if (!addr && selectedOrder?.shipping_address) {
+      addr = selectedOrder.shipping_address;
+    }
+
+    const prof = selectedOrder?.profile;
+    pickupCustomerName = addr?.full_name || prof?.full_name || 'Customer';
+    pickupPhone = addr?.phone || prof?.phone || '';
+    pickupAddressLine1 = addr?.address_line1 || '';
+    pickupAddressLine2 = addr?.address_line2 || '';
+    pickupCity = addr?.city || '';
+    pickupState = addr?.state || '';
+    pickupPincode = addr?.pincode || '';
+
+    showPickupModal = true;
+
+    // Fetch live serviceability
+    if (pickupPincode && /^\d{6}$/.test(String(pickupPincode).trim())) {
+      await checkReverseServiceability(String(pickupPincode).trim(), ret.id);
+    }
+  }
+
+  async function checkReverseServiceability(pincode: string, returnId?: string) {
+    checkingServiceability = true;
+    availableCouriers = [];
     try {
-      const res = await fetch("/api/returns/approve", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ returnId: ret.id, mode: "shiprocket" })
+      const session = (await supabase.auth.getSession()).data.session;
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (session?.access_token) {
+        headers['Authorization'] = `Bearer ${session.access_token}`;
+      }
+      const res = await fetch('/api/returns/serviceability', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          returnId,
+          pincode,
+          sessionToken: session?.access_token,
+        }),
       });
       const data = await res.json();
+      if (res.ok && data.success && Array.isArray(data.couriers) && data.couriers.length > 0) {
+        availableCouriers = data.couriers;
+        const recommended = data.couriers.find((c: any) => c.isRecommended) || data.couriers[0];
+        selectedCourierId = recommended?.id || null;
+      } else {
+        availableCouriers = [];
+      }
+    } catch (err: any) {
+      console.warn('Failed to fetch reverse serviceability:', err);
+    } finally {
+      checkingServiceability = false;
+    }
+  }
+
+  async function scheduleShiprocketPickup() {
+    if (!selectedReturn) return;
+    actionLoading = true;
+    uiStore.addToast('Generating Shiprocket reverse pickup...', 'info');
+
+    try {
+      const session = (await supabase.auth.getSession()).data.session;
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (session?.access_token) {
+        headers['Authorization'] = `Bearer ${session.access_token}`;
+      }
+
+      const chosenCourier = selectedCourierId
+        ? availableCouriers.find((c: any) => c.id === selectedCourierId)
+        : null;
+
+      const res = await fetch('/api/returns/approve', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          returnId: selectedReturn.id,
+          mode: 'shiprocket',
+          courierId: autoAssignCourier ? undefined : selectedCourierId,
+          courierName: autoAssignCourier ? undefined : chosenCourier?.name,
+          addressOverride: {
+            full_name: pickupCustomerName,
+            phone: pickupPhone,
+            address_line1: pickupAddressLine1,
+            address_line2: pickupAddressLine2,
+            city: pickupCity,
+            state: pickupState,
+            pincode: pickupPincode,
+          },
+          notes: pickupNotes,
+          sessionToken: session?.access_token,
+        }),
+      });
+
+      const data = await res.json();
       if (res.ok && data.success) {
-        uiStore.addToast(data.message, "success");
+        uiStore.addToast(data.message, 'success');
+        showPickupModal = false;
         await loadReturns();
-        if (selectedReturn?.id === ret.id) {
+        if (selectedReturn?.id === selectedReturn.id) {
           selectedReturn = {
             ...selectedReturn,
-            status: "pickup_scheduled",
+            status: 'pickup_scheduled',
             shiprocket_return_awb: data.data?.awb,
-            shiprocket_return_order_id: data.data?.return_order_id
+            shiprocket_return_order_id: data.data?.return_order_id,
+            courier_name: data.data?.courier_name || chosenCourier?.name || 'Shiprocket Reverse Logistics',
           };
         }
       } else {
-        uiStore.addToast(data.error || "Failed to schedule reverse pickup", "error");
-        if (data.canFallbackToManual) {
-          courierName = "";
-          awbTrackingId = "";
-          showManualPickupModal = true;
-        }
+        uiStore.addToast(data.error || 'Failed to schedule Shiprocket pickup', 'error');
       }
     } catch (err: any) {
-      uiStore.addToast("API error: " + err.message, "error");
+      uiStore.addToast('API error: ' + err.message, 'error');
     } finally {
       actionLoading = false;
     }
+  }
+
+  async function approveReturn(ret: any) {
+    await openPickupModal(ret);
   }
 
   async function dispatchExchangeOrder(ret: any) {
@@ -445,12 +571,12 @@
   // --- MANUAL OVERRIDES & EXCHANGE APPROVALS ---
 
   async function scheduleManualPickup(ret: any) {
-    if (!courierName) {
-      uiStore.addToast('Please specify a courier name.', 'error');
+    if (!courierName.trim()) {
+      uiStore.addToast('Please specify a courier partner name.', 'error');
       return;
     }
     actionLoading = true;
-    showManualPickupModal = false;
+    showPickupModal = false;
 
     // Fetch matching admin action ID
     const { data: matchingActions } = await supabase
@@ -468,10 +594,11 @@
       .update({
         status: 'pickup_scheduled',
         pickup_mode: 'manual',
-        courier_name: courierName,
-        courier_contact: courierContact || null,
-        awb_or_tracking_id: awbTrackingId || null,
-        pickup_scheduled_for: pickupScheduledFor ? new Date(pickupScheduledFor).toISOString() : null,
+        courier_name: courierName.trim(),
+        courier_contact: courierContact.trim() || null,
+        shiprocket_return_awb: awbTrackingId.trim() || 'MANUAL-AWB',
+        awb_or_tracking_id: awbTrackingId.trim() || null,
+        pickup_scheduled_for: pickupScheduledFor ? new Date(pickupScheduledFor).toISOString() : new Date().toISOString(),
         pickup_notes: pickupNotes || null,
         manual_override: true,
         updated_at: new Date().toISOString()
@@ -1023,11 +1150,11 @@
           <div class="flex flex-wrap gap-2">
             {#if selectedReturn.status === "requested"}
               <button
-                onclick={() => approveReturn(selectedReturn)}
+                onclick={() => openPickupModal(selectedReturn)}
                 disabled={actionLoading}
-                class="px-3 py-2 rounded-xl text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 cursor-pointer"
+                class="px-3.5 py-2 rounded-xl text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 cursor-pointer flex items-center gap-1.5 shadow-md shadow-indigo-500/20"
               >
-                Approve & Shiprocket Pickup
+                <span>Schedule Reverse Pickup 🚚</span>
               </button>
             {/if}
 
@@ -1059,12 +1186,8 @@
             {#if selectedReturn.status === "requested" || selectedReturn.status === "approved"}
               <button
                 onclick={() => {
-                  courierName = '';
-                  courierContact = '';
-                  awbTrackingId = '';
-                  pickupScheduledFor = '';
-                  pickupNotes = '';
-                  showManualPickupModal = true;
+                  openPickupModal(selectedReturn);
+                  pickupTab = 'manual';
                 }}
                 disabled={actionLoading}
                 class="px-3 py-2 rounded-xl text-xs font-semibold text-white bg-amber-700/50 hover:bg-amber-600/60 border border-amber-600/40 disabled:opacity-50 cursor-pointer"
@@ -1208,44 +1331,239 @@
   </div>
 {/if}
 
-<!-- Manual Pickup Modal -->
-{#if showManualPickupModal}
+<!-- Reverse Pickup Modal (Shiprocket Automated + Offline Manual) -->
+{#if showPickupModal && selectedReturn}
   <!-- svelte-ignore a11y_click_events_have_key_events -->
-  <div class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm" onclick={() => showManualPickupModal = false} role="button" tabindex="0" aria-label="Close modal">
-    <div class="w-full max-w-md bg-[#18192a] border border-white/10 rounded-2xl p-6 shadow-2xl flex flex-col gap-4 text-white text-left" onclick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
-      <h3 class="text-lg font-bold">Schedule Manual Reverse Pickup 🚚</h3>
+  <div class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-md" onclick={() => showPickupModal = false} role="button" tabindex="0" aria-label="Close modal">
+    <div class="w-full max-w-xl bg-[#131422] border border-white/15 rounded-3xl p-6 shadow-2xl flex flex-col gap-5 text-white text-left max-h-[92vh] overflow-y-auto" onclick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
       
-      <div class="flex flex-col gap-3">
+      <!-- Modal Header -->
+      <div class="flex items-start justify-between border-b border-white/10 pb-4">
         <div>
-          <label class="block text-xs font-semibold text-gray-400 mb-1" for="courier-name">Courier Partner Name *</label>
-          <input id="courier-name" bind:value={courierName} type="text" placeholder="E.g. Delhivery, BlueDart" class="w-full px-3 py-2 rounded-xl text-sm bg-white/5 border border-white/15 outline-none focus:border-indigo-500 text-white" />
+          <div class="flex items-center gap-2">
+            <h3 class="text-lg font-bold text-white">Schedule Reverse Pickup 🚚</h3>
+            <span class="px-2 py-0.5 rounded-full text-[10px] font-bold tracking-wider uppercase bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
+              {selectedReturn.type === 'exchange' ? 'Exchange Request' : 'Return Refund'}
+            </span>
+          </div>
+          <p class="text-xs text-gray-400 mt-1">
+            Order <span class="text-white font-mono font-semibold">#{selectedOrder?.order_number}</span> • Return ID: <span class="font-mono text-gray-300">{selectedReturn.id.substring(0, 8)}</span>
+          </p>
         </div>
-        
-        <div>
-          <label class="block text-xs font-semibold text-gray-400 mb-1" for="courier-contact">Courier Contact (optional)</label>
-          <input id="courier-contact" bind:value={courierContact} type="text" placeholder="E.g. +91 9999999999" class="w-full px-3 py-2 rounded-xl text-sm bg-white/5 border border-white/15 outline-none focus:border-indigo-500 text-white" />
-        </div>
-
-        <div>
-          <label class="block text-xs font-semibold text-gray-400 mb-1" for="tracking-id">AWB / Tracking ID (optional)</label>
-          <input id="tracking-id" bind:value={awbTrackingId} type="text" placeholder="E.g. 1234567890" class="w-full px-3 py-2 rounded-xl text-sm bg-white/5 border border-white/15 outline-none focus:border-indigo-500 text-white" />
-        </div>
-
-        <div>
-          <label class="block text-xs font-semibold text-gray-400 mb-1" for="pickup-date">Scheduled Date & Time</label>
-          <input id="pickup-date" bind:value={pickupScheduledFor} type="datetime-local" class="w-full px-3 py-2 rounded-xl text-sm bg-white/5 border border-white/15 outline-none focus:border-indigo-500 text-white" />
-        </div>
-
-        <div>
-          <label class="block text-xs font-semibold text-gray-400 mb-1" for="pickup-notes">Pickup Instructions/Notes</label>
-          <textarea id="pickup-notes" bind:value={pickupNotes} placeholder="E.g. customer will drop at store" rows="2" class="w-full px-3 py-2 rounded-xl text-sm bg-white/5 border border-white/15 outline-none focus:border-indigo-500 text-white resize-none"></textarea>
-        </div>
+        <button onclick={() => showPickupModal = false} class="text-gray-400 hover:text-white p-1 rounded-lg hover:bg-white/5 transition-colors cursor-pointer" aria-label="Close">
+          ✕
+        </button>
       </div>
 
-      <div class="flex gap-3 mt-2">
-        <button onclick={() => showManualPickupModal = false} class="flex-1 py-2.5 rounded-xl text-xs font-semibold border border-white/15 text-gray-300">Cancel</button>
-        <button onclick={() => scheduleManualPickup(selectedReturn)} disabled={!courierName} class="flex-1 py-2.5 rounded-xl text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50">Confirm Schedule</button>
+      <!-- Mode Selector Tabs -->
+      <div class="flex rounded-xl p-1 bg-white/5 border border-white/10 gap-1">
+        <button
+          onclick={() => pickupTab = 'shiprocket'}
+          class="flex-1 py-2 rounded-lg text-xs font-semibold transition-all flex items-center justify-center gap-1.5 cursor-pointer {pickupTab === 'shiprocket' ? 'bg-indigo-600 text-white shadow-md' : 'text-gray-400 hover:text-white'}"
+        >
+          <span>⚡ Shiprocket Automated</span>
+          <span class="px-1.5 py-0.2 rounded text-[9px] bg-white/20 text-white font-bold">API</span>
+        </button>
+        <button
+          onclick={() => pickupTab = 'manual'}
+          class="flex-1 py-2 rounded-lg text-xs font-semibold transition-all flex items-center justify-center gap-1.5 cursor-pointer {pickupTab === 'manual' ? 'bg-amber-600 text-white shadow-md' : 'text-gray-400 hover:text-white'}"
+        >
+          <span>📝 Offline / Manual Courier</span>
+        </button>
       </div>
+
+      {#if pickupTab === 'shiprocket'}
+        <!-- TAB 1: SHIPROCKET AUTOMATED -->
+        <div class="space-y-4">
+          
+          <!-- 1. Customer Delivered Pickup Address (Auto-fetched) -->
+          <div class="rounded-2xl p-4 bg-white/5 border border-white/10 space-y-2">
+            <div class="flex items-center justify-between">
+              <div class="flex items-center gap-2">
+                <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                <h4 class="text-xs font-bold uppercase tracking-wider text-emerald-300">Pickup Address (Auto-Fetched From Delivered Order)</h4>
+              </div>
+              <button
+                type="button"
+                onclick={() => editAddress = !editAddress}
+                class="text-[11px] font-semibold text-indigo-400 hover:text-indigo-300 underline cursor-pointer"
+              >
+                {editAddress ? 'Done Editing' : 'Edit Address'}
+              </button>
+            </div>
+
+            {#if !editAddress}
+              <div class="text-xs space-y-1 text-gray-300">
+                <p class="text-sm font-bold text-white flex items-center gap-2">
+                  <span>{pickupCustomerName || 'Customer'}</span>
+                  <span class="text-xs font-normal text-gray-400 font-mono">📞 {pickupPhone || 'No phone'}</span>
+                </p>
+                <p>{pickupAddressLine1}{pickupAddressLine2 ? ', ' + pickupAddressLine2 : ''}</p>
+                <p>{pickupCity}, {pickupState} – <span class="text-white font-bold font-mono">{pickupPincode}</span></p>
+              </div>
+            {:else}
+              <div class="grid grid-cols-2 gap-2.5 pt-2 border-t border-white/10 text-xs">
+                <div>
+                  <label class="block text-[10px] text-gray-400 mb-1" for="p-name">Full Name</label>
+                  <input id="p-name" bind:value={pickupCustomerName} class="w-full px-2.5 py-1.5 rounded-lg bg-white/5 border border-white/15 text-white" />
+                </div>
+                <div>
+                  <label class="block text-[10px] text-gray-400 mb-1" for="p-phone">Phone Number</label>
+                  <input id="p-phone" bind:value={pickupPhone} class="w-full px-2.5 py-1.5 rounded-lg bg-white/5 border border-white/15 text-white" />
+                </div>
+                <div class="col-span-2">
+                  <label class="block text-[10px] text-gray-400 mb-1" for="p-addr1">Address Line 1</label>
+                  <input id="p-addr1" bind:value={pickupAddressLine1} class="w-full px-2.5 py-1.5 rounded-lg bg-white/5 border border-white/15 text-white" />
+                </div>
+                <div>
+                  <label class="block text-[10px] text-gray-400 mb-1" for="p-city">City</label>
+                  <input id="p-city" bind:value={pickupCity} class="w-full px-2.5 py-1.5 rounded-lg bg-white/5 border border-white/15 text-white" />
+                </div>
+                <div>
+                  <label class="block text-[10px] text-gray-400 mb-1" for="p-pin">Pincode (Updates Serviceability)</label>
+                  <input
+                    id="p-pin"
+                    bind:value={pickupPincode}
+                    onchange={() => {
+                      if (/^\d{6}$/.test(pickupPincode.trim())) {
+                        checkReverseServiceability(pickupPincode.trim(), selectedReturn.id);
+                      }
+                    }}
+                    class="w-full px-2.5 py-1.5 rounded-lg bg-white/5 border border-white/15 text-white font-mono"
+                  />
+                </div>
+              </div>
+            {/if}
+          </div>
+
+          <!-- 2. Shiprocket Courier Partner Selection -->
+          <div class="rounded-2xl p-4 bg-white/5 border border-white/10 space-y-3">
+            <div class="flex items-center justify-between">
+              <h4 class="text-xs font-bold uppercase tracking-wider text-indigo-300">Choose Reverse Courier Partner</h4>
+              {#if availableCouriers.length > 0}
+                <label class="flex items-center gap-1.5 text-xs text-gray-300 cursor-pointer">
+                  <input type="checkbox" bind:checked={autoAssignCourier} class="rounded text-indigo-600 focus:ring-0" />
+                  <span class="text-[11px]">Auto-assign best</span>
+                </label>
+              {/if}
+            </div>
+
+            {#if checkingServiceability}
+              <div class="py-6 flex flex-col items-center justify-center gap-2 text-gray-400">
+                <div class="w-6 h-6 border-2 border-indigo-400 border-t-transparent rounded-full animate-spin"></div>
+                <span class="text-xs">Fetching live Shiprocket reverse couriers & rates...</span>
+              </div>
+            {:else if availableCouriers.length > 0}
+              <div class="space-y-2 max-h-52 overflow-y-auto pr-1">
+                {#each availableCouriers as courier}
+                  <button
+                    type="button"
+                    onclick={() => {
+                      selectedCourierId = courier.id;
+                      autoAssignCourier = false;
+                    }}
+                    class="w-full p-3 rounded-xl border text-left flex items-center justify-between transition-all cursor-pointer {selectedCourierId === courier.id ? 'bg-indigo-900/30 border-indigo-500 shadow-md ring-1 ring-indigo-500' : 'bg-white/5 border-white/10 hover:border-white/20'}"
+                  >
+                    <div class="flex items-center gap-3">
+                      <div class="w-4 h-4 rounded-full border flex items-center justify-center {selectedCourierId === courier.id ? 'border-indigo-400 bg-indigo-600' : 'border-gray-500'}">
+                        {#if selectedCourierId === courier.id}
+                          <div class="w-1.5 h-1.5 rounded-full bg-white"></div>
+                        {/if}
+                      </div>
+                      <div>
+                        <div class="flex items-center gap-2">
+                          <span class="text-xs font-bold text-white">{courier.name}</span>
+                          {#if courier.isRecommended}
+                            <span class="px-1.5 py-0.5 rounded text-[9px] font-extrabold uppercase bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                              ★ Recommended
+                            </span>
+                          {/if}
+                        </div>
+                        <p class="text-[11px] text-gray-400 mt-0.5">Est. Pickup/Transit: <span class="text-gray-200">{courier.etd}</span></p>
+                      </div>
+                    </div>
+
+                    <div class="text-right">
+                      <span class="text-xs font-bold text-emerald-400 font-mono">₹{courier.rate}</span>
+                      <div class="text-[10px] text-amber-300 font-medium mt-0.5">★ {courier.rating.toFixed(1)}/5</div>
+                    </div>
+                  </button>
+                {/each}
+              </div>
+            {:else}
+              <div class="p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-xs text-amber-200 space-y-1">
+                <p class="font-semibold">⚠️ Live courier rates could not be fetched for this pincode.</p>
+                <p class="text-gray-300 text-[11px]">Shiprocket will automatically assign the default courier when creating the return order, or you can switch to Offline / Manual Courier above.</p>
+              </div>
+            {/if}
+          </div>
+
+          <!-- 3. Pickup Notes -->
+          <div>
+            <label class="block text-xs font-semibold text-gray-400 mb-1" for="pickup-sr-notes">Pickup Instructions/Notes (optional)</label>
+            <input id="pickup-sr-notes" bind:value={pickupNotes} placeholder="E.g. Package packed in original box, call before arriving" class="w-full px-3 py-2 rounded-xl text-xs bg-white/5 border border-white/15 outline-none focus:border-indigo-500 text-white" />
+          </div>
+
+          <!-- Action Buttons -->
+          <div class="flex gap-3 pt-2">
+            <button
+              type="button"
+              onclick={() => showPickupModal = false}
+              class="flex-1 py-3 rounded-xl text-xs font-semibold border border-white/15 text-gray-300 hover:bg-white/5 cursor-pointer transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onclick={scheduleShiprocketPickup}
+              disabled={actionLoading || checkingServiceability}
+              class="flex-2 py-3 rounded-xl text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 cursor-pointer shadow-lg shadow-indigo-600/30 flex items-center justify-center gap-2 transition-all"
+            >
+              {#if actionLoading}
+                <div class="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                <span>Creating Pickup & Generating AWB...</span>
+              {:else}
+                <span>🚀 Schedule Shiprocket Reverse Pickup</span>
+              {/if}
+            </button>
+          </div>
+
+        </div>
+      {:else}
+        <!-- TAB 2: MANUAL OVERRIDE -->
+        <div class="space-y-3 text-xs">
+          <div>
+            <label class="block font-semibold text-gray-400 mb-1" for="courier-name">Courier Partner Name *</label>
+            <input id="courier-name" bind:value={courierName} type="text" placeholder="E.g. Delhivery, BlueDart, DTDC, Store Runner" class="w-full px-3 py-2 rounded-xl text-sm bg-white/5 border border-white/15 outline-none focus:border-indigo-500 text-white" />
+          </div>
+          
+          <div>
+            <label class="block font-semibold text-gray-400 mb-1" for="courier-contact">Courier Contact (optional)</label>
+            <input id="courier-contact" bind:value={courierContact} type="text" placeholder="E.g. +91 9999999999" class="w-full px-3 py-2 rounded-xl text-sm bg-white/5 border border-white/15 outline-none focus:border-indigo-500 text-white" />
+          </div>
+
+          <div>
+            <label class="block font-semibold text-gray-400 mb-1" for="tracking-id">AWB / Tracking ID (optional)</label>
+            <input id="tracking-id" bind:value={awbTrackingId} type="text" placeholder="E.g. 1234567890" class="w-full px-3 py-2 rounded-xl text-sm bg-white/5 border border-white/15 outline-none focus:border-indigo-500 text-white font-mono" />
+          </div>
+
+          <div>
+            <label class="block font-semibold text-gray-400 mb-1" for="pickup-date">Scheduled Date & Time</label>
+            <input id="pickup-date" bind:value={pickupScheduledFor} type="datetime-local" class="w-full px-3 py-2 rounded-xl text-sm bg-white/5 border border-white/15 outline-none focus:border-indigo-500 text-white" />
+          </div>
+
+          <div>
+            <label class="block font-semibold text-gray-400 mb-1" for="pickup-notes">Pickup Instructions/Notes</label>
+            <textarea id="pickup-notes" bind:value={pickupNotes} placeholder="E.g. Customer will drop at store" rows="2" class="w-full px-3 py-2 rounded-xl text-sm bg-white/5 border border-white/15 outline-none focus:border-indigo-500 text-white resize-none"></textarea>
+          </div>
+
+          <div class="flex gap-3 pt-2">
+            <button type="button" onclick={() => showPickupModal = false} class="flex-1 py-2.5 rounded-xl text-xs font-semibold border border-white/15 text-gray-300">Cancel</button>
+            <button type="button" onclick={() => scheduleManualPickup(selectedReturn)} disabled={!courierName} class="flex-1 py-2.5 rounded-xl text-xs font-semibold text-white bg-amber-600 hover:bg-amber-500 disabled:opacity-50">Confirm Manual Schedule</button>
+          </div>
+        </div>
+      {/if}
+
     </div>
   </div>
 {/if}
