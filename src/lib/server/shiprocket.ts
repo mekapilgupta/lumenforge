@@ -587,21 +587,43 @@ async function sendTransactionalEmail(type: string, recipientEmail: string, reci
 }
 
 /**
-/**
- * Check Reverse Courier Serviceability from customer pincode to warehouse
- * Endpoint: https://apiv2.shiprocket.in/v1/external/courier/serviceability/
+ * Fetch current Shiprocket account wallet balance
  */
-export async function getShiprocketReturnServiceability(customerPincode: string): Promise<{
+export async function getShiprocketWalletBalance(): Promise<number> {
+  try {
+    const token = await getShiprocketToken();
+    const res = await fetch('https://apiv2.shiprocket.in/v1/external/account/details/wallet-balance', {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    if (!res.ok) return 0;
+    const data = await res.json();
+    return Number(data.data?.balance_amount || 0);
+  } catch (e) {
+    console.warn('[Shiprocket Wallet Balance Error]', e);
+    return 0;
+  }
+}
+
+/**
+ * Check live Shiprocket reverse courier serviceability for customer pickup location
+ */
+export async function getShiprocketReturnServiceability(
+  customerPincode: string,
+  warehousePincode = '131028'
+): Promise<{
   success: boolean;
   couriers: Array<{
     id: number;
     name: string;
     rate: number;
+    baseRate: number;
     rating: number;
     etd: string;
     isRecommended: boolean;
+    applicableWeight: number;
   }>;
   warehousePincode?: string;
+  walletBalance?: number;
   error?: string;
 }> {
   try {
@@ -611,27 +633,40 @@ export async function getShiprocketReturnServiceability(customerPincode: string)
     }
 
     const token = await getShiprocketToken();
-    const warehousePincode = env.SHIPROCKET_PICKUP_POSTCODE || (typeof process !== 'undefined' ? process.env.SHIPROCKET_PICKUP_POSTCODE : undefined) || '131028';
+    const warehousePostcode = warehousePincode || env.SHIPROCKET_PICKUP_POSTCODE || (typeof process !== 'undefined' ? process.env.SHIPROCKET_PICKUP_POSTCODE : undefined) || '131028';
 
-    const url = `https://apiv2.shiprocket.in/v1/external/courier/serviceability/?pickup_postcode=${cleanPincode}&delivery_postcode=${warehousePincode}&weight=0.8&cod=0&is_return=1`;
-    const res = await fetch(url, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
+    // Footwear box dimensions 30x20x10 cm = 1.2 kg volumetric weight
+    const weight = '1.2';
+    const url = `https://apiv2.shiprocket.in/v1/external/courier/serviceability/?pickup_postcode=${cleanPincode}&delivery_postcode=${warehousePostcode}&weight=${weight}&cod=0&is_return=1`;
+    
+    const [res, walletBalance] = await Promise.all([
+      fetch(url, { headers: { Authorization: `Bearer ${token}` } }),
+      getShiprocketWalletBalance(),
+    ]);
 
     const data = await res.json();
     if (!res.ok || data.status !== 200) {
-      return { success: false, error: data.message || 'Could not fetch reverse couriers', couriers: [] };
+      return { success: false, error: data.message || 'Could not fetch reverse couriers', couriers: [], walletBalance };
     }
 
     const list = data.data?.available_courier_companies || [];
-    const couriers = list.map((c: any) => ({
-      id: c.courier_company_id,
-      name: c.courier_name,
-      rate: Number(c.rate ?? c.freight_charge ?? 0),
-      rating: Number(c.rating ?? 4.0),
-      etd: c.etd || (c.estimated_delivery_days ? `${c.estimated_delivery_days} days` : '3-5 days'),
-      isRecommended: false,
-    }));
+    const couriers = list.map((c: any) => {
+      // Base freight plus whatsapp/platform charges match Shiprocket dashboard exactly
+      const baseFreight = Number(c.rate ?? c.freight_charge ?? 0);
+      const extraCharges = Number(c.whatsapp_charges || 0);
+      const totalRate = Number((baseFreight + extraCharges).toFixed(2));
+
+      return {
+        id: c.courier_company_id,
+        name: c.courier_name,
+        rate: totalRate,
+        baseRate: baseFreight,
+        rating: Number(c.rating ?? 4.0),
+        etd: c.etd || (c.estimated_delivery_days ? `${c.estimated_delivery_days} days` : '3-5 days'),
+        applicableWeight: Number(c.charge_weight || 1.2),
+        isRecommended: false,
+      };
+    });
 
     // Sort by rating desc, then rate asc
     couriers.sort((a: any, b: any) => (b.rating - a.rating) || (a.rate - b.rate));
@@ -639,7 +674,7 @@ export async function getShiprocketReturnServiceability(customerPincode: string)
       couriers[0].isRecommended = true;
     }
 
-    return { success: true, couriers, warehousePincode };
+    return { success: true, couriers, warehousePincode: warehousePostcode, walletBalance };
   } catch (err: any) {
     console.error('[Shiprocket Return Serviceability Exception]', err);
     return { success: false, error: err.message || 'Serviceability check failed', couriers: [] };
@@ -835,6 +870,7 @@ export async function createShiprocketReturnOrder(
   const shipmentId = String(resData.shipment_id || '');
   let returnAwb = String(resData.awb_code || '');
   let assignedCourierName = options?.courierName || '';
+  let awbAssignError: string | null = null;
 
   // Assign AWB & Generate Pickup if shipmentId exists
   if (shipmentId) {
@@ -861,6 +897,10 @@ export async function createShiprocketReturnOrder(
       console.log('[Shiprocket Return] AWB Assignment Response:', JSON.stringify(awbData, null, 2));
 
       const awbObj = awbData.response?.data || awbData.data || awbData;
+      if (awbData.awb_assign_status === 0 || awbObj?.awb_assign_error) {
+        awbAssignError = awbObj?.awb_assign_error || awbData?.message || 'Could not assign courier AWB';
+      }
+
       if (awbObj?.awb_code) {
         returnAwb = String(awbObj.awb_code);
       }
@@ -868,33 +908,57 @@ export async function createShiprocketReturnOrder(
         assignedCourierName = String(awbObj.courier_name);
       }
 
-      // Generate pickup request to notify the courier partner
-      const pickupRes = await fetch('https://apiv2.shiprocket.in/v1/external/courier/generate/pickup', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          shipment_id: [Number(shipmentId)],
-        }),
-      });
-      const pickupData = await pickupRes.json();
-      console.log('[Shiprocket Return] Pickup Generation Response:', JSON.stringify(pickupData, null, 2));
-    } catch (awbErr) {
+      // Generate pickup request to notify the courier partner if AWB was assigned
+      if (returnAwb) {
+        const pickupRes = await fetch('https://apiv2.shiprocket.in/v1/external/courier/generate/pickup', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            shipment_id: [Number(shipmentId)],
+          }),
+        });
+        const pickupData = await pickupRes.json();
+        console.log('[Shiprocket Return] Pickup Generation Response:', JSON.stringify(pickupData, null, 2));
+      }
+    } catch (awbErr: any) {
       console.warn('[Shiprocket Return AWB Warning]', awbErr);
+      awbAssignError = awbErr.message;
     }
   }
 
-  // Fallback AWB if none generated yet
+  // Handle case where wallet balance was insufficient or AWB couldn't be generated immediately
   if (!returnAwb) {
-    returnAwb = shipmentId || returnOrderId;
-  }
-  if (!assignedCourierName) {
-    assignedCourierName = 'Shiprocket Reverse Logistics';
+    const wallet = await getShiprocketWalletBalance();
+    const updatePayload: any = {
+      shiprocket_return_order_id: returnOrderId,
+      shiprocket_return_shipment_id: shipmentId,
+      shiprocket_return_status: 'RETURN_PENDING',
+      status: 'approved',
+      courier_name: assignedCourierName || options?.courierName || 'Shiprocket Reverse',
+      admin_notes: `Return Order created (#${returnOrderId}). AWB Pending: ${awbAssignError || 'Wallet recharge needed'}. Current Shiprocket wallet balance: ₹${wallet}.`,
+      updated_at: new Date().toISOString(),
+    };
+
+    await db.from('order_returns').update(updatePayload).eq('id', returnId);
+
+    return {
+      success: true,
+      return_order_id: returnOrderId,
+      shipment_id: shipmentId,
+      awb: undefined,
+      courier_name: assignedCourierName || options?.courierName,
+      error: undefined,
+      // @ts-ignore
+      awb_pending: true,
+      awb_error: awbAssignError || 'Insufficient wallet balance',
+      warning: `Shiprocket Return Order created (#${returnOrderId}), but AWB could not be generated automatically: "${awbAssignError}". Please recharge your Shiprocket wallet (current balance: ₹${wallet}) to assign courier and generate pickup.`,
+    };
   }
 
-  // Update order_returns in database
+  // AWB was generated successfully
   const updatePayload: any = {
     shiprocket_return_order_id: returnOrderId,
     shiprocket_return_shipment_id: shipmentId,
@@ -958,16 +1022,21 @@ export async function createShiprocketReturnOrder(
 }
 
 /**
- * Create an Exchange Replacement Forward Order on Shiprocket
+ * Assign AWB & Generate Pickup for an existing Shiprocket Return Order
+ * Useful when order was created in RETURN_PENDING state and wallet is now recharged
  */
-export async function createShiprocketExchangeOrder(returnId: string): Promise<{ success: boolean; exchange_order_id?: string; error?: string }> {
-  console.log(`[Shiprocket Exchange] Creating forward replacement dispatch for return ID: ${returnId}`);
+export async function assignShiprocketReturnAwb(
+  returnId: string,
+  options?: { courierId?: number | string; courierName?: string; client?: any }
+): Promise<{ success: boolean; awb?: string; courier_name?: string; error?: string }> {
+  console.log(`[Shiprocket Return] Assigning AWB for return ${returnId}`, options);
+  const db = options?.client || supabaseAdmin;
 
-  const { data: ret, error: retErr } = await supabaseAdmin
+  const { data: ret, error: retErr } = await db
     .from('order_returns')
     .select(`
       *,
-      order:orders(
+      order:orders!order_id(
         id,
         order_number,
         shipping_address_id,
@@ -977,10 +1046,150 @@ export async function createShiprocketExchangeOrder(returnId: string): Promise<{
       )
     `)
     .eq('id', returnId)
-    .single();
+    .maybeSingle();
 
-  if (retErr || !ret) {
+  if (!ret || !ret.shiprocket_return_shipment_id) {
+    return { success: false, error: 'Shiprocket return shipment ID not found for this request' };
+  }
+
+  const shipmentId = Number(ret.shiprocket_return_shipment_id);
+  const token = await getShiprocketToken();
+
+  const awbPayload: any = {
+    shipment_id: shipmentId,
+    is_return: 1,
+  };
+  if (options?.courierId) {
+    awbPayload.courier_id = Number(options.courierId);
+  }
+
+  const awbRes = await fetch('https://apiv2.shiprocket.in/v1/external/courier/assign/awb', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify(awbPayload),
+  });
+
+  const awbData = await awbRes.json();
+  const awbObj = awbData.response?.data || awbData.data || awbData;
+
+  if (awbData.awb_assign_status === 0 || !awbObj?.awb_code) {
+    const errMsg = awbObj?.awb_assign_error || awbData?.message || 'Failed to assign AWB. Please verify Shiprocket wallet balance.';
+    return { success: false, error: errMsg };
+  }
+
+  const awb = String(awbObj.awb_code);
+  const courierName = String(awbObj.courier_name || options?.courierName || 'Shiprocket Reverse');
+
+  // Request pickup
+  try {
+    await fetch('https://apiv2.shiprocket.in/v1/external/courier/generate/pickup', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ shipment_id: [shipmentId] }),
+    });
+  } catch (e) {
+    console.warn('[Pickup Generation Warning]', e);
+  }
+
+  await db
+    .from('order_returns')
+    .update({
+      shiprocket_return_awb: awb,
+      shiprocket_return_status: 'PICKUP_SCHEDULED',
+      status: 'pickup_scheduled',
+      courier_name: courierName,
+      pickup_scheduled_for: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', returnId);
+
+  try {
+    await db.from('order_logs').insert({
+      order_id: ret.order?.id || ret.order_id,
+      status: 'pickup_scheduled',
+      note: `Shiprocket reverse pickup AWB generated via ${courierName}: ${awb}`,
+      created_at: new Date().toISOString(),
+    });
+  } catch {}
+
+  return { success: true, awb, courier_name: courierName };
+}
+
+/**
+ * Create an Exchange Replacement Forward Order on Shiprocket
+ */
+export async function createShiprocketExchangeOrder(
+  returnId: string,
+  options?: { client?: any }
+): Promise<{ success: boolean; exchange_order_id?: string; error?: string }> {
+  console.log(`[Shiprocket Exchange] Creating forward replacement dispatch for return ID: ${returnId}`);
+
+  const db = options?.client || supabaseAdmin;
+
+  let ret: any = null;
+  const { data: directRet, error: retErr } = await db
+    .from('order_returns')
+    .select(`
+      *,
+      order:orders!order_id(
+        id,
+        order_number,
+        shipping_address_id,
+        user_id,
+        shipping_address:addresses!shipping_address_id(*),
+        profile:user_id(full_name, email, phone)
+      )
+    `)
+    .eq('id', returnId)
+    .maybeSingle();
+
+  ret = directRet;
+  if (!ret && db !== supabaseAdmin) {
+    const { data: adminRet } = await supabaseAdmin
+      .from('order_returns')
+      .select(`
+        *,
+        order:orders!order_id(
+          id,
+          order_number,
+          shipping_address_id,
+          user_id,
+          shipping_address:addresses!shipping_address_id(*),
+          profile:user_id(full_name, email, phone)
+        )
+      `)
+      .eq('id', returnId)
+      .maybeSingle();
+    if (adminRet) ret = adminRet;
+  }
+
+  if (!ret) {
+    const { data: fallbackRet } = await db
+      .from('order_returns')
+      .select('*')
+      .eq('id', returnId)
+      .maybeSingle();
+    if (fallbackRet) ret = fallbackRet;
+  }
+
+  if (!ret) {
     return { success: false, error: retErr?.message || 'Return record not found' };
+  }
+
+  if (!ret.order && ret.order_id) {
+    const { data: orderData } = await db
+      .from('orders')
+      .select(`
+        id,
+        order_number,
+        shipping_address_id,
+        user_id,
+        shipping_address:addresses!shipping_address_id(*),
+        profile:user_id(full_name, email, phone)
+      `)
+      .eq('id', ret.order_id)
+      .maybeSingle();
+    ret.order = orderData;
   }
 
   const order = ret.order;

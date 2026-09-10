@@ -36,6 +36,10 @@
   let pickupPincode = $state('');
   let editAddress = $state(false);
   let pickupNotes = $state('');
+  let shiprocketWalletBalance = $state<number | null>(null);
+
+  const selectedCourier = $derived(availableCouriers.find((c: any) => c.id === selectedCourierId) || availableCouriers[0] || null);
+  const selectedCourierRate = $derived(selectedCourier?.rate ?? null);
 
   // Manual fallback fields
   let courierName = $state('');
@@ -245,6 +249,9 @@
         }),
       });
       const data = await res.json();
+      if (typeof data.walletBalance === 'number') {
+        shiprocketWalletBalance = data.walletBalance;
+      }
       if (res.ok && data.success && Array.isArray(data.couriers) && data.couriers.length > 0) {
         availableCouriers = data.couriers;
         const recommended = data.couriers.find((c: any) => c.isRecommended) || data.couriers[0];
@@ -299,15 +306,21 @@
 
       const data = await res.json();
       if (res.ok && data.success) {
-        uiStore.addToast(data.message, 'success');
+        if (data.data?.awb_pending) {
+          uiStore.addToast(data.data.warning || 'Return Order created on Shiprocket! AWB pending wallet recharge.', 'warning');
+        } else {
+          uiStore.addToast(data.message, 'success');
+        }
         showPickupModal = false;
         await loadReturns();
-        if (selectedReturn?.id === selectedReturn.id) {
+        if (selectedReturn) {
           selectedReturn = {
             ...selectedReturn,
-            status: 'pickup_scheduled',
+            status: data.data?.awb_pending ? 'approved' : 'pickup_scheduled',
             shiprocket_return_awb: data.data?.awb,
             shiprocket_return_order_id: data.data?.return_order_id,
+            shiprocket_return_shipment_id: data.data?.shipment_id,
+            shiprocket_return_status: data.data?.awb_pending ? 'RETURN_PENDING' : 'PICKUP_SCHEDULED',
             courier_name: data.data?.courier_name || chosenCourier?.name || 'Shiprocket Reverse Logistics',
           };
         }
@@ -316,6 +329,50 @@
       }
     } catch (err: any) {
       uiStore.addToast('API error: ' + err.message, 'error');
+    } finally {
+      actionLoading = false;
+    }
+  }
+
+  async function assignAwbDirectly(ret: any) {
+    if (!ret) return;
+    actionLoading = true;
+    uiStore.addToast('Generating AWB & requesting courier pickup on Shiprocket...', 'info');
+
+    try {
+      const session = (await supabase.auth.getSession()).data.session;
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (session?.access_token) {
+        headers['Authorization'] = `Bearer ${session.access_token}`;
+      }
+
+      const res = await fetch('/api/returns/assign-awb', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          returnId: ret.id,
+          sessionToken: session?.access_token,
+        }),
+      });
+
+      const data = await res.json();
+      if (res.ok && data.success) {
+        uiStore.addToast(data.message, 'success');
+        await loadReturns();
+        if (selectedReturn?.id === ret.id) {
+          selectedReturn = {
+            ...selectedReturn,
+            status: 'pickup_scheduled',
+            shiprocket_return_awb: data.data?.awb,
+            shiprocket_return_status: 'PICKUP_SCHEDULED',
+            courier_name: data.data?.courier_name || selectedReturn.courier_name,
+          };
+        }
+      } else {
+        uiStore.addToast(data.error || 'Failed to assign AWB. Please verify Shiprocket wallet balance.', 'error');
+      }
+    } catch (err: any) {
+      uiStore.addToast('AWB error: ' + err.message, 'error');
     } finally {
       actionLoading = false;
     }
@@ -331,10 +388,19 @@
     uiStore.addToast("Creating replacement shipment on Shiprocket...", "info");
 
     try {
+      const session = (await supabase.auth.getSession()).data.session;
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (session?.access_token) {
+        headers['Authorization'] = `Bearer ${session.access_token}`;
+      }
+
       const res = await fetch("/api/returns/exchange", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ returnId: ret.id })
+        headers,
+        body: JSON.stringify({
+          returnId: ret.id,
+          sessionToken: session?.access_token,
+        })
       });
       const data = await res.json();
       if (res.ok && data.success) {
@@ -1216,6 +1282,17 @@
               </button>
             {/if}
 
+            {#if selectedReturn.shiprocket_return_shipment_id && (!selectedReturn.shiprocket_return_awb || selectedReturn.shiprocket_return_status === 'RETURN_PENDING')}
+              <button
+                onclick={() => assignAwbDirectly(selectedReturn)}
+                disabled={actionLoading}
+                class="px-3 py-2 rounded-xl text-xs font-bold text-black bg-amber-400 hover:bg-amber-300 disabled:opacity-50 cursor-pointer flex items-center gap-1.5 shadow-lg shadow-amber-400/20"
+                title="Generate AWB & Request Pickup on Shiprocket once wallet has balance"
+              >
+                <span>⚡ Generate AWB & Request Pickup</span>
+              </button>
+            {/if}
+
             {#if ["approved", "pickup_scheduled", "picked_up", "received"].includes(selectedReturn.status)}
               {#if selectedReturn.type === "refund"}
                 <button
@@ -1497,6 +1574,38 @@
               </div>
             {/if}
           </div>
+
+          <!-- Wallet Balance & Warning Banner -->
+          {#if shiprocketWalletBalance !== null}
+            <div class="flex items-center justify-between px-3.5 py-2.5 rounded-xl {selectedCourierRate && selectedCourierRate > shiprocketWalletBalance ? 'bg-amber-500/15 border border-amber-500/30' : 'bg-emerald-500/10 border border-emerald-500/20'}">
+              <div class="flex items-center gap-2">
+                <span class="text-sm">💳</span>
+                <span class="text-xs text-gray-300">Shiprocket Wallet Balance:</span>
+                <span class="text-xs font-bold font-mono {selectedCourierRate && selectedCourierRate > shiprocketWalletBalance ? 'text-amber-400' : 'text-emerald-400'}">₹{shiprocketWalletBalance.toFixed(2)}</span>
+              </div>
+              {#if selectedCourierRate && selectedCourierRate > shiprocketWalletBalance}
+                <span class="text-[10px] font-bold text-amber-300 uppercase tracking-wide bg-amber-500/25 px-2 py-0.5 rounded border border-amber-500/30">
+                  Recharge Needed
+                </span>
+              {:else}
+                <span class="text-[10px] font-bold text-emerald-300 uppercase tracking-wide bg-emerald-500/20 px-2 py-0.5 rounded border border-emerald-500/30">
+                  Balance Sufficient
+                </span>
+              {/if}
+            </div>
+
+            {#if selectedCourierRate && selectedCourierRate > shiprocketWalletBalance}
+              <div class="p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-xs text-amber-200 space-y-1.5">
+                <div class="font-bold flex items-center gap-1.5 text-amber-300">
+                  <span>⚠️ Wallet Recharge Notice</span>
+                </div>
+                <p class="text-[11px] text-gray-300 leading-relaxed">
+                  The chosen courier costs <strong>₹{selectedCourierRate.toFixed(2)}</strong>, but your Shiprocket balance is <strong>₹{shiprocketWalletBalance.toFixed(2)}</strong>.
+                  Shiprocket will register the return order, but courier partner AWB labeling will pause in <em>Return Pending</em> until your Shiprocket wallet is recharged with at least <strong>₹{(selectedCourierRate - shiprocketWalletBalance + 10).toFixed(0)}</strong>.
+                </p>
+              </div>
+            {/if}
+          {/if}
 
           <!-- 3. Pickup Notes -->
           <div>

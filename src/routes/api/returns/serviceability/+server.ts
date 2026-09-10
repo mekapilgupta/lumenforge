@@ -140,6 +140,7 @@ export async function POST({ request, cookies }) {
       couriers: sResult.couriers || [],
       warehousePincode: sResult.warehousePincode || '131028',
       pickupPincode: customerPincode,
+      walletBalance: sResult.walletBalance ?? 0,
       customer: customerDetails,
       error: sResult.error,
     });
