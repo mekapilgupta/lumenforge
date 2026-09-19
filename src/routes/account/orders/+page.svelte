@@ -10,19 +10,14 @@
   let loading = $state(true);
   let activeFilter = $state('all');
 
-  // --- Return/Exchange dialog state ---
+  // --- Exchange dialog state ---
   let returnDialogOrder = $state<any>(null);
-  let returnType = $state<'exchange' | 'return'>('exchange');
   let exchangeSize = $state('6');
   let returnReason = $state('Size too small / Need larger size');
   let returnComments = $state('');
   let returnImages = $state<string[]>([]);
   let uploadingImage = $state(false);
   let submittingReturn = $state(false);
-  let bankUpiId = $state('');
-  let bankAccountNo = $state('');
-  let bankIfsc = $state('');
-  let bankHolderName = $state('');
 
   const SIZE_OPTIONS = ['4', '5', '6', '7', '8', '36', '37', '38', '39', '40', '41', '42'];
   const EXCHANGE_REASONS = [
@@ -30,12 +25,6 @@
     'Size too large / Need smaller size',
     'Different color / variant preferred',
     'Defective / Damaged pair received',
-  ];
-  const RETURN_REASONS = [
-    'Size issue & preferred replacement unavailable',
-    'Defective or damaged product',
-    'Quality not as expected',
-    'Received wrong product',
   ];
 
   const RETURN_STATUS_LABEL: Record<string, string> = {
@@ -113,7 +102,7 @@
       (order.returns ?? []).slice(-1)[0] ?? null;
   }
 
-  const RETURN_WINDOW_DAYS = 20;
+  const RETURN_WINDOW_DAYS = 5;
 
   function isEligibleForReturn(order: any) {
     if (order.status !== 'delivered') return { eligible: false, daysLeft: 0, expired: false };
@@ -121,7 +110,7 @@
       ? new Date(order.delivered_at).getTime()
       : (order.updated_at ? new Date(order.updated_at).getTime() : new Date(order.created_at).getTime());
     const daysSince = Math.floor((Date.now() - deliveryTime) / (1000 * 60 * 60 * 24));
-    if (daysSince < RETURN_WINDOW_DAYS) {
+    if (daysSince <= RETURN_WINDOW_DAYS) {
       return { eligible: true, daysLeft: Math.max(1, RETURN_WINDOW_DAYS - daysSince), expired: false };
     }
     return { eligible: false, daysLeft: 0, expired: true };
@@ -129,15 +118,10 @@
 
   function openReturnDialog(order: any) {
     returnDialogOrder = order;
-    returnType = 'exchange';
     exchangeSize = '6';
     returnReason = EXCHANGE_REASONS[0];
     returnComments = '';
     returnImages = [];
-    bankUpiId = '';
-    bankAccountNo = '';
-    bankIfsc = '';
-    bankHolderName = '';
   }
 
   function closeReturnDialog() {
@@ -178,16 +162,12 @@
 
   async function submitReturn() {
     if (!returnDialogOrder || submittingReturn) return;
-    if (returnType === 'exchange' && !exchangeSize) {
+    if (!exchangeSize) {
       uiStore.addToast('Please select your desired exchange size', 'error');
       return;
     }
     if (!returnReason) {
       uiStore.addToast('Please select a reason', 'error');
-      return;
-    }
-    if (returnType === 'return' && returnDialogOrder.payment_method === 'cod' && !bankUpiId.trim() && !bankAccountNo.trim()) {
-      uiStore.addToast('Please provide your UPI ID or Bank Details for the COD cash balance refund', 'error');
       return;
     }
 
@@ -209,17 +189,11 @@
           orderId: returnDialogOrder.id,
           userId: authStore.user!.id,
           sessionToken: session?.access_token || '',
-          type: returnType,
+          type: 'exchange',
           reason: returnReason,
           comments: returnComments,
           images: returnImages,
-          exchangeSize: returnType === 'exchange' ? exchangeSize : null,
-          bankDetails: {
-            upiId: bankUpiId.trim(),
-            accountNo: bankAccountNo.trim(),
-            ifsc: bankIfsc.trim().toUpperCase(),
-            holderName: bankHolderName.trim(),
-          }
+          exchangeSize: exchangeSize,
         })
       });
       const data = await res.json();
@@ -383,7 +357,7 @@
             </div>
           </div>
 
-          <!-- Return/Exchange entry point — strictly gated on delivered + 5-day window -->
+          <!-- Size Exchange entry point — strictly gated on delivered + 5-day window -->
           {#if order.status === 'delivered' && !ret}
             {@const elig = isEligibleForReturn(order)}
             <div class="px-5 pb-4">
@@ -393,12 +367,12 @@
                   class="w-full py-2.5 rounded-xl text-xs font-bold text-white transition-all shadow-sm flex items-center justify-center gap-1.5 active:scale-95 cursor-pointer"
                   style="background: linear-gradient(135deg, #ec4899 0%, #f43f5e 100%);"
                 >
-                  <span>🔄 Exchange / Return</span>
+                  <span>🔄 Request Size Exchange</span>
                   <span class="text-[10px] opacity-90">({elig.daysLeft}d left)</span>
                 </button>
               {:else}
                 <div class="w-full py-2 rounded-xl text-xs font-medium text-center bg-gray-50 text-gray-500 border border-gray-200">
-                  🔒 Return &amp; Exchange Window Closed ({RETURN_WINDOW_DAYS}-day limit passed)
+                  🔒 Exchange Window Closed ({RETURN_WINDOW_DAYS}-day limit passed)
                 </div>
               {/if}
             </div>
@@ -409,7 +383,7 @@
   {/if}
 </div>
 
-<!-- Return/Exchange Modern Modal -->
+<!-- Size Exchange Modern Modal -->
 {#if returnDialogOrder}
   <!-- svelte-ignore a11y_click_events_have_key_events -->
   <div
@@ -425,128 +399,46 @@
     >
       <div class="flex items-center justify-between pb-3 border-b border-pink-100 mb-4">
         <div>
-          <h3 id="return-list-modal-title" class="font-display font-bold text-xl text-gray-900">Exchange or Return 🌸</h3>
-          <p class="text-xs text-gray-500 mt-0.5 font-mono">Order #{returnDialogOrder.order_number}</p>
+          <h3 id="return-list-modal-title" class="font-display font-bold text-xl text-gray-900">Request Size Exchange 🌸</h3>
+          <p class="text-xs text-gray-500 mt-0.5 font-mono">Order #{returnDialogOrder.order_number} · 5-day exchange guarantee</p>
         </div>
         <button onclick={closeReturnDialog} class="text-gray-400 hover:text-gray-600 text-lg cursor-pointer">✕</button>
       </div>
 
-      <!-- Type Selector Tabs -->
-      <div class="grid grid-cols-2 p-1 rounded-2xl bg-pink-50 border border-pink-200 mb-5">
-        <button
-          type="button"
-          onclick={() => { returnType = 'exchange'; returnReason = EXCHANGE_REASONS[0]; }}
-          class="py-2.5 px-3 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer {returnType === 'exchange' ? 'bg-white shadow-sm text-pink-700' : 'text-gray-600'}"
-        >
-          <span>🔄 Exchange Size</span>
-          <span class="text-[9px] bg-pink-100 text-pink-700 px-1.5 py-0.5 rounded-full font-semibold">Recommended</span>
-        </button>
-        <button
-          type="button"
-          onclick={() => { returnType = 'return'; returnReason = RETURN_REASONS[0]; }}
-          class="py-2.5 px-3 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer {returnType === 'return' ? 'bg-white shadow-sm text-pink-700' : 'text-gray-600'}"
-        >
-          <span>💸 Return &amp; Refund</span>
-        </button>
-      </div>
-
       <!-- Exchange Form -->
-      {#if returnType === 'exchange'}
-        <div class="space-y-4">
-          <div>
-            <label class="block text-xs font-bold text-gray-700 mb-2">Select Your Preferred Replacement Size *</label>
-            <div class="flex flex-wrap gap-2">
-              {#each SIZE_OPTIONS as s}
-                <button
-                  type="button"
-                  onclick={() => exchangeSize = s}
-                  class="px-3.5 py-2 rounded-xl text-xs font-bold border transition-all cursor-pointer {exchangeSize === s ? 'bg-pink-600 text-white border-pink-600 shadow-sm' : 'bg-gray-50 border-gray-200 text-gray-700 hover:bg-pink-50'}"
-                >
-                  Size {s}
-                </button>
-              {/each}
-            </div>
-          </div>
-
-          <div>
-            <label for="exchange-reason-select-list" class="block text-xs font-bold text-gray-700 mb-1.5">Reason for exchange *</label>
-            <select
-              id="exchange-reason-select-list"
-              bind:value={returnReason}
-              class="w-full px-3 py-2.5 rounded-xl border text-xs bg-white outline-none focus:border-pink-500 border-pink-200"
-            >
-              {#each EXCHANGE_REASONS as r}
-                <option value={r}>{r}</option>
-              {/each}
-            </select>
+      <div class="space-y-4">
+        <div>
+          <label class="block text-xs font-bold text-gray-700 mb-2">Select Your Preferred Replacement Size *</label>
+          <div class="flex flex-wrap gap-2">
+            {#each SIZE_OPTIONS as s}
+              <button
+                type="button"
+                onclick={() => exchangeSize = s}
+                class="px-3.5 py-2 rounded-xl text-xs font-bold border transition-all cursor-pointer {exchangeSize === s ? 'bg-pink-600 text-white border-pink-600 shadow-sm' : 'bg-gray-50 border-gray-200 text-gray-700 hover:bg-pink-50'}"
+              >
+                Size {s}
+              </button>
+            {/each}
           </div>
         </div>
-      {:else}
-        <!-- Return Form -->
-        <div class="space-y-4">
-          <div>
-            <label for="return-reason-select-list" class="block text-xs font-bold text-gray-700 mb-1.5">Reason for return *</label>
-            <select
-              id="return-reason-select-list"
-              bind:value={returnReason}
-              class="w-full px-3 py-2.5 rounded-xl border text-xs bg-white outline-none focus:border-pink-500 border-pink-200"
-            >
-              {#each RETURN_REASONS as r}
-                <option value={r}>{r}</option>
-              {/each}
-            </select>
-          </div>
 
-          <!-- COD Bank / UPI Payout Info -->
-          {#if returnDialogOrder.payment_method === 'cod'}
-            <div class="p-3.5 rounded-2xl bg-amber-50/70 border border-amber-200 space-y-3">
-              <div class="flex items-center gap-1.5">
-                <span class="text-sm">🏦</span>
-                <p class="text-xs font-bold text-amber-900">Refund Destination (For Cash on Delivery Balance)</p>
-              </div>
-              <p class="text-[11px] text-amber-800">
-                Your ₹50 advance will be refunded to original payment mode. Please enter your UPI ID or Bank details below for the remaining cash balance refund:
-              </p>
-              <div>
-                <label for="bank-upi-input-list" class="block text-[11px] font-semibold text-gray-700 mb-1">UPI ID (e.g. yourname@okhdfcbank, yourname@paytm)</label>
-                <input
-                  id="bank-upi-input-list"
-                  type="text"
-                  bind:value={bankUpiId}
-                  placeholder="e.g. mobile@upi or name@okaxis"
-                  class="w-full px-3 py-2 rounded-xl border text-xs bg-white outline-none focus:border-pink-500 border-gray-300"
-                />
-              </div>
-              <div class="grid grid-cols-2 gap-2 pt-1 border-t border-amber-200/60">
-                <div>
-                  <label for="bank-acc-input-list" class="block text-[10px] font-semibold text-gray-700 mb-1">Or Bank Account Number</label>
-                  <input
-                    id="bank-acc-input-list"
-                    type="text"
-                    bind:value={bankAccountNo}
-                    placeholder="Account No"
-                    class="w-full px-2.5 py-1.5 rounded-xl border text-xs bg-white outline-none focus:border-pink-500 border-gray-300"
-                  />
-                </div>
-                <div>
-                  <label for="bank-ifsc-input-list" class="block text-[10px] font-semibold text-gray-700 mb-1">Bank IFSC Code</label>
-                  <input
-                    id="bank-ifsc-input-list"
-                    type="text"
-                    bind:value={bankIfsc}
-                    placeholder="e.g. HDFC0001234"
-                    class="w-full px-2.5 py-1.5 rounded-xl border text-xs bg-white outline-none uppercase focus:border-pink-500 border-gray-300 font-mono"
-                  />
-                </div>
-              </div>
-            </div>
-          {/if}
+        <div>
+          <label for="exchange-reason-select-list" class="block text-xs font-bold text-gray-700 mb-1.5">Reason for size exchange *</label>
+          <select
+            id="exchange-reason-select-list"
+            bind:value={returnReason}
+            class="w-full px-3 py-2.5 rounded-xl border text-xs bg-white outline-none focus:border-pink-500 border-pink-200"
+          >
+            {#each EXCHANGE_REASONS as r}
+              <option value={r}>{r}</option>
+            {/each}
+          </select>
         </div>
-      {/if}
+      </div>
 
       <!-- Upload photo evidence -->
       <div class="mt-4 pt-3 border-t border-pink-100">
-        <label class="block text-xs font-bold text-gray-700 mb-1.5">Add Photos of Product (Optional / Recommended)</label>
+        <label class="block text-xs font-bold text-gray-700 mb-1.5">Add Photos of Footwear (Optional / Recommended)</label>
         <div class="flex items-center gap-3 flex-wrap">
           <label class="px-3.5 py-2 rounded-xl text-xs font-semibold border border-pink-300 bg-pink-50 text-pink-700 hover:bg-pink-100 cursor-pointer transition-colors shrink-0">
             {uploadingImage ? 'Uploading...' : '📷 Upload Photo'}
@@ -571,7 +463,7 @@
         <textarea
           id="return-comments-input-list"
           bind:value={returnComments}
-          placeholder="Tell us what went wrong..."
+          placeholder="Tell us about the sizing issue..."
           rows="2"
           class="w-full px-3 py-2 rounded-xl border text-xs outline-none resize-none focus:border-pink-500 border-pink-200"
         ></textarea>
@@ -592,7 +484,7 @@
           class="flex-1 py-3 rounded-full text-xs font-bold text-white shadow-md active:scale-95 disabled:opacity-50 cursor-pointer"
           style="background: linear-gradient(135deg, #ec4899 0%, #f43f5e 100%);"
         >
-          {submittingReturn ? 'Submitting...' : returnType === 'exchange' ? 'Confirm Size Exchange' : 'Submit Return Request'}
+          {submittingReturn ? 'Submitting...' : 'Confirm Size Exchange'}
         </button>
       </div>
     </div>

@@ -57,7 +57,7 @@
         <li>We accept payments via UPI, credit/debit cards, net banking, and Cash on Delivery (COD).</li>
         <li>Payment processing is handled by third-party payment gateways. We do not store your card or banking credentials.</li>
         <li>We reserve the right to cancel orders at our discretion (e.g., payment verification issues, stock unavailability). In such cases, a full refund will be issued.</li>
-        <li>All orders are subject to our <a href="/refund" style="color: var(--color-blush-deep);">Refund & Cancellation Policy</a>.</li>
+        <li>All orders are subject to our <a href="/refund" style="color: var(--color-blush-deep);">Exchange & Cancellation Policy</a>.</li>
       </ul>
     </div>
 

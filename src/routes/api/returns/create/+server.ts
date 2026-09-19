@@ -88,7 +88,7 @@ export async function POST({ request, cookies }) {
     if (order.status !== 'delivered') {
       return json({
         success: false,
-        error: 'Returns & Exchanges are only available after your order has been successfully delivered.',
+        error: 'Size Exchanges are only available after your order has been successfully delivered.',
       }, { status: 400 });
     }
 
@@ -123,17 +123,17 @@ export async function POST({ request, cookies }) {
     }
 
     const now = Date.now();
-    const RETURN_WINDOW_DAYS = 20; // Expanded to 20 days for testing
-    const windowMs = RETURN_WINDOW_DAYS * 24 * 60 * 60 * 1000;
+    const EXCHANGE_WINDOW_DAYS = 5;
+    const windowMs = EXCHANGE_WINDOW_DAYS * 24 * 60 * 60 * 1000;
 
     if (deliveryTimestamp > 0 && (now - deliveryTimestamp) > windowMs) {
       return json({
         success: false,
-        error: `The ${RETURN_WINDOW_DAYS}-day Return & Exchange window for this delivered order has expired.`,
+        error: `The ${EXCHANGE_WINDOW_DAYS}-day Size Exchange window for this delivered order has expired.`,
       }, { status: 400 });
     }
 
-    // 3. Check for existing open return request
+    // 3. Check for existing open exchange request
     const checkClient = userClient !== supabaseAdmin ? userClient : supabaseAdmin;
     let { data: existingReturn } = await checkClient
       .from('order_returns')
@@ -155,7 +155,7 @@ export async function POST({ request, cookies }) {
     if (existingReturn) {
       return json({
         success: false,
-        error: 'A return or exchange request is already active for this order.',
+        error: 'An exchange request is already active for this order.',
       }, { status: 400 });
     }
 
@@ -215,7 +215,7 @@ export async function POST({ request, cookies }) {
     const payload: any = {
       order_id: order.id,
       customer_id: customerId,
-      type: type === 'return' ? 'refund' : 'exchange',
+      type: 'exchange',
       status: 'requested',
       reason_code: reason,
       customer_note: customerNote || null,
@@ -287,7 +287,7 @@ export async function POST({ request, cookies }) {
         .insert({
           order_id: order.id,
           status: 'refund_requested',
-          note: `Customer submitted a ${type.toUpperCase()} request. Reason: ${reason}. ${exchangeSize ? `Requested Size: ${exchangeSize}` : ''}`,
+          note: `Customer submitted a SIZE EXCHANGE request. Reason: ${reason}. ${exchangeSize ? `Requested Size: ${exchangeSize}` : ''}`,
           created_at: new Date().toISOString(),
         });
     } catch (e) {
@@ -297,9 +297,9 @@ export async function POST({ request, cookies }) {
     // 8. Trigger Admin Notification
     try {
       await createAdminNotification({
-        type: type === 'exchange' ? 'exchange_requested' : 'return_requested',
-        title: `${type === 'exchange' ? 'Exchange' : 'Return'} Requested: #${order.order_number}`,
-        message: `Customer requested a ${type} for order #${order.order_number}. Reason: ${reason}.${exchangeSize ? ` Replacement Size: ${exchangeSize}` : ''}`,
+        type: 'exchange_requested',
+        title: `Exchange Requested: #${order.order_number}`,
+        message: `Customer requested a size exchange for order #${order.order_number}. Reason: ${reason}.${exchangeSize ? ` Replacement Size: ${exchangeSize}` : ''}`,
         link_url: `/admin/returns`,
         reference_id: newReturn.id,
       });
@@ -309,7 +309,7 @@ export async function POST({ request, cookies }) {
 
     return json({
       success: true,
-      message: `${type === 'exchange' ? 'Exchange' : 'Return'} request submitted successfully! Our team will process pickup within 24-48 hours.`,
+      message: `Size Exchange request submitted successfully! Our team will process reverse pickup within 24-48 hours.`,
       returnId: newReturn.id,
     });
   } catch (err: any) {

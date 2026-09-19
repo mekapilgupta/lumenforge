@@ -20,7 +20,7 @@
   const STATUS_FILTERS = [
     { id: "all", label: "All" },
     { id: "cancellation_pending", label: "Cancellation Requests 💔" },
-    { id: "returns_exchanges", label: "Returns & Exchanges ↩️" },
+    { id: "returns_exchanges", label: "Exchanges 🔄" },
     { id: "pending", label: "Pending" },
     { id: "confirmed", label: "Confirmed" },
     { id: "processing", label: "Processing" },

@@ -1,6 +1,6 @@
 <svelte:head>
   <title>Contact Us — French Toes</title>
-  <meta name="description" content="Get in touch with French Toes. Customer support for orders, returns, and inquiries." />
+  <meta name="description" content="Get in touch with French Toes. Customer support for orders, size exchanges, and inquiries." />
 </svelte:head>
 
 <section class="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-16">
@@ -16,7 +16,7 @@
         <p>
           <a href="mailto:frenchtoesapparels@gmail.com" style="color: var(--color-blush-deep);">frenchtoesapparels@gmail.com</a>
         </p>
-        <p class="text-sm opacity-60 mt-1">For orders, returns, and general inquiries.</p>
+        <p class="text-sm opacity-60 mt-1">For orders, size exchanges, and general inquiries.</p>
       </div>
 
       <div>
@@ -53,7 +53,7 @@
           </li>
           <li>
             <a href="/refund" class="text-sm hover:underline" style="color: var(--color-blush-deep);">
-              → Refund & Cancellation
+              → Exchange & Cancellation
             </a>
           </li>
           <li>

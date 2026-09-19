@@ -80,14 +80,14 @@
     <div>
       <h2 class="text-lg font-semibold mb-3" style="color: var(--color-text-dark);">7. Delivery Attempts</h2>
       <p>
-        Our courier partners make up to <strong>3 delivery attempts</strong>. If all attempts fail, the package is returned to us. Re-delivery may involve additional shipping charges.
+        Our courier partners make up to <strong>3 delivery attempts</strong>. If all attempts fail, the package is returned to our warehouse. Re-delivery may involve additional shipping charges.
       </p>
     </div>
 
     <div>
-      <h2 class="text-lg font-semibold mb-3" style="color: var(--color-text-dark);">8. Cancellations During Transit</h2>
+      <h2 class="text-lg font-semibold mb-3" style="color: var(--color-text-dark);">8. Cancellations During Transit & Size Exchanges</h2>
       <p>
-        For cancellation policies, please refer to our <a href="/refund" style="color: var(--color-blush-deep);">Refund & Cancellation Policy</a>. Orders already in transit are treated as returns and are subject to the return policy.
+        For cancellation policies, please refer to our <a href="/refund" style="color: var(--color-blush-deep);">Exchange & Cancellation Policy</a>. Orders already dispatched cannot be cancelled during transit. Once delivered, all footwear is eligible for our <strong>5-day size exchange policy</strong>.
       </p>
     </div>
 

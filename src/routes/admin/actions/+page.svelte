@@ -13,7 +13,7 @@
   const FILTER_TABS = [
     { id: 'all', label: 'All Actions' },
     { id: 'cancellations', label: 'Cancellations 💔' },
-    { id: 'returns_exchanges', label: 'Returns & Exchanges 🔄' },
+    { id: 'returns_exchanges', label: 'Exchanges 🔄' },
     { id: 'payment_issues', label: 'Payment Issues ⚠️' },
     { id: 'messages', label: 'Messages 💬' }
   ];

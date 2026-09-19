@@ -990,11 +990,14 @@
   }
 </script>
 
-<svelte:head><title>Returns & Exchanges — Admin French Toes</title></svelte:head>
+<svelte:head><title>Customer Exchanges — Admin French Toes</title></svelte:head>
 
 <div class="flex flex-col gap-6 relative">
   <div class="flex items-center justify-between flex-wrap gap-3">
-    <h1 class="text-2xl font-bold text-white">Returns & Exchanges</h1>
+    <div>
+      <h1 class="text-2xl font-bold text-white">Customer Exchanges</h1>
+      <p class="text-xs text-gray-400 mt-0.5">5-day size exchange requests, reverse pickups & replacements</p>
+    </div>
     <div class="relative">
       <svg
         class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
