@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { findSizeOption } from '$lib/sizes';
+
   let {
     sizes,
     available,
@@ -12,22 +14,28 @@
   } = $props();
 
   function isAvailable(s: number): boolean {
-    return available.includes(s);
+    return available.some(x => {
+      const optA = findSizeOption(x);
+      const optB = findSizeOption(s);
+      if (optA && optB) return optA.euro === optB.euro;
+      return Number(x) === Number(s);
+    });
   }
 </script>
 
-<div class="flex flex-wrap gap-2" role="radiogroup" aria-label="Size selection">
+<div class="flex flex-wrap gap-2.5" role="radiogroup" aria-label="Size selection">
   {#each sizes as size}
+    {@const opt = findSizeOption(size)}
     {@const avail = isAvailable(size)}
-    {@const isSelected = selected === size}
+    {@const isSelected = selected !== null && (selected === size || (opt && findSizeOption(selected)?.euro === opt.euro))}
     <button
       type="button"
       role="radio"
       aria-checked={isSelected}
-      aria-label="Size {size}{!avail ? ' — out of stock' : ''}"
+      aria-label="{opt ? `UK ${opt.ukIndia} (EU ${opt.euro})` : `Size ${size}`}{!avail ? ' — Out of stock' : ''}"
       disabled={!avail}
       onclick={() => avail && onSelect(size)}
-      class="relative min-w-[44px] h-11 px-3 rounded-xl border-2 text-sm font-semibold transition-all duration-200"
+      class="relative min-w-[54px] h-12 px-3 rounded-xl border-2 text-xs font-semibold transition-all duration-200 flex flex-col items-center justify-center cursor-pointer group"
       style="
         border-color: {isSelected ? 'var(--color-blush-deep)' : avail ? 'rgba(180,100,140,0.25)' : 'rgba(0,0,0,0.1)'};
         background: {isSelected ? 'var(--color-blush)' : avail ? 'white' : 'rgba(0,0,0,0.03)'};
@@ -36,7 +44,13 @@
         box-shadow: {isSelected ? '0 0 0 3px rgba(244,167,195,0.3)' : 'none'};
       "
     >
-      {size}
+      {#if opt}
+        <span class="font-bold text-xs leading-none">UK {opt.ukIndia}</span>
+        <span class="text-[10px] opacity-70 leading-none mt-1">EU {opt.euro}</span>
+      {:else}
+        <span class="font-bold text-xs">{size}</span>
+      {/if}
+
       {#if !avail}
         <!-- Strikethrough line for OOS -->
         <span
@@ -44,8 +58,8 @@
           aria-hidden="true"
         >
           <span
-            class="absolute w-full h-px rotate-45"
-            style="background: rgba(0,0,0,0.2); top: 50%; left: 0;"
+            class="absolute w-full h-0.5 bg-red-400/40 rotate-45"
+            style="top: 50%; left: 0;"
           ></span>
         </span>
       {/if}
@@ -53,6 +67,7 @@
   {/each}
 </div>
 
-<p class="text-xs mt-2" style="color: var(--color-text-soft);">
-  Indian size guide: 35 = UK 2, 36 = UK 3, 37 = UK 4, 38 = UK 5, 39 = UK 6, 40 = UK 7, 41 = UK 8, 42 = UK 9
+<p class="text-xs mt-2.5 flex items-center gap-1.5" style="color: var(--color-text-soft);">
+  <span>💡</span>
+  <span>Fit Guide: Standard UK/India sizing. <strong>UK 4 = EU 37</strong> (22.5 cm).</span>
 </p>

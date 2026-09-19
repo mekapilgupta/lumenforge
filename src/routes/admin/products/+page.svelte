@@ -4,6 +4,7 @@
   import { uiStore } from '$lib/stores/ui.svelte';
   import { supabase } from '$lib/supabaseClient';
   import type { SupabaseProduct, Category, ColorVariant } from '$lib/types';
+  import { STANDARD_SIZE_MAP, formatSizeDisplay, findSizeOption, canonicalizeSize } from '$lib/sizes';
 
   let products = $state<any[]>([]);
   let categories = $state<Category[]>([]);
@@ -30,8 +31,6 @@
     order: number;
   }
 
-  const STANDARD_SIZES = ['4', '5', '6', '7', '8', '36', '37', '38', '39', '40', '41', '42'];
-
   const emptyForm = () => ({
     name: '',
     slug: '',
@@ -41,11 +40,11 @@
     price: '',
     original_price: '',
     category_id: '',
-    sizes: ['4', '5', '6', '7', '8'],
+    sizes: ['36', '37', '38', '39', '40', '41'],
     colors: [{ name: 'Default', hex: '#f4a7c3' }] as ColorVariant[],
     images: [] as ProductImage[],
     thumbnail_url: '',
-    stock_quantity: '100',
+    stock_quantity: '120',
     low_stock_threshold: '10',
     gst_percent: '5',
     is_featured: false,
@@ -56,6 +55,7 @@
   });
 
   let form = $state(emptyForm());
+  let variantStockMap = $state<Record<string, number>>({});
 
   // Image upload states
   let uploadingImages = $state(false);
@@ -79,6 +79,41 @@
     stock_quantity: '20',
     is_active: true,
   });
+
+  // Calculate sum of variant stocks
+  const totalVariantStock = $derived.by(() => {
+    let sum = 0;
+    for (const color of form.colors) {
+      for (const size of form.sizes) {
+        const key = `${color.name}__${size}`;
+        sum += (variantStockMap[key] ?? 20);
+      }
+    }
+    return sum;
+  });
+
+  function getVariantStock(colorName: string, size: string): number {
+    const key = `${colorName}__${size}`;
+    return variantStockMap[key] ?? 20;
+  }
+
+  function setVariantStock(colorName: string, size: string, value: string | number) {
+    const key = `${colorName}__${size}`;
+    const num = Math.max(0, parseInt(String(value)) || 0);
+    variantStockMap[key] = num;
+    form.stock_quantity = String(totalVariantStock);
+  }
+
+  function bulkSetVariantStock(qty: number) {
+    for (const color of form.colors) {
+      for (const size of form.sizes) {
+        const key = `${color.name}__${size}`;
+        variantStockMap[key] = qty;
+      }
+    }
+    form.stock_quantity = String(totalVariantStock);
+    uiStore.addToast(`Updated all size quantities to ${qty} pcs 📦`, 'info');
+  }
 
   onMount(async () => {
     await authStore.init();
@@ -225,26 +260,43 @@
   }
 
   function toggleSize(s: string) {
-    if (form.sizes.includes(s)) {
+    const canon = canonicalizeSize(s);
+    const existingIndex = form.sizes.findIndex(x => canonicalizeSize(x) === canon);
+    if (existingIndex !== -1) {
       if (form.sizes.length <= 1) {
         uiStore.addToast('At least one size is required', 'info');
         return;
       }
-      form.sizes = form.sizes.filter(x => x !== s);
+      form.sizes = form.sizes.filter((_, i) => i !== existingIndex);
     } else {
-      form.sizes = [...form.sizes, s];
+      form.sizes = [...form.sizes, canon];
+      for (const color of form.colors) {
+        const key = `${color.name}__${canon}`;
+        if (variantStockMap[key] === undefined) {
+          variantStockMap[key] = 20;
+        }
+      }
     }
+    form.stock_quantity = String(totalVariantStock);
   }
 
   function addCustomSize() {
     const s = customSizeInput.trim();
     if (!s) return;
-    if (form.sizes.includes(s)) {
+    const canon = canonicalizeSize(s);
+    if (form.sizes.some(x => canonicalizeSize(x) === canon)) {
       uiStore.addToast('Size already exists', 'error');
       return;
     }
-    form.sizes = [...form.sizes, s];
+    form.sizes = [...form.sizes, canon];
+    for (const color of form.colors) {
+      const key = `${color.name}__${canon}`;
+      if (variantStockMap[key] === undefined) {
+        variantStockMap[key] = 20;
+      }
+    }
     customSizeInput = '';
+    form.stock_quantity = String(totalVariantStock);
   }
 
   function autoFillSlug() {
@@ -266,6 +318,13 @@
     form = emptyForm();
     editId = null;
     variants = [];
+    variantStockMap = {};
+    for (const color of form.colors) {
+      for (const size of form.sizes) {
+        variantStockMap[`${color.name}__${size}`] = 20;
+      }
+    }
+    form.stock_quantity = String(totalVariantStock);
     showForm = true;
   }
 
@@ -287,7 +346,7 @@
       price: String(p.price / 100),
       original_price: p.original_price ? String(p.original_price / 100) : '',
       category_id: p.category_id ?? '',
-      sizes: Array.isArray(p.sizes) && p.sizes.length > 0 ? p.sizes.map(String) : ['4', '5', '6', '7', '8'],
+      sizes: Array.isArray(p.sizes) && p.sizes.length > 0 ? p.sizes.map(String) : ['36', '37', '38', '39', '40', '41'],
       colors: Array.isArray(p.colors) && p.colors.length > 0 ? p.colors : [{ name: 'Default', hex: '#f4a7c3' }],
       images: formattedImages,
       thumbnail_url: p.thumbnail_url || (formattedImages[0]?.url ?? ''),
@@ -392,6 +451,7 @@
     }));
 
     const thumbnail = form.thumbnail_url || (formattedImages[0]?.url ?? null);
+    const finalStock = totalVariantStock > 0 ? totalVariantStock : (parseInt(form.stock_quantity) || 0);
 
     const payload: any = {
       name: form.name.trim(),
@@ -406,7 +466,7 @@
       colors: form.colors,
       images: formattedImages,
       thumbnail_url: thumbnail,
-      stock_quantity: parseInt(form.stock_quantity) || 0,
+      stock_quantity: finalStock,
       low_stock_threshold: parseInt(form.low_stock_threshold) || 10,
       gst_percent: parseFloat(form.gst_percent) || 5,
       is_featured: form.is_featured,
@@ -417,6 +477,7 @@
     };
 
     try {
+      let savedProductId = editId;
       if (editId) {
         const { error } = await supabase.from('products').update(payload).eq('id', editId);
         if (error) throw error;
@@ -424,8 +485,34 @@
       } else {
         const { data: newProd, error } = await supabase.from('products').insert(payload).select().single();
         if (error) throw error;
+        savedProductId = newProd.id;
         uiStore.addToast('Product created successfully! 🚀', 'success');
-        editId = newProd.id;
+      }
+
+      // Automatically synchronize size & variant inventory to product_variants table
+      if (savedProductId) {
+        const baseSku = form.sku.trim() || `FT-${form.slug.trim().substring(0, 6).toUpperCase()}`;
+        const variantInserts: any[] = [];
+        for (const color of form.colors) {
+          const colorCode = (color.name || 'DEF').replace(/[^a-zA-Z0-9]/g, '').substring(0, 3).toUpperCase();
+          for (const size of form.sizes) {
+            const key = `${color.name}__${size}`;
+            const qty = variantStockMap[key] !== undefined ? variantStockMap[key] : (parseInt(form.stock_quantity) || 0);
+            const sku = `${baseSku}-${colorCode}-${size}`;
+            variantInserts.push({
+              product_id: savedProductId,
+              sku,
+              size: String(size),
+              color: color.name,
+              stock_quantity: qty,
+              price_adjustment: 0,
+              is_active: true
+            });
+          }
+        }
+        if (variantInserts.length > 0) {
+          await supabase.from('product_variants').upsert(variantInserts, { onConflict: 'product_id,sku' });
+        }
       }
 
       await loadProducts();
@@ -460,6 +547,13 @@
       .eq('product_id', productId)
       .order('size', { ascending: true });
     variants = data ?? [];
+    const newMap: Record<string, number> = {};
+    for (const v of variants) {
+      const colorName = v.color || 'Default';
+      const sizeStr = String(v.size);
+      newMap[`${colorName}__${sizeStr}`] = v.stock_quantity ?? 0;
+    }
+    variantStockMap = { ...variantStockMap, ...newMap };
     loadingVariants = false;
   }
 
@@ -729,13 +823,17 @@
           </div>
 
           <div>
-            <label for="p-stock" class="block text-xs font-semibold text-gray-300 mb-1">Stock Quantity</label>
+            <div class="flex items-center justify-between mb-1">
+              <label for="p-stock" class="block text-xs font-semibold text-gray-300">Total Stock Qty</label>
+              <span class="text-[10px] font-mono text-emerald-400 font-semibold">Auto-calculated</span>
+            </div>
             <input
               id="p-stock"
               bind:value={form.stock_quantity}
               type="number"
-              placeholder="100"
-              class="w-full px-3.5 py-2.5 rounded-xl text-sm text-white bg-white/5 border border-white/15 focus:border-indigo-500 outline-none font-mono"
+              readonly
+              class="w-full px-3.5 py-2.5 rounded-xl text-sm font-bold text-emerald-300 bg-white/10 border border-emerald-500/30 outline-none font-mono cursor-not-allowed"
+              title="Calculated automatically from size & color inventory grid below"
             />
           </div>
 
@@ -876,9 +974,17 @@
         {/if}
       </div>
 
-      <!-- Section 3: Colors & Sizes Selection -->
-      <div class="space-y-4 pt-4 border-t border-white/10">
-        <h3 class="text-xs font-bold uppercase tracking-wider text-emerald-400">3. Colors & Sizes</h3>
+      <!-- Section 3: Colors, Sizing & Size-Wise Stock Matrix -->
+      <div class="space-y-5 pt-4 border-t border-white/10">
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+          <div>
+            <h3 class="text-xs font-bold uppercase tracking-wider text-emerald-400">3. Colors, Sizing & Stock Per Size</h3>
+            <p class="text-xs text-gray-400 mt-0.5">Select available colors and sizes, then enter exact pieces for each size.</p>
+          </div>
+          <span class="text-xs font-mono font-bold px-2.5 py-1 rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 self-start sm:self-auto">
+            Total Inventory: {totalVariantStock} pcs
+          </span>
+        </div>
         
         <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
           <!-- Color Swatches -->
@@ -913,25 +1019,29 @@
               <button
                 type="button"
                 onclick={addColor}
-                class="px-3 py-1.5 rounded-xl text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-500"
+                class="px-3 py-1.5 rounded-xl text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-500 cursor-pointer"
               >
                 + Add Color
               </button>
             </div>
           </div>
 
-          <!-- Sizes Chips -->
+          <!-- Mapped Sizes Chips -->
           <div class="space-y-3">
-            <label class="block text-xs font-semibold text-gray-300">Available Sizes (IND/UK)</label>
-            <div class="flex flex-wrap gap-1.5">
-              {#each STANDARD_SIZES as s}
-                {@const isSelected = form.sizes.includes(s)}
+            <div class="flex items-center justify-between">
+              <label class="block text-xs font-semibold text-gray-300">Available Sizes (UK / EU Mapped)</label>
+              <span class="text-[10px] text-gray-400">Footwear Standard</span>
+            </div>
+            <div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
+              {#each STANDARD_SIZE_MAP as s}
+                {@const isSelected = form.sizes.some(x => canonicalizeSize(x) === s.euro)}
                 <button
                   type="button"
-                  onclick={() => toggleSize(s)}
-                  class="px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer {isSelected ? 'bg-indigo-600 text-white shadow-md' : 'bg-white/5 text-gray-400 border border-white/10 hover:border-white/25'}"
+                  onclick={() => toggleSize(s.euro)}
+                  class="flex flex-col items-center justify-center p-2 rounded-xl text-xs transition-all cursor-pointer border {isSelected ? 'bg-indigo-600 text-white border-indigo-400 shadow-md shadow-indigo-500/20' : 'bg-white/5 text-gray-400 border-white/10 hover:border-white/25 hover:text-white'}"
                 >
-                  Size {s}
+                  <span class="font-bold text-xs">{s.shortLabel}</span>
+                  <span class="text-[10px] opacity-75">{s.cm} cm</span>
                 </button>
               {/each}
             </div>
@@ -939,7 +1049,7 @@
             <div class="flex items-center gap-2 pt-1">
               <input
                 type="text"
-                placeholder="Custom size (e.g. 9 or 43)"
+                placeholder="Custom size (e.g. 43 or 10)"
                 bind:value={customSizeInput}
                 onkeydown={(e) => { if (e.key === 'Enter') addCustomSize(); }}
                 class="flex-1 px-3 py-1.5 rounded-xl text-xs text-white bg-white/5 border border-white/15 outline-none"
@@ -947,11 +1057,123 @@
               <button
                 type="button"
                 onclick={addCustomSize}
-                class="px-3 py-1.5 rounded-xl text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-500"
+                class="px-3 py-1.5 rounded-xl text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-500 cursor-pointer"
               >
                 + Add Custom
               </button>
             </div>
+          </div>
+        </div>
+
+        <!-- Size-Wise Stock Inventory Grid -->
+        <div class="mt-4 p-4 rounded-2xl bg-white/[0.03] border border-white/10 space-y-3">
+          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <div>
+              <h4 class="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-2">
+                <span>📦 Size-Wise Stock Pieces</span>
+                <span class="text-[10px] font-normal text-emerald-400 font-mono">({form.colors.length} Color × {form.sizes.length} Sizes = {form.colors.length * form.sizes.length} Variants)</span>
+              </h4>
+              <p class="text-[11px] text-gray-400">Specify exact inventory pieces for each individual size and color.</p>
+            </div>
+            <div class="flex items-center gap-1.5 flex-wrap">
+              <span class="text-[11px] text-gray-400 mr-1">Bulk fill:</span>
+              <button
+                type="button"
+                onclick={() => bulkSetVariantStock(10)}
+                class="px-2 py-1 rounded-lg text-[10px] font-semibold text-gray-300 bg-white/10 hover:bg-white/20 cursor-pointer"
+              >
+                10 pcs
+              </button>
+              <button
+                type="button"
+                onclick={() => bulkSetVariantStock(25)}
+                class="px-2 py-1 rounded-lg text-[10px] font-semibold text-gray-300 bg-white/10 hover:bg-white/20 cursor-pointer"
+              >
+                25 pcs
+              </button>
+              <button
+                type="button"
+                onclick={() => bulkSetVariantStock(50)}
+                class="px-2 py-1 rounded-lg text-[10px] font-semibold text-gray-300 bg-white/10 hover:bg-white/20 cursor-pointer"
+              >
+                50 pcs
+              </button>
+              <button
+                type="button"
+                onclick={() => bulkSetVariantStock(0)}
+                class="px-2 py-1 rounded-lg text-[10px] font-semibold text-red-400 bg-red-950/40 hover:bg-red-900/40 cursor-pointer"
+              >
+                Zero
+              </button>
+            </div>
+          </div>
+
+          <div class="overflow-x-auto rounded-xl border border-white/10">
+            <table class="w-full text-left text-xs text-gray-300">
+              <thead class="bg-white/5 border-b border-white/10 text-gray-400">
+                <tr>
+                  <th class="py-2.5 px-3">Color</th>
+                  <th class="py-2.5 px-3">Size (UK / EU / US)</th>
+                  <th class="py-2.5 px-3">Foot Length</th>
+                  <th class="py-2.5 px-3">Pieces In Stock</th>
+                  <th class="py-2.5 px-3">Status</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-white/5 bg-[#141524]">
+                {#each form.colors as color}
+                  {#each form.sizes as size}
+                    {@const opt = findSizeOption(size)}
+                    {@const currentStock = getVariantStock(color.name, size)}
+                    <tr>
+                      <td class="py-2 px-3">
+                        <div class="flex items-center gap-2">
+                          <span class="w-3 h-3 rounded-full border border-white/30" style="background: {color.hex};"></span>
+                          <span class="font-medium text-white">{color.name}</span>
+                        </div>
+                      </td>
+                      <td class="py-2 px-3">
+                        <span class="font-bold text-white">
+                          {opt ? `UK ${opt.ukIndia} (EU ${opt.euro})` : `Size ${size}`}
+                        </span>
+                        {#if opt}
+                          <span class="text-[10px] text-gray-400 ml-1.5 font-mono">US {opt.us}</span>
+                        {/if}
+                      </td>
+                      <td class="py-2 px-3 font-mono text-gray-400 text-[11px]">
+                        {opt ? `${opt.cm} cm` : '—'}
+                      </td>
+                      <td class="py-2 px-3">
+                        <div class="flex items-center gap-1.5">
+                          <input
+                            type="number"
+                            min="0"
+                            value={currentStock}
+                            oninput={(e) => setVariantStock(color.name, size, (e.target as HTMLInputElement).value)}
+                            class="w-20 px-2.5 py-1 rounded-lg bg-white/10 border border-white/20 text-white font-mono text-xs outline-none focus:border-emerald-500 font-bold"
+                          />
+                          <span class="text-[10px] text-gray-400">units</span>
+                        </div>
+                      </td>
+                      <td class="py-2 px-3">
+                        {#if currentStock === 0}
+                          <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-red-500/20 text-red-400 border border-red-500/30">
+                            Out of Stock
+                          </span>
+                        {:else if currentStock <= 5}
+                          <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                            Low Stock ({currentStock})
+                          </span>
+                        {:else}
+                          <span class="px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-500/20 text-emerald-300">
+                            In Stock ({currentStock})
+                          </span>
+                        {/if}
+                      </td>
+                    </tr>
+                  {/each}
+                {/each}
+              </tbody>
+            </table>
           </div>
         </div>
       </div>

@@ -3,6 +3,7 @@
   import { authStore } from '$lib/stores/auth.svelte';
   import { uiStore } from '$lib/stores/ui.svelte';
   import { supabase } from '$lib/supabaseClient';
+  import { findSizeOption } from '$lib/sizes';
 
   let lowStockProducts = $state<any[]>([]);
   let loading = $state(true);
@@ -18,7 +19,7 @@
   async function loadLowStock() {
     const { data, error } = await supabase
       .from('products')
-      .select('*, category:category_id(name)')
+      .select('*, category:category_id(name), variants:product_variants(*)')
       .or('stock_status.eq.low_stock,stock_status.eq.out_of_stock,stock_quantity.lte.15')
       .order('stock_quantity', { ascending: true });
 
@@ -104,13 +105,14 @@
               <th class="py-3.5 px-4">Product</th>
               <th class="py-3.5 px-4">Category</th>
               <th class="py-3.5 px-4">Price</th>
-              <th class="py-3.5 px-4">Current Stock</th>
+              <th class="py-3.5 px-4">Stock & Size Breakdown</th>
               <th class="py-3.5 px-4">Quick Restock</th>
               <th class="py-3.5 px-4 text-right">Actions</th>
             </tr>
           </thead>
           <tbody class="divide-y divide-white/5">
             {#each lowStockProducts as p (p.id)}
+              {@const prodVariants = p.variants || []}
               <tr class="hover:bg-white/5 transition-colors">
                 <td class="py-3 px-4">
                   <div class="flex items-center gap-3">
@@ -135,9 +137,31 @@
                 </td>
 
                 <td class="py-3 px-4">
-                  <span class="font-mono font-bold px-2 py-0.5 rounded text-xs" style="background: {p.stock_quantity === 0 ? 'rgba(239,68,68,0.2)' : 'rgba(245,158,11,0.2)'}; color: {p.stock_quantity === 0 ? '#ef4444' : '#f59e0b'};">
-                    {p.stock_quantity ?? 0} left
-                  </span>
+                  <div class="flex flex-col gap-1.5">
+                    <div>
+                      <span class="font-mono font-bold px-2 py-0.5 rounded text-xs" style="background: {p.stock_quantity === 0 ? 'rgba(239,68,68,0.2)' : 'rgba(245,158,11,0.2)'}; color: {p.stock_quantity === 0 ? '#ef4444' : '#f59e0b'};">
+                        Total: {p.stock_quantity ?? 0} left
+                      </span>
+                    </div>
+
+                    {#if prodVariants.length > 0}
+                      <div class="flex flex-wrap gap-1 mt-0.5">
+                        {#each prodVariants as v}
+                          {@const opt = findSizeOption(v.size)}
+                          <span
+                            class="px-1.5 py-0.5 rounded text-[10px] font-mono border"
+                            style="
+                              background: {v.stock_quantity === 0 ? 'rgba(239,68,68,0.15)' : v.stock_quantity <= 5 ? 'rgba(245,158,11,0.15)' : 'rgba(255,255,255,0.05)'};
+                              border-color: {v.stock_quantity === 0 ? 'rgba(239,68,68,0.3)' : v.stock_quantity <= 5 ? 'rgba(245,158,11,0.3)' : 'rgba(255,255,255,0.1)'};
+                              color: {v.stock_quantity === 0 ? '#f87171' : v.stock_quantity <= 5 ? '#fbbf24' : '#9ca3af'};
+                            "
+                          >
+                            {opt ? `UK ${opt.ukIndia}` : v.size}: {v.stock_quantity}
+                          </span>
+                        {/each}
+                      </div>
+                    {/if}
+                  </div>
                 </td>
 
                 <td class="py-3 px-4">

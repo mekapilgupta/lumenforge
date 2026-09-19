@@ -8,6 +8,7 @@
   import { fetchProducts, fetchCategories, paiseToRupees, type ProductFilters } from '$lib/api/products';
   import type { SupabaseProduct, Category } from '$lib/types';
   import ProductCard from '$lib/components/product/ProductCard.svelte';
+  import { STANDARD_SIZE_MAP, isSameSize, findSizeOption } from '$lib/sizes';
 
   // ─── State ────────────────────────────────────────────────────────────────
   let dbProducts = $state<SupabaseProduct[]>([]);
@@ -23,7 +24,7 @@
   let sortBy = $state('featured');
   let filtersOpen = $state(false);
 
-  const allSizes = ['35', '36', '37', '38', '39', '40', '41', '42'];
+  const allSizes = STANDARD_SIZE_MAP;
   const allColors = Object.values(PASTEL_COLORS);
   const badges = ['Best Seller', 'Limited Edition', 'New Arrival', 'Sale'];
 
@@ -135,7 +136,7 @@
     if (selectedSizes.length > 0) {
       console.log('[FUNCTION] Filtering products by selectedSizes:', selectedSizes);
       list = list.filter((p) =>
-        (p.sizes ?? []).some((s) => selectedSizes.includes(s))
+        (p.sizes ?? []).some((s) => selectedSizes.some((sel) => isSameSize(s, sel)))
       );
     }
     console.log('[FUNCTION] derived filteredProducts count:', list.length);
@@ -364,16 +365,19 @@
 
           <!-- Sizes -->
           <div>
-            <h3 class="font-semibold text-sm mb-3" style="color: var(--color-text-dark);">Size</h3>
-            <div class="flex flex-wrap gap-2">
-              {#each allSizes as size}
+            <h3 class="font-semibold text-sm mb-3" style="color: var(--color-text-dark);">Size (UK / EU)</h3>
+            <div class="flex flex-wrap gap-1.5">
+              {#each allSizes as s}
+                {@const isSelected = selectedSizes.includes(s.euro)}
                 <button
-                  onclick={() => toggleSize(size)}
-                  class="w-9 h-9 rounded-lg border text-xs font-semibold transition-all"
-                  style="border-color: {selectedSizes.includes(size) ? 'var(--color-blush-deep)' : 'rgba(180,100,140,0.25)'}; background: {selectedSizes.includes(size) ? 'var(--color-blush)' : 'white'}; color: {selectedSizes.includes(size) ? 'var(--color-blush-deep)' : 'var(--color-text-mid)'};"
-                  aria-pressed={selectedSizes.includes(size)}
-                  aria-label="Size {size}"
-                >{size}</button>
+                  onclick={() => toggleSize(s.euro)}
+                  class="px-2.5 py-1.5 rounded-lg border text-xs font-semibold transition-all cursor-pointer"
+                  style="border-color: {isSelected ? 'var(--color-blush-deep)' : 'rgba(180,100,140,0.25)'}; background: {isSelected ? 'var(--color-blush)' : 'white'}; color: {isSelected ? 'var(--color-blush-deep)' : 'var(--color-text-mid)'};"
+                  aria-pressed={isSelected}
+                  aria-label="{s.label}"
+                >
+                  UK {s.ukIndia} / {s.euro}
+                </button>
               {/each}
             </div>
           </div>
@@ -499,16 +503,19 @@
 
         <!-- Sizes -->
         <div>
-          <h3 class="font-semibold text-sm mb-3 text-neutral-800">Size</h3>
-          <div class="flex flex-wrap gap-2">
-            {#each allSizes as size}
+          <h3 class="font-semibold text-sm mb-3 text-neutral-800">Size (UK / EU)</h3>
+          <div class="flex flex-wrap gap-1.5">
+            {#each allSizes as s}
+              {@const isSelected = selectedSizes.includes(s.euro)}
               <button
-                onclick={() => toggleSize(size)}
-                class="w-10 h-10 rounded-lg border text-xs font-semibold transition-all"
-                style="border-color: {selectedSizes.includes(size) ? 'var(--color-blush-deep)' : 'rgba(180,100,140,0.25)'}; background: {selectedSizes.includes(size) ? 'var(--color-blush)' : 'white'}; color: {selectedSizes.includes(size) ? 'var(--color-blush-deep)' : 'var(--color-text-mid)'};"
-                aria-label="Size {size}"
-                aria-pressed={selectedSizes.includes(size)}
-              >{size}</button>
+                onclick={() => toggleSize(s.euro)}
+                class="px-2.5 py-1.5 rounded-lg border text-xs font-semibold transition-all cursor-pointer"
+                style="border-color: {isSelected ? 'var(--color-blush-deep)' : 'rgba(180,100,140,0.25)'}; background: {isSelected ? 'var(--color-blush)' : 'white'}; color: {isSelected ? 'var(--color-blush-deep)' : 'var(--color-text-mid)'};"
+                aria-label="{s.label}"
+                aria-pressed={isSelected}
+              >
+                UK {s.ukIndia} / {s.euro}
+              </button>
             {/each}
           </div>
         </div>

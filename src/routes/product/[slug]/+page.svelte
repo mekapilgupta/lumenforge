@@ -2,7 +2,7 @@
   import { onMount } from 'svelte';
   import { page } from '$app/stores';
   import { PRODUCT_DEFAULTS } from '$lib/data/products';
-  import { fetchProductBySlug, fetchRelatedProducts, fetchApprovedReviews, submitReview, checkVerifiedPurchase, paiseToRupees } from '$lib/api/products';
+  import { fetchProductBySlug, fetchProductVariants, fetchRelatedProducts, fetchApprovedReviews, submitReview, checkVerifiedPurchase, paiseToRupees } from '$lib/api/products';
   import { cartStore } from '$lib/stores/cart.svelte';
   import { wishlistStore } from '$lib/stores/wishlist.svelte';
   import { authStore } from '$lib/stores/auth.svelte';
@@ -15,6 +15,7 @@
   import { browser } from '$app/environment';
   import { goto } from '$app/navigation';
   import SizeChartModal from '$lib/components/product/SizeChartModal.svelte';
+  import { findSizeOption, canonicalizeSize, isSameSize } from '$lib/sizes';
 
   let isSizeChartOpen = $state(false);
 
@@ -141,12 +142,14 @@
 
     const dbProd = await fetchProductBySlug(slug);
     if (dbProd) {
-      dbProduct = adaptDBProduct(dbProd);
-      loadingDB = false;
-      const [rels, revsFinal] = await Promise.all([
+      const [prodVariants, rels, revsFinal] = await Promise.all([
+        fetchProductVariants(dbProd.id),
         fetchRelatedProducts(dbProd.id, dbProd.category_id, 4),
         fetchApprovedReviews(dbProd.id),
       ]);
+      dbProd.variants = prodVariants;
+      dbProduct = adaptDBProduct(dbProd);
+      loadingDB = false;
       relatedDB = rels.map(adaptDBProduct);
       reviews = revsFinal;
       if (authStore.user) {
@@ -196,7 +199,7 @@
       shipping: valOrFallback(p.shipping, PRODUCT_DEFAULTS.shipping),
       stockStatus: p.stock_status,
       stockQuantity: p.stock_quantity,
-      variants: p.variants,
+      variants: p.variants ?? [],
       _dbId: p.id,
       _categoryId: p.category_id,
     };
@@ -208,6 +211,24 @@
       ? Math.round((1 - product.price / product.originalPrice) * 100)
       : null
   );
+
+  const availableSizes = $derived.by(() => {
+    if (!product) return [];
+    const prodVariants = (product as any).variants || [];
+    if (!prodVariants || prodVariants.length === 0) {
+      return (product.sizes ?? []).map(Number);
+    }
+    const colorName = selectedColor?.name?.toLowerCase() || '';
+    const relevantVariants = prodVariants.filter(
+      (v: any) => !colorName || String(v.color).toLowerCase() === colorName
+    );
+    if (relevantVariants.length === 0) {
+      return (product.sizes ?? []).map(Number);
+    }
+    return relevantVariants
+      .filter((v: any) => (v.stock_quantity ?? 0) > 0 && v.is_active !== false)
+      .map((v: any) => Number(canonicalizeSize(v.size)));
+  });
 
   function formatPrice(n: number) {
     return `₹${n.toLocaleString('en-IN')}`;
@@ -223,10 +244,10 @@
     }
     adding = true;
     
-    // Find matching variant from the DB variants list
-    const matchedVariant = product.variants?.find((v: any) => 
-      String(v.size) === String(selectedSize) && 
-      String(v.color).toLowerCase() === selectedColor?.name?.toLowerCase()
+    // Find matching variant from the DB variants list using size mapping
+    const matchedVariant = (product as any).variants?.find((v: any) => 
+      isSameSize(v.size, selectedSize!) && 
+      (!selectedColor || String(v.color).toLowerCase() === selectedColor.name.toLowerCase())
     );
     const variantId = matchedVariant?.id || null;
 
@@ -466,7 +487,7 @@
             </div>
             <SizeSelector
               sizes={product.sizes}
-              available={product.availableSizes ?? product.sizes}
+              available={availableSizes}
               selected={selectedSize}
               onSelect={(s) => selectedSize = s}
             />

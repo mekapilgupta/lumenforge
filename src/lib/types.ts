@@ -97,6 +97,7 @@ export interface SupabaseProduct {
   is_limited_edition: boolean;
   seo_title: string | null;
   seo_description: string | null;
+  variants?: SupabaseVariant[] | null;
   created_at: string;
 }
 

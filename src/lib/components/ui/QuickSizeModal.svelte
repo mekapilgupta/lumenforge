@@ -1,6 +1,7 @@
 <script lang="ts">
   import { fade, fly } from 'svelte/transition';
   import { uiStore } from '$lib/stores/ui.svelte';
+  import { findSizeOption, canonicalizeSize } from '$lib/sizes';
 
   const product = $derived(uiStore.quickSizeProduct);
 
@@ -23,6 +24,15 @@
     }
     return sizes;
   });
+
+  function isSizeInStock(size: number): boolean {
+    const opt = findSizeOption(size);
+    return availableSizes.some(x => {
+      const optX = findSizeOption(x);
+      if (opt && optX) return opt.euro === optX.euro;
+      return Number(x) === Number(size);
+    });
+  }
 
   function handleSelect(size: number) {
     selectedSize = size;
@@ -66,7 +76,7 @@
         <h3 id="quick-size-title" class="font-display font-bold text-lg text-[#2d1b2e]">Select Size</h3>
         <button
           onclick={handleClose}
-          class="w-8 h-8 rounded-full bg-pink-50 text-[#6b4c6e] flex items-center justify-center hover:bg-pink-100 transition-colors"
+          class="w-8 h-8 rounded-full bg-pink-50 text-[#6b4c6e] flex items-center justify-center hover:bg-pink-100 transition-colors cursor-pointer"
           aria-label="Close modal"
         >
           ✕
@@ -95,22 +105,30 @@
 
         <!-- Size grid selection -->
         <div class="mb-6">
-          <p class="text-xs font-semibold text-[#6b4c6e] uppercase tracking-wider mb-3">Available Sizes (EU/IND)</p>
+          <p class="text-xs font-semibold text-[#6b4c6e] uppercase tracking-wider mb-3">Available Sizes (UK / EU Mapped)</p>
           <div class="grid grid-cols-4 gap-2.5">
             {#each sizes as size}
-              {@const inStock = availableSizes.includes(size)}
+              {@const opt = findSizeOption(size)}
+              {@const inStock = isSizeInStock(size)}
+              {@const isSelected = selectedSize !== null && (selectedSize === size || (opt && findSizeOption(selectedSize)?.euro === opt.euro))}
               <button
                 onclick={() => inStock && handleSelect(size)}
                 disabled={!inStock}
-                class="py-3 rounded-xl border-2 text-sm font-bold transition-all relative overflow-hidden"
+                class="py-2.5 px-2 rounded-xl border-2 text-xs font-bold transition-all relative overflow-hidden flex flex-col items-center justify-center cursor-pointer"
                 style="
-                  border-color: {selectedSize === size ? 'var(--color-brand-magenta)' : !inStock ? '#f3f4f6' : '#f0d0db'};
-                  background: {selectedSize === size ? 'var(--color-blush)' : !inStock ? '#f9fafb' : 'white'};
-                  color: {selectedSize === size ? 'var(--color-brand-magenta)' : !inStock ? '#9ca3af' : 'var(--color-text-dark)'};
+                  border-color: {isSelected ? 'var(--color-brand-magenta)' : !inStock ? '#f3f4f6' : '#f0d0db'};
+                  background: {isSelected ? 'var(--color-blush)' : !inStock ? '#f9fafb' : 'white'};
+                  color: {isSelected ? 'var(--color-brand-magenta)' : !inStock ? '#9ca3af' : 'var(--color-text-dark)'};
                   cursor: {inStock ? 'pointer' : 'not-allowed'};
                 "
               >
-                {size}
+                {#if opt}
+                  <span class="font-bold text-xs">UK {opt.ukIndia}</span>
+                  <span class="text-[10px] opacity-70">EU {opt.euro}</span>
+                {:else}
+                  <span class="font-bold text-xs">{size}</span>
+                {/if}
+
                 {#if !inStock}
                   <span class="absolute inset-0 bg-red-500/5 flex items-center justify-center pointer-events-none">
                     <span class="w-full h-0.5 bg-gray-300 rotate-45 transform"></span>
