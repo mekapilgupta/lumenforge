@@ -24,16 +24,29 @@
   let isVisible = $state(false);
   let activeColorIndex = $state(0);
 
-  const currentColor = $derived(product.colors?.[activeColorIndex] || product.colors?.[0]);
+  const normalizedColors = $derived.by(() => {
+    const raw = product.colors;
+    if (!raw || !Array.isArray(raw) || raw.length === 0) {
+      return [{ name: 'Default', hex: '#f4a7c3' }];
+    }
+    return raw.map((c: any) => {
+      if (typeof c === 'string') return { name: c, hex: '#f4a7c3' };
+      if (typeof c === 'object' && c !== null) return { name: c.name || 'Default', hex: c.hex || '#f4a7c3', image: c.image };
+      return { name: 'Default', hex: '#f4a7c3' };
+    });
+  });
+
+  const currentColor = $derived(normalizedColors[activeColorIndex] || normalizedColors[0] || { name: 'Default', hex: '#f4a7c3' });
   const currentDisplayImage = $derived.by(() => {
     if (currentColor?.image) return currentColor.image;
-    if (product.imageDetails) {
+    if (product.imageDetails && Array.isArray(product.imageDetails)) {
+      const colName = (currentColor?.name || '').toLowerCase().trim();
       const match = product.imageDetails.find(
-        (img: any) => img.color && currentColor && img.color.toLowerCase() === currentColor.name.toLowerCase()
+        (img: any) => img && typeof img === 'object' && img.color && colName && String(img.color).toLowerCase().trim() === colName
       );
       if (match?.url) return match.url;
     }
-    return product.images[0] || '/placeholder.jpg';
+    return (Array.isArray(product.images) && product.images[0]) || '/placeholder.jpg';
   });
 
   const isWishlisted = $derived.by(() => {
@@ -422,7 +435,7 @@
   <a href={productHref} class="block p-3 pb-4">
     <!-- Color swatches preview with interactive selection -->
     <div class="ft-swatches flex items-center gap-1.5 flex-wrap">
-      {#each product.colors.slice(0, 5) as color, idx}
+      {#each normalizedColors.slice(0, 5) as color, idx}
         <button
           type="button"
           class="ft-swatch cursor-pointer transition-all hover:scale-125 {activeColorIndex === idx ? 'scale-110 shadow-sm' : 'opacity-80 hover:opacity-100'}"
@@ -433,15 +446,15 @@
           onmouseenter={() => { activeColorIndex = idx; }}
         ></button>
       {/each}
-      {#if product.colors.length > 5}
-        <span class="text-xs self-center" style="color: var(--color-text-soft);">+{product.colors.length - 5}</span>
+      {#if normalizedColors.length > 5}
+        <span class="text-xs self-center" style="color: var(--color-text-soft);">+{normalizedColors.length - 5}</span>
       {/if}
     </div>
 
-    <h3 class="font-display font-semibold text-base leading-tight mt-2" style="color: {getCardVisualStyles(product.colors[0]?.name).darkCard ? 'white' : 'var(--color-text-dark)'};">
+    <h3 class="font-display font-semibold text-base leading-tight mt-2" style="color: {getCardVisualStyles(currentColor?.name).darkCard ? 'white' : 'var(--color-text-dark)'};">
       {product.name}
     </h3>
-    <p class="text-xs mt-0.5 truncate" style="color: {getCardVisualStyles(product.colors[0]?.name).darkCard ? 'rgba(255,255,255,0.7)' : 'var(--color-text-soft)'};">{product.tagline}</p>
+    <p class="text-xs mt-0.5 truncate" style="color: {getCardVisualStyles(currentColor?.name).darkCard ? 'rgba(255,255,255,0.7)' : 'var(--color-text-soft)'};">{product.tagline}</p>
 
     <!-- Rating -->
     <div class="flex items-center gap-1 mt-1.5">

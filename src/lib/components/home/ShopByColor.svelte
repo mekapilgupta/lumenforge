@@ -74,14 +74,22 @@
         const modelTag = p.tags?.find((t: string) => t.startsWith('model-'));
         const seriesRaw = modelTag ? modelTag.replace('model-', '') : 'California';
         const series = seriesRaw.charAt(0).toUpperCase() + seriesRaw.slice(1).replace('-', ' ');
-        const colors = Array.isArray(p.colors) && p.colors.length > 0 ? p.colors : [{ name: 'Default', hex: '#888' }];
+        
+        let rawColors = p.colors;
+        if (typeof rawColors === 'string') {
+          try { rawColors = JSON.parse(rawColors); } catch { rawColors = [rawColors]; }
+        }
+        const colorsList = Array.isArray(rawColors) && rawColors.length > 0 ? rawColors : [{ name: 'Default', hex: '#888' }];
         const rawImages = Array.isArray(p.images) ? p.images : [];
 
-        for (const colorObj of colors) {
+        for (const rawCol of colorsList) {
+          const colorObj = typeof rawCol === 'string' ? { name: rawCol, hex: '#888' } : { name: rawCol?.name || 'Default', hex: rawCol?.hex || '#888', image: rawCol?.image };
           const colorName = (colorObj.name || '').toLowerCase().trim();
           const colorImg = colorObj.image 
-            || rawImages.find((img: any) => typeof img === 'object' && img?.color && img.color.toLowerCase().trim() === colorName)?.url 
-            || (rawImages[0]?.url ?? rawImages[0] ?? p.thumbnail_url ?? '/placeholder.jpg');
+            || rawImages.find((img: any) => typeof img === 'object' && img?.color && String(img.color).toLowerCase().trim() === colorName)?.url 
+            || (typeof rawImages[0] === 'string' ? rawImages[0] : rawImages[0]?.url)
+            || p.thumbnail_url 
+            || '/placeholder.jpg';
 
           result.push({
             id: `${p.id}_${colorObj.name}`,
@@ -92,7 +100,7 @@
             hex: colorObj.hex,
             image: colorImg,
             slug: p.slug,
-            price: Math.round(p.price / 100),
+            price: Math.round((p.price ?? 0) / 100),
             originalPrice: p.original_price ? Math.round(p.original_price / 100) : undefined,
             badges: [
               ...(p.is_best_seller ? ['Best Seller'] : []),

@@ -121,19 +121,45 @@
     console.log('[FUNCTION] Exiting $effect');
   });
 
+  // ─── Color Normalization Helper ─────────────────────────────────────────────
+  function getNormalizedColors(raw: any): { name: string; hex: string; image?: string }[] {
+    if (!raw) return [{ name: 'Default', hex: '#f4a7c3' }];
+    let arr = raw;
+    if (typeof arr === 'string') {
+      try { arr = JSON.parse(arr); } catch { arr = [arr]; }
+    }
+    if (!Array.isArray(arr) || arr.length === 0) {
+      return [{ name: 'Default', hex: '#f4a7c3' }];
+    }
+    return arr.map((c: any) => {
+      if (typeof c === 'string') {
+        const name = c.trim();
+        const pastel = (PASTEL_COLORS as any)[name.toLowerCase().replace(/\s+/g, '')] || (PASTEL_COLORS as any)[name.toLowerCase()];
+        return { name, hex: pastel?.hex || '#f4a7c3' };
+      }
+      if (typeof c === 'object' && c !== null) {
+        const name = (c.name || 'Default').trim();
+        return {
+          name,
+          hex: c.hex || (PASTEL_COLORS as any)[name.toLowerCase().replace(/\s+/g, '')]?.hex || '#f4a7c3',
+          image: c.image || undefined
+        };
+      }
+      return { name: 'Default', hex: '#f4a7c3' };
+    });
+  }
+
   // ─── Client-side color/size filter & per-color variant expansion ──────────────
   const filteredProducts = $derived.by(() => {
     let list: any[] = [];
 
     for (const p of dbProducts) {
-      const colors: ColorVariant[] = Array.isArray(p.colors) && p.colors.length > 0
-        ? p.colors
-        : [{ name: 'Default', hex: '#f4a7c3' }];
+      const colors = getNormalizedColors(p.colors);
       const rawImages = Array.isArray(p.images) ? p.images : [];
 
-      // Filter colors based on selectedColors filter
+      // Filter colors based on selectedColors filter (case-insensitive)
       const matchingColors = selectedColors.length > 0
-        ? colors.filter(c => selectedColors.includes(c.name))
+        ? colors.filter(c => selectedColors.some(sel => sel.toLowerCase().trim() === c.name.toLowerCase().trim()))
         : colors;
 
       if (matchingColors.length === 0) continue;
@@ -149,10 +175,12 @@
         const colorName = (color.name || '').toLowerCase().trim();
         const colorSpecificImg = color.image 
           || rawImages.find((img: any) => typeof img === 'object' && img?.color && String(img.color).toLowerCase().trim() === colorName)?.url
-          || (rawImages[0]?.url ?? rawImages[0] ?? p.thumbnail_url ?? '/placeholder.jpg');
+          || (typeof rawImages[0] === 'string' ? rawImages[0] : rawImages[0]?.url)
+          || p.thumbnail_url 
+          || '/placeholder.jpg';
 
         // Reorder colors so this specific color is first on this card
-        const cardColors = [color, ...colors.filter(c => c.name !== color.name)];
+        const cardColors = [color, ...colors.filter(c => c.name.toLowerCase().trim() !== color.name.toLowerCase().trim())];
 
         list.push({
           ...p,
@@ -218,19 +246,21 @@
 
       const rawImages = Array.isArray(p.images) ? p.images : [];
       const imageList = p._primaryImage
-        ? [p._primaryImage, ...rawImages.map((img: any) => img.url ?? img).filter((u: string) => u !== p._primaryImage)]
-        : rawImages.map((img: any) => img.url ?? img);
+        ? [p._primaryImage, ...rawImages.map((img: any) => typeof img === 'string' ? img : img?.url).filter(Boolean).filter((u: string) => u !== p._primaryImage)]
+        : rawImages.map((img: any) => typeof img === 'string' ? img : img?.url).filter(Boolean);
+
+      const normalizedColors = getNormalizedColors(p.colors);
 
       const cardObj = {
         id: p._variantKey || p.id,
         slug: p.slug,
         name: p.name || '',
         tagline: p.tagline || '',
-        price: Math.round(p.price / 100),
+        price: Math.round((p.price ?? 0) / 100),
         originalPrice: p.original_price ? Math.round(p.original_price / 100) : undefined,
-        images: imageList.length > 0 ? imageList : ['/placeholder.jpg'],
+        images: imageList.length > 0 ? imageList : (p.thumbnail_url ? [p.thumbnail_url] : ['/placeholder.jpg']),
         imageDetails: p.images ?? [],
-        colors: (p.colors ?? []) as ColorVariant[],
+        colors: normalizedColors,
         sizes: (p.sizes ?? []).map(Number),
         availableSizes: (p.sizes ?? []).map(Number),
         badges: [
@@ -428,7 +458,7 @@
           </div>
         {:else}
           <div class="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 md:gap-5">
-            {#each filteredProducts as product (product.id)}
+            {#each filteredProducts as product (product._variantKey || `${product.id}-${product._activeColor?.name}`)}
               <ProductCard product={toCardProduct(product)} />
             {/each}
           </div>
