@@ -312,6 +312,11 @@
     }
   }
   console.log('[BOUNDARY] ProductCard.svelte script loading end');
+  const productHref = $derived(
+    product?.slug
+      ? `/product/${product.slug}${currentColor?.name ? `?color=${encodeURIComponent(currentColor.name)}` : ''}`
+      : '#'
+  );
 </script>
 
 <div
@@ -328,7 +333,7 @@
 >
   <!-- Shiny Animated Glitter Overlay on Hover -->
   <div class="absolute inset-0 opacity-0 group-hover:opacity-10 transition-opacity duration-700 bg-[radial-gradient(circle_at_30%_20%,rgba(255,255,255,0.8)_0%,transparent_50%)] pointer-events-none" aria-hidden="true"></div>
-  <a href="/product/{product.slug}" class="block" tabindex="-1" aria-hidden="true">
+  <a href={productHref} class="block" tabindex="-1" aria-hidden="true">
     <!-- Image -->
     <div class="img-zoom relative aspect-square overflow-hidden" style="background: var(--color-blush);">
       <img
@@ -414,7 +419,7 @@
   </button>
 
   <!-- Product info -->
-  <a href="/product/{product.slug}" class="block p-3 pb-4">
+  <a href={productHref} class="block p-3 pb-4">
     <!-- Color swatches preview with interactive selection -->
     <div class="ft-swatches flex items-center gap-1.5 flex-wrap">
       {#each product.colors.slice(0, 5) as color, idx}

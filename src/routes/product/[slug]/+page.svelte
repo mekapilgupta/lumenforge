@@ -113,7 +113,11 @@
   $effect(() => {
     if (product) {
       const colors = (product.colors ?? []) as ColorVariant[];
-      selectedColor = colors[0] ?? null;
+      const urlColor = $page.url.searchParams.get('color');
+      const matchedColor = urlColor 
+        ? colors.find(c => c.name.toLowerCase() === urlColor.toLowerCase())
+        : null;
+      selectedColor = matchedColor || colors[0] || null;
       selectedSize = null;
       activeImage = 0;
     }

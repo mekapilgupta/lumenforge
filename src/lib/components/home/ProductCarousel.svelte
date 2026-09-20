@@ -69,45 +69,44 @@
     prods.forEach(p => {
       try {
         const modelTag = p.tags?.find((t: string) => t.startsWith('model-'));
-        if (!modelTag) {
-          console.warn(`[ProductCarousel] Product ID "${p.id}" (${p.name}) does not have a "model-" tag. Skipping.`);
-          return;
-        }
-
-        const modelKey = modelTag.replace('model-', '');
+        const modelKey = modelTag ? modelTag.replace('model-', '') : p.slug;
         const modelName = p.name.split(' - ')[0];
         
-        const colorObj = p.colors?.[0] ?? { name: 'Default', hex: '#888' };
         const priceInINR = Math.round(p.price / 100);
         const originalPriceInINR = p.original_price ? Math.round(p.original_price / 100) : undefined;
-        const imagesList = (p.images ?? []).map((img: any) => img.url ?? img);
-        
-        const resolvedImage = imagesList[0] || p.thumbnail_url || '/placeholder.jpg';
-        console.log(`[ProductCarousel] Product ID "${p.id}" (${p.name}): Image resolved to: "${resolvedImage}"`);
-        
-        const colorItem: ColorItem = {
-          id: p.id,
-          name: colorObj.name,
-          hex: colorObj.hex,
-          image: resolvedImage,
-          slug: p.slug,
-          price: priceInINR,
-          originalPrice: originalPriceInINR,
-          badges: [
-            ...(p.is_best_seller ? ['Best Seller'] : []),
-            ...(p.is_new_arrival ? ['New Arrival'] : []),
-            ...(p.is_limited_edition ? ['Limited Edition'] : []),
-            ...(p.original_price ? ['Sale'] : [])
-          ]
-        };
+        const colors = Array.isArray(p.colors) && p.colors.length > 0 ? p.colors : [{ name: 'Default', hex: '#888' }];
+        const rawImages = Array.isArray(p.images) ? p.images : [];
 
-        if (!groups.has(modelKey)) {
-          groups.set(modelKey, {
-            modelName,
-            colors: [colorItem]
-          });
-        } else {
-          groups.get(modelKey)!.colors.push(colorItem);
+        for (const colorObj of colors) {
+          const colorName = (colorObj.name || '').toLowerCase().trim();
+          const colorImg = colorObj.image 
+            || rawImages.find((img: any) => typeof img === 'object' && img?.color && String(img.color).toLowerCase().trim() === colorName)?.url
+            || (rawImages[0]?.url ?? rawImages[0] ?? p.thumbnail_url ?? '/placeholder.jpg');
+
+          const colorItem: ColorItem = {
+            id: `${p.id}_${colorObj.name}`,
+            name: colorObj.name,
+            hex: colorObj.hex,
+            image: colorImg,
+            slug: p.slug,
+            price: priceInINR,
+            originalPrice: originalPriceInINR,
+            badges: [
+              ...(p.is_best_seller ? ['Best Seller'] : []),
+              ...(p.is_new_arrival ? ['New Arrival'] : []),
+              ...(p.is_limited_edition ? ['Limited Edition'] : []),
+              ...(p.original_price ? ['Sale'] : [])
+            ]
+          };
+
+          if (!groups.has(modelKey)) {
+            groups.set(modelKey, {
+              modelName,
+              colors: [colorItem]
+            });
+          } else {
+            groups.get(modelKey)!.colors.push(colorItem);
+          }
         }
       } catch (err) {
         console.error(`[ProductCarousel] Error grouping product ID "${p?.id}":`, err);

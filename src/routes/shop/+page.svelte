@@ -121,26 +121,49 @@
     console.log('[FUNCTION] Exiting $effect');
   });
 
-  // ─── Client-side color/size filter (applied after DB fetch) ──────────────
+  // ─── Client-side color/size filter & per-color variant expansion ──────────────
   const filteredProducts = $derived.by(() => {
-    console.log('[FUNCTION] Entering derived filteredProducts');
-    console.log('[TYPE CHECK] typeof dbProducts:', typeof dbProducts, 'isArray:', Array.isArray(dbProducts));
-    
-    let list = [...dbProducts];
-    if (selectedColors.length > 0) {
-      console.log('[FUNCTION] Filtering products by selectedColors:', selectedColors);
-      list = list.filter((p) =>
-        (p.colors ?? []).some((c: { name: string }) => selectedColors.includes(c.name))
-      );
+    let list: any[] = [];
+
+    for (const p of dbProducts) {
+      const colors: ColorVariant[] = Array.isArray(p.colors) && p.colors.length > 0
+        ? p.colors
+        : [{ name: 'Default', hex: '#f4a7c3' }];
+      const rawImages = Array.isArray(p.images) ? p.images : [];
+
+      // Filter colors based on selectedColors filter
+      const matchingColors = selectedColors.length > 0
+        ? colors.filter(c => selectedColors.includes(c.name))
+        : colors;
+
+      if (matchingColors.length === 0) continue;
+
+      // Filter sizes
+      if (selectedSizes.length > 0) {
+        const hasSize = (p.sizes ?? []).some((s: any) => selectedSizes.some((sel) => isSameSize(s, sel)));
+        if (!hasSize) continue;
+      }
+
+      // Generate a distinct card for each matching color variant
+      for (const color of matchingColors) {
+        const colorName = (color.name || '').toLowerCase().trim();
+        const colorSpecificImg = color.image 
+          || rawImages.find((img: any) => typeof img === 'object' && img?.color && String(img.color).toLowerCase().trim() === colorName)?.url
+          || (rawImages[0]?.url ?? rawImages[0] ?? p.thumbnail_url ?? '/placeholder.jpg');
+
+        // Reorder colors so this specific color is first on this card
+        const cardColors = [color, ...colors.filter(c => c.name !== color.name)];
+
+        list.push({
+          ...p,
+          _variantKey: `${p.id}_${color.name}`,
+          _activeColor: color,
+          _primaryImage: colorSpecificImg,
+          colors: cardColors
+        });
+      }
     }
-    if (selectedSizes.length > 0) {
-      console.log('[FUNCTION] Filtering products by selectedSizes:', selectedSizes);
-      list = list.filter((p) =>
-        (p.sizes ?? []).some((s) => selectedSizes.some((sel) => isSameSize(s, sel)))
-      );
-    }
-    console.log('[FUNCTION] derived filteredProducts count:', list.length);
-    console.log('[FUNCTION] Exiting derived filteredProducts');
+
     return list;
   });
 
@@ -182,10 +205,7 @@
   }
 
   // Convert SupabaseProduct to ProductCard-compatible shape
-  function toCardProduct(p: SupabaseProduct) {
-    console.log('[FUNCTION] Entering toCardProduct');
-    console.log('[TYPE CHECK] typeof p:', typeof p, 'slug:', p?.slug);
-    
+  function toCardProduct(p: any) {
     try {
       const valOrFallback = (dbVal: string | null | undefined, fallback: string): string => {
         if (dbVal && dbVal.trim()) return dbVal.trim();
@@ -196,14 +216,19 @@
         ? p.highlights.filter(Boolean)
         : PRODUCT_DEFAULTS.highlights;
 
+      const rawImages = Array.isArray(p.images) ? p.images : [];
+      const imageList = p._primaryImage
+        ? [p._primaryImage, ...rawImages.map((img: any) => img.url ?? img).filter((u: string) => u !== p._primaryImage)]
+        : rawImages.map((img: any) => img.url ?? img);
+
       const cardObj = {
-        id: p.id,
+        id: p._variantKey || p.id,
         slug: p.slug,
         name: p.name || '',
         tagline: p.tagline || '',
         price: Math.round(p.price / 100),
         originalPrice: p.original_price ? Math.round(p.original_price / 100) : undefined,
-        images: (p.images ?? []).map((img: { url: string }) => img.url),
+        images: imageList.length > 0 ? imageList : ['/placeholder.jpg'],
         imageDetails: p.images ?? [],
         colors: (p.colors ?? []) as ColorVariant[],
         sizes: (p.sizes ?? []).map(Number),
@@ -224,9 +249,6 @@
         shipping: valOrFallback(p.shipping, PRODUCT_DEFAULTS.shipping),
       };
       
-      console.log('[TYPE CHECK] typeof cardObj.colors:', typeof cardObj.colors, 'isArray:', Array.isArray(cardObj.colors));
-      console.log('[TYPE CHECK] typeof cardObj.sizes:', typeof cardObj.sizes, 'isArray:', Array.isArray(cardObj.sizes));
-      console.log('[FUNCTION] Exiting toCardProduct for slug:', p?.slug);
       return cardObj;
     } catch (err) {
       console.log('[ERROR] in toCardProduct:', err);
