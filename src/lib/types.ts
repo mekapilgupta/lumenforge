@@ -52,6 +52,7 @@ export interface SupabaseProductImage {
   url: string;
   alt: string;
   order: number;
+  color?: string | null;
 }
 
 export interface SupabaseProductColor {
@@ -110,6 +111,7 @@ export interface SupabaseVariant {
   price_adjustment: number; // paise delta from base
   stock_quantity: number;
   is_active: boolean;
+  image_url?: string | null;
 }
 
 export type OrderStatus =
@@ -314,6 +316,7 @@ export interface Product {
   price: number;           // current price in INR
   originalPrice?: number;  // if on sale
   images: string[];        // image URLs (first = primary)
+  imageDetails?: SupabaseProductImage[]; // rich image objects with color associations
   colors: ColorVariant[];
   sizes: number[];         // Indian sizes 36–42
   availableSizes?: number[]; // subset that is in stock

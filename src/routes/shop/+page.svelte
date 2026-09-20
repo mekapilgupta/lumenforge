@@ -204,7 +204,8 @@
         price: Math.round(p.price / 100),
         originalPrice: p.original_price ? Math.round(p.original_price / 100) : undefined,
         images: (p.images ?? []).map((img: { url: string }) => img.url),
-        colors: (p.colors ?? []) as { name: string; hex: string }[],
+        imageDetails: p.images ?? [],
+        colors: (p.colors ?? []) as ColorVariant[],
         sizes: (p.sizes ?? []).map(Number),
         availableSizes: (p.sizes ?? []).map(Number),
         badges: [

@@ -68,39 +68,44 @@
 
   function groupProductsFromDB(prods: any[]) {
     console.log('[ShopByColor] Grouping DB products. Raw prods count:', prods.length);
-    return prods.map(p => {
+    const result: any[] = [];
+    for (const p of prods) {
       try {
         const modelTag = p.tags?.find((t: string) => t.startsWith('model-'));
         const seriesRaw = modelTag ? modelTag.replace('model-', '') : 'California';
         const series = seriesRaw.charAt(0).toUpperCase() + seriesRaw.slice(1).replace('-', ' ');
-        
-        const colorObj = p.colors?.[0] ?? { name: 'Default', hex: '#888' };
-        const imagesList = (p.images ?? []).map((img: any) => img.url ?? img);
-        
-        const resolvedImage = imagesList[0] || p.thumbnail_url || '/placeholder.jpg';
-        console.log(`[ShopByColor] Product ID "${p.id}" (${p.name}): Image path resolved to: "${resolvedImage}"`);
-        
-        return {
-          id: p.id,
-          series: series.startsWith('Miami') ? 'Miami' : series,
-          name: p.name,
-          color: colorObj.name,
-          hex: colorObj.hex,
-          image: resolvedImage,
-          slug: p.slug,
-          price: Math.round(p.price / 100),
-          originalPrice: p.original_price ? Math.round(p.original_price / 100) : undefined,
-          badges: [
-            ...(p.is_best_seller ? ['Best Seller'] : []),
-            ...(p.is_new_arrival ? ['New Arrival'] : []),
-            ...(p.original_price ? ['Sale'] : [])
-          ]
-        };
+        const colors = Array.isArray(p.colors) && p.colors.length > 0 ? p.colors : [{ name: 'Default', hex: '#888' }];
+        const rawImages = Array.isArray(p.images) ? p.images : [];
+
+        for (const colorObj of colors) {
+          const colorName = (colorObj.name || '').toLowerCase().trim();
+          const colorImg = colorObj.image 
+            || rawImages.find((img: any) => typeof img === 'object' && img?.color && img.color.toLowerCase().trim() === colorName)?.url 
+            || (rawImages[0]?.url ?? rawImages[0] ?? p.thumbnail_url ?? '/placeholder.jpg');
+
+          result.push({
+            id: `${p.id}_${colorObj.name}`,
+            productId: p.id,
+            series: series.startsWith('Miami') ? 'Miami' : series,
+            name: p.name,
+            color: colorObj.name,
+            hex: colorObj.hex,
+            image: colorImg,
+            slug: p.slug,
+            price: Math.round(p.price / 100),
+            originalPrice: p.original_price ? Math.round(p.original_price / 100) : undefined,
+            badges: [
+              ...(p.is_best_seller ? ['Best Seller'] : []),
+              ...(p.is_new_arrival ? ['New Arrival'] : []),
+              ...(p.original_price ? ['Sale'] : [])
+            ]
+          });
+        }
       } catch (err) {
         console.error(`[ShopByColor] Error mapping product ID "${p?.id}":`, err);
-        return null;
       }
-    }).filter(Boolean);
+    }
+    return result;
   }
 
   // Quick Add function
@@ -108,7 +113,7 @@
   function handleQuickAdd(card: any) {
     // Open size modal
     const productShape = {
-      id: card.id,
+      id: card.productId || card.id,
       name: card.name,
       price: card.price,
       sizes: [36, 37, 38, 39, 40, 41, 42],
@@ -120,7 +125,7 @@
     uiStore.openQuickSize(productShape, (selectedSize) => {
       addingId = card.id;
       cartStore.addItem({
-        productId: card.id,
+        productId: card.productId || card.id,
         slug: card.slug,
         name: card.name,
         image: card.image,
@@ -130,7 +135,7 @@
         size: selectedSize,
         quantity: 1
       });
-      uiStore.addToast(`${card.name} (Size ${selectedSize}) added to cart! 🛍️`, 'success');
+      uiStore.addToast(`${card.name} (${card.color} - Size ${selectedSize}) added to cart! 🛍️`, 'success');
       setTimeout(() => { addingId = null; }, 800);
     });
   }

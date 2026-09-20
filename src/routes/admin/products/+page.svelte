@@ -29,6 +29,7 @@
     url: string;
     alt: string;
     order: number;
+    color?: string;
   }
 
   const emptyForm = () => ({
@@ -57,10 +58,11 @@
   let form = $state(emptyForm());
   let variantStockMap = $state<Record<string, number>>({});
 
-  // Image upload states
+  // Image upload states & color filter
   let uploadingImages = $state(false);
   let directImageUrl = $state('');
   let imageUploadError = $state('');
+  let activeImageColorTab = $state<string>('all');
 
   // Color management states
   let newColorName = $state('');
@@ -153,6 +155,8 @@
     }
     formData.append('folder', '/products');
 
+    const targetColor = activeImageColorTab !== 'all' && activeImageColorTab !== 'general' ? activeImageColorTab : undefined;
+
     try {
       const res = await fetch('/api/admin/upload-image', {
         method: 'POST',
@@ -170,16 +174,23 @@
           const nextOrder = form.images.length + 1;
           const newImg: ProductImage = {
             url: item.url,
-            alt: form.name ? `${form.name} view ${nextOrder}` : `Product view ${nextOrder}`,
+            alt: form.name ? `${form.name} ${targetColor ? `(${targetColor}) ` : ''}view ${nextOrder}` : `Product view ${nextOrder}`,
             order: nextOrder,
+            color: targetColor,
           };
           form.images = [...form.images, newImg];
           if (!form.thumbnail_url) {
             form.thumbnail_url = item.url;
           }
+          if (targetColor) {
+            const col = form.colors.find(c => c.name.toLowerCase() === targetColor.toLowerCase());
+            if (col && !col.image) {
+              col.image = item.url;
+            }
+          }
         }
       }
-      uiStore.addToast(`Successfully uploaded ${uploadedList.length} image(s) to ImageKit! 📸`, 'success');
+      uiStore.addToast(`Uploaded ${uploadedList.length} photo(s)${targetColor ? ` for ${targetColor}` : ''}! 📸`, 'success');
     } catch (err: any) {
       imageUploadError = err.message || 'Image upload failed';
       uiStore.addToast('Upload error: ' + imageUploadError, 'error');
@@ -196,31 +207,66 @@
       uiStore.addToast('Please enter a valid URL (starting with https://)', 'error');
       return;
     }
+    const targetColor = activeImageColorTab !== 'all' && activeImageColorTab !== 'general' ? activeImageColorTab : undefined;
     const nextOrder = form.images.length + 1;
     const newImg: ProductImage = {
       url,
-      alt: form.name ? `${form.name} view ${nextOrder}` : `Product view ${nextOrder}`,
+      alt: form.name ? `${form.name} ${targetColor ? `(${targetColor}) ` : ''}view ${nextOrder}` : `Product view ${nextOrder}`,
       order: nextOrder,
+      color: targetColor,
     };
     form.images = [...form.images, newImg];
     if (!form.thumbnail_url) {
       form.thumbnail_url = url;
     }
+    if (targetColor) {
+      const col = form.colors.find(c => c.name.toLowerCase() === targetColor.toLowerCase());
+      if (col && !col.image) {
+        col.image = url;
+      }
+    }
     directImageUrl = '';
-    uiStore.addToast('Image URL added to gallery', 'success');
+    uiStore.addToast(`Image added${targetColor ? ` to ${targetColor}` : ''} gallery`, 'success');
   }
 
   function setAsThumbnail(url: string) {
     form.thumbnail_url = url;
-    uiStore.addToast('Thumbnail set as primary preview 🌟', 'info');
+    uiStore.addToast('Set as main product preview thumbnail 🌟', 'info');
+  }
+
+  function setColorThumbnail(colorName: string, url: string) {
+    const col = form.colors.find(c => c.name.toLowerCase() === colorName.toLowerCase());
+    if (col) {
+      col.image = url;
+      uiStore.addToast(`Set primary photo for "${colorName}" 🎨`, 'success');
+    }
+  }
+
+  function assignImageColor(imgIndex: number, colorName: string) {
+    if (imgIndex < 0 || imgIndex >= form.images.length) return;
+    form.images[imgIndex].color = colorName || undefined;
+    if (colorName) {
+      const col = form.colors.find(c => c.name.toLowerCase() === colorName.toLowerCase());
+      if (col && !col.image) {
+        col.image = form.images[imgIndex].url;
+      }
+    }
   }
 
   function removeImage(index: number) {
     const removedUrl = form.images[index].url;
+    const removedColor = form.images[index].color;
     form.images = form.images.filter((_, i) => i !== index);
     form.images = form.images.map((img, i) => ({ ...img, order: i + 1 }));
     if (form.thumbnail_url === removedUrl) {
       form.thumbnail_url = form.images[0]?.url || '';
+    }
+    if (removedColor) {
+      const col = form.colors.find(c => c.name.toLowerCase() === removedColor.toLowerCase());
+      if (col && col.image === removedUrl) {
+        const nextColImg = form.images.find(img => img.color && img.color.toLowerCase() === removedColor.toLowerCase());
+        col.image = nextColImg?.url || undefined;
+      }
     }
   }
 
@@ -248,6 +294,7 @@
     }
     form.colors = [...form.colors, { name, hex: newColorHex }];
     newColorName = '';
+    activeImageColorTab = name; // Auto switch to newly added color for instant photo uploading!
     uiStore.addToast(`Added color: ${name}`, 'success');
   }
 
@@ -257,6 +304,11 @@
       return;
     }
     form.colors = form.colors.filter(c => c.name !== name);
+    // Un-tag images belonging to removed color
+    form.images = form.images.map(img => img.color === name ? { ...img, color: undefined } : img);
+    if (activeImageColorTab === name) {
+      activeImageColorTab = 'all';
+    }
   }
 
   function toggleSize(s: string) {
@@ -335,6 +387,14 @@
       url: typeof img === 'string' ? img : img?.url || '',
       alt: typeof img === 'string' ? `${p.name} ${idx + 1}` : img?.alt || `${p.name} ${idx + 1}`,
       order: typeof img === 'string' ? idx + 1 : img?.order || idx + 1,
+      color: typeof img === 'object' && img?.color ? img.color : undefined,
+    }));
+
+    const rawColors = Array.isArray(p.colors) && p.colors.length > 0 ? p.colors : [{ name: 'Default', hex: '#f4a7c3' }];
+    const formattedColors: ColorVariant[] = rawColors.map((c: any) => ({
+      name: c.name || 'Default',
+      hex: c.hex || '#f4a7c3',
+      image: c.image || formattedImages.find(img => img.color && img.color.toLowerCase() === (c.name || '').toLowerCase())?.url || undefined,
     }));
 
     form = {
@@ -347,7 +407,7 @@
       original_price: p.original_price ? String(p.original_price / 100) : '',
       category_id: p.category_id ?? '',
       sizes: Array.isArray(p.sizes) && p.sizes.length > 0 ? p.sizes.map(String) : ['36', '37', '38', '39', '40', '41'],
-      colors: Array.isArray(p.colors) && p.colors.length > 0 ? p.colors : [{ name: 'Default', hex: '#f4a7c3' }],
+      colors: formattedColors,
       images: formattedImages,
       thumbnail_url: p.thumbnail_url || (formattedImages[0]?.url ?? ''),
       stock_quantity: String(p.stock_quantity ?? 100),
@@ -359,6 +419,7 @@
       is_limited_edition: Boolean(p.is_limited_edition),
       is_active: Boolean(p.is_active),
     };
+    activeImageColorTab = 'all';
     showForm = true;
     loadVariants(p.id);
   }
@@ -448,7 +509,17 @@
       url: img.url,
       alt: img.alt || `${form.name} view ${i + 1}`,
       order: i + 1,
+      color: img.color || null,
     }));
+
+    const colorsWithImages = form.colors.map(c => {
+      const assignedImg = form.images.find(img => img.color && img.color.toLowerCase() === c.name.toLowerCase());
+      return {
+        name: c.name,
+        hex: c.hex,
+        image: c.image || assignedImg?.url || undefined
+      };
+    });
 
     const thumbnail = form.thumbnail_url || (formattedImages[0]?.url ?? null);
     const finalStock = totalVariantStock > 0 ? totalVariantStock : (parseInt(form.stock_quantity) || 0);
@@ -463,7 +534,7 @@
       original_price: originalPricePaise,
       category_id: form.category_id || null,
       sizes: form.sizes,
-      colors: form.colors,
+      colors: colorsWithImages,
       images: formattedImages,
       thumbnail_url: thumbnail,
       stock_quantity: finalStock,
@@ -497,6 +568,7 @@
           const variantInserts: any[] = [];
           for (const color of form.colors) {
             const colorCode = (color.name || 'DEF').replace(/[^a-zA-Z0-9]/g, '').substring(0, 3).toUpperCase();
+            const colorImg = colorsWithImages.find(c => c.name.toLowerCase() === color.name.toLowerCase())?.image || form.images.find(img => img.color && img.color.toLowerCase() === color.name.toLowerCase())?.url || null;
             for (const size of form.sizes) {
               const key = `${color.name}__${size}`;
               const qty = variantStockMap[key] !== undefined ? variantStockMap[key] : (parseInt(form.stock_quantity) || 0);
@@ -508,7 +580,8 @@
                 color: color.name,
                 stock_quantity: qty,
                 price_adjustment: 0,
-                is_active: true
+                is_active: true,
+                image_url: colorImg
               });
             }
           }
@@ -867,15 +940,62 @@
         </div>
       </div>
 
-      <!-- Section 2: ImageKit Image Management -->
+      <!-- Section 2: ImageKit Image Management with Color Variant Support -->
       <div class="space-y-4 pt-4 border-t border-white/10">
         <div class="flex items-center justify-between">
           <div>
-            <h3 class="text-xs font-bold uppercase tracking-wider text-pink-400">2. Product Images (ImageKit Hosted)</h3>
-            <p class="text-xs text-gray-400 mt-0.5">Upload photos directly or add hosted URLs. Drag or reorder freely.</p>
+            <h3 class="text-xs font-bold uppercase tracking-wider text-pink-400">2. Product Images & Color Photos</h3>
+            <p class="text-xs text-gray-400 mt-0.5">Upload color-specific photos or general product gallery images.</p>
           </div>
           <span class="text-xs font-mono text-gray-400">{form.images.length} Image(s) in Gallery</span>
         </div>
+
+        <!-- Color Filter & Upload Target Bar -->
+        <div class="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-hide text-xs">
+          <span class="text-[11px] font-semibold text-gray-400 mr-1 uppercase tracking-wider">Target Color:</span>
+          <button
+            type="button"
+            onclick={() => activeImageColorTab = 'all'}
+            class="px-3 py-1.5 rounded-xl font-medium transition-all cursor-pointer border {activeImageColorTab === 'all' ? 'bg-pink-600 text-white border-pink-400 shadow-md shadow-pink-500/20' : 'bg-white/5 text-gray-300 border-white/10 hover:border-white/20'}"
+          >
+            All ({form.images.length})
+          </button>
+          <button
+            type="button"
+            onclick={() => activeImageColorTab = 'general'}
+            class="px-3 py-1.5 rounded-xl font-medium transition-all cursor-pointer border {activeImageColorTab === 'general' ? 'bg-pink-600 text-white border-pink-400 shadow-md shadow-pink-500/20' : 'bg-white/5 text-gray-300 border-white/10 hover:border-white/20'}"
+          >
+            General ({form.images.filter(img => !img.color).length})
+          </button>
+          {#each form.colors as color}
+            {@const count = form.images.filter(img => img.color && img.color.toLowerCase() === color.name.toLowerCase()).length}
+            {@const isSelected = activeImageColorTab.toLowerCase() === color.name.toLowerCase()}
+            <button
+              type="button"
+              onclick={() => activeImageColorTab = color.name}
+              class="flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-medium transition-all cursor-pointer border {isSelected ? 'bg-pink-600 text-white border-pink-400 shadow-md shadow-pink-500/20' : 'bg-white/5 text-gray-300 border-white/10 hover:border-white/20'}"
+            >
+              <span class="w-2.5 h-2.5 rounded-full border border-white/30" style="background: {color.hex};"></span>
+              <span>{color.name} ({count})</span>
+            </button>
+          {/each}
+        </div>
+
+        {#if activeImageColorTab !== 'all' && activeImageColorTab !== 'general'}
+          {@const activeCol = form.colors.find(c => c.name.toLowerCase() === activeImageColorTab.toLowerCase())}
+          <div class="p-2.5 rounded-xl bg-pink-500/10 border border-pink-500/20 flex items-center justify-between text-xs text-pink-300">
+            <div class="flex items-center gap-2">
+              <span class="w-3 h-3 rounded-full border border-pink-300 shadow" style="background: {activeCol?.hex};"></span>
+              <span>Uploading for variant <strong>{activeCol?.name}</strong> — newly uploaded photos will automatically be tagged to {activeCol?.name}.</span>
+            </div>
+            {#if activeCol?.image}
+              <div class="flex items-center gap-1.5 text-[11px] text-gray-300">
+                <span>Color Main:</span>
+                <img src={activeCol.image} alt={activeCol.name} class="w-5 h-5 rounded object-cover border border-pink-400/40" />
+              </div>
+            {/if}
+          </div>
+        {/if}
 
         <!-- Upload Box -->
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -887,7 +1007,13 @@
             {:else}
               <span class="text-2xl mb-1">📸</span>
               <p class="text-xs font-bold text-white">Upload Images to ImageKit</p>
-              <p class="text-[11px] text-gray-400 mt-0.5 mb-3">PNG, JPG, WEBP (Multiple allowed)</p>
+              <p class="text-[11px] text-gray-400 mt-0.5 mb-3">
+                {#if activeImageColorTab !== 'all' && activeImageColorTab !== 'general'}
+                  Uploading for <span class="text-pink-300 font-bold">{activeImageColorTab}</span> variant
+                {:else}
+                  PNG, JPG, WEBP (Multiple allowed)
+                {/if}
+              </p>
               <label class="px-4 py-2 rounded-xl text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-500 cursor-pointer transition-colors shadow-md">
                 <span>Select Files</span>
                 <input type="file" multiple accept="image/*" onchange={handleFileUpload} class="hidden" />
@@ -920,63 +1046,123 @@
 
         <!-- Image Gallery Previews -->
         {#if form.images.length > 0}
-          <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3 pt-2">
-            {#each form.images as img, idx (img.url + idx)}
-              {@const isThumb = form.thumbnail_url === img.url}
-              <div class="relative group bg-white/5 rounded-xl border {isThumb ? 'border-amber-400 shadow-md shadow-amber-500/20' : 'border-white/10'} overflow-hidden flex flex-col">
-                <div class="aspect-square w-full bg-black/40 overflow-hidden relative">
-                  <img src={img.url} alt={img.alt} class="w-full h-full object-cover" />
-                  {#if isThumb}
-                    <span class="absolute top-1.5 left-1.5 px-1.5 py-0.5 rounded text-[9px] font-bold bg-amber-400 text-black shadow">
-                      ★ Primary
-                    </span>
-                  {/if}
-                </div>
+          {@const visibleImages = activeImageColorTab === 'all' 
+            ? form.images.map((img, idx) => ({ img, originalIdx: idx }))
+            : activeImageColorTab === 'general'
+              ? form.images.map((img, idx) => ({ img, originalIdx: idx })).filter(x => !x.img.color)
+              : form.images.map((img, idx) => ({ img, originalIdx: idx })).filter(x => x.img.color && x.img.color.toLowerCase() === activeImageColorTab.toLowerCase())
+          }
+
+          {#if visibleImages.length === 0}
+            <div class="p-6 rounded-2xl bg-white/[0.02] border border-dashed border-white/15 text-center text-xs text-gray-400">
+              No photos currently tagged for {activeImageColorTab === 'general' ? 'General' : activeImageColorTab}. Upload or select files above to attach photos to this color variant! 🌸
+            </div>
+          {:else}
+            <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3 pt-2">
+              {#each visibleImages as { img, originalIdx } (img.url + originalIdx)}
+                {@const isThumb = form.thumbnail_url === img.url}
+                {@const colorObj = form.colors.find(c => c.name.toLowerCase() === (img.color ?? '').toLowerCase())}
+                {@const isColorThumb = Boolean(colorObj && colorObj.image === img.url)}
                 
-                <div class="p-2 bg-[#121320] flex flex-col gap-1 text-[11px]">
-                  <div class="flex items-center justify-between">
-                    <span class="text-[10px] text-gray-400 font-mono">#{img.order}</span>
+                <div class="relative group bg-white/5 rounded-xl border {isThumb ? 'border-amber-400 shadow-md shadow-amber-500/20' : isColorThumb ? 'border-pink-400 shadow-md shadow-pink-500/20' : 'border-white/10'} overflow-hidden flex flex-col">
+                  <div class="aspect-square w-full bg-black/40 overflow-hidden relative">
+                    <img src={img.url} alt={img.alt} class="w-full h-full object-cover" />
+                    
+                    <div class="absolute top-1.5 left-1.5 flex flex-col gap-1 pointer-events-none z-10">
+                      {#if isThumb}
+                        <span class="px-1.5 py-0.5 rounded text-[9px] font-bold bg-amber-400 text-black shadow">
+                          ★ Product Main
+                        </span>
+                      {/if}
+                      {#if isColorThumb}
+                        <span class="px-1.5 py-0.5 rounded text-[9px] font-bold bg-pink-500 text-white shadow">
+                          ★ {colorObj?.name} Main
+                        </span>
+                      {/if}
+                    </div>
+
+                    {#if img.color}
+                      <span class="absolute bottom-1.5 right-1.5 px-1.5 py-0.5 rounded text-[9px] font-semibold bg-black/70 text-white border border-white/20 flex items-center gap-1 backdrop-blur-xs">
+                        <span class="w-1.5 h-1.5 rounded-full" style="background: {colorObj?.hex || '#ccc'};"></span>
+                        {img.color}
+                      </span>
+                    {/if}
+                  </div>
+                  
+                  <div class="p-2 bg-[#121320] flex flex-col gap-1.5 text-[11px]">
+                    <!-- Color variant assign selector -->
                     <div class="flex items-center gap-1">
+                      <span class="text-[9px] text-gray-400 uppercase">Color:</span>
+                      <select
+                        value={img.color || ''}
+                        onchange={(e) => assignImageColor(originalIdx, e.currentTarget.value)}
+                        class="flex-1 px-1.5 py-0.5 rounded bg-white/10 text-white text-[10px] border border-white/15 outline-none cursor-pointer"
+                      >
+                        <option value="" class="bg-[#1a1b2e] text-gray-300">General / All</option>
+                        {#each form.colors as c}
+                          <option value={c.name} class="bg-[#1a1b2e] text-white">{c.name}</option>
+                        {/each}
+                      </select>
+                    </div>
+
+                    <div class="flex items-center justify-between pt-0.5 border-t border-white/5">
+                      <span class="text-[10px] text-gray-400 font-mono">#{img.order}</span>
+                      <div class="flex items-center gap-1">
+                        <button
+                          type="button"
+                          onclick={() => moveImage(originalIdx, 'left')}
+                          disabled={originalIdx === 0}
+                          class="px-1 py-0.5 rounded bg-white/10 hover:bg-white/20 disabled:opacity-30 text-[10px] cursor-pointer"
+                          title="Move Left"
+                        >←</button>
+                        <button
+                          type="button"
+                          onclick={() => moveImage(originalIdx, 'right')}
+                          disabled={originalIdx === form.images.length - 1}
+                          class="px-1 py-0.5 rounded bg-white/10 hover:bg-white/20 disabled:opacity-30 text-[10px] cursor-pointer"
+                          title="Move Right"
+                        >→</button>
+                      </div>
+                    </div>
+
+                    <div class="flex flex-col gap-1 mt-0.5">
+                      <div class="flex gap-1">
+                        {#if !isThumb}
+                          <button
+                            type="button"
+                            onclick={() => setAsThumbnail(img.url)}
+                            class="flex-1 py-1 rounded text-[9px] font-semibold bg-amber-500/20 text-amber-300 hover:bg-amber-500/30 border border-amber-500/30 cursor-pointer"
+                            title="Set as overall product primary thumbnail"
+                          >
+                            Main Photo
+                          </button>
+                        {/if}
+                        {#if img.color && !isColorThumb}
+                          <button
+                            type="button"
+                            onclick={() => setColorThumbnail(img.color!, img.url)}
+                            class="flex-1 py-1 rounded text-[9px] font-semibold bg-pink-500/20 text-pink-300 hover:bg-pink-500/30 border border-pink-500/30 cursor-pointer"
+                            title="Set as thumbnail for {img.color}"
+                          >
+                            {img.color} Main
+                          </button>
+                        {/if}
+                      </div>
+
                       <button
                         type="button"
-                        onclick={() => moveImage(idx, 'left')}
-                        disabled={idx === 0}
-                        class="px-1 py-0.5 rounded bg-white/10 hover:bg-white/20 disabled:opacity-30 text-[10px]"
-                        title="Move Left"
-                      >←</button>
-                      <button
-                        type="button"
-                        onclick={() => moveImage(idx, 'right')}
-                        disabled={idx === form.images.length - 1}
-                        class="px-1 py-0.5 rounded bg-white/10 hover:bg-white/20 disabled:opacity-30 text-[10px]"
-                        title="Move Right"
-                      >→</button>
+                        onclick={() => removeImage(originalIdx)}
+                        class="w-full py-0.5 rounded text-[9px] font-semibold bg-red-500/10 text-red-400 hover:bg-red-500/20 border border-red-500/20 cursor-pointer text-center"
+                        title="Delete Image"
+                      >
+                        Delete 🗑️
+                      </button>
                     </div>
                   </div>
-
-                  <div class="flex gap-1 mt-1">
-                    {#if !isThumb}
-                      <button
-                        type="button"
-                        onclick={() => setAsThumbnail(img.url)}
-                        class="flex-1 py-1 rounded text-[10px] font-semibold bg-amber-500/20 text-amber-300 hover:bg-amber-500/30 border border-amber-500/30"
-                      >
-                        Set Main
-                      </button>
-                    {/if}
-                    <button
-                      type="button"
-                      onclick={() => removeImage(idx)}
-                      class="px-2 py-1 rounded text-[10px] font-semibold bg-red-500/20 text-red-300 hover:bg-red-500/30 border border-red-500/30"
-                      title="Delete Image"
-                    >
-                      🗑️
-                    </button>
-                  </div>
                 </div>
-              </div>
-            {/each}
-          </div>
+              {/each}
+            </div>
+          {/if}
         {/if}
       </div>
 
@@ -998,8 +1184,12 @@
             <label class="block text-xs font-semibold text-gray-300">Color Variants</label>
             <div class="flex flex-wrap gap-2">
               {#each form.colors as color}
-                <div class="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/5 border border-white/15 text-xs text-white">
-                  <span class="w-3.5 h-3.5 rounded-full border border-white/30 shadow" style="background: {color.hex};"></span>
+                <div class="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-white/5 border border-white/15 text-xs text-white">
+                  {#if color.image}
+                    <img src={color.image} alt={color.name} class="w-5 h-5 rounded-md object-cover border border-white/20 shadow" />
+                  {:else}
+                    <span class="w-3.5 h-3.5 rounded-full border border-white/30 shadow" style="background: {color.hex};"></span>
+                  {/if}
                   <span class="font-medium">{color.name}</span>
                   {#if form.colors.length > 1}
                     <button

@@ -161,7 +161,14 @@
   });
 
   function adaptDBProduct(p: any) {
-    const imgs: string[] = (p.images ?? []).map((img: any) => img.url ?? img);
+    const rawImages = Array.isArray(p.images) ? p.images : [];
+    const imageDetails = rawImages.map((img: any, idx: number) => ({
+      url: typeof img === 'string' ? img : img?.url || '',
+      alt: typeof img === 'string' ? `${p.name} ${idx + 1}` : img?.alt || `${p.name} ${idx + 1}`,
+      order: typeof img === 'string' ? idx + 1 : img?.order || idx + 1,
+      color: typeof img === 'object' && img?.color ? img.color : null,
+    }));
+    const imgs: string[] = imageDetails.map((x: any) => x.url).filter(Boolean);
     
     const valOrFallback = (dbVal: string | null | undefined, fallback: string): string => {
       if (dbVal && dbVal.trim()) return dbVal.trim();
@@ -180,6 +187,7 @@
       price: Math.round((p.price ?? 0) / 100),
       originalPrice: p.original_price ? Math.round(p.original_price / 100) : undefined,
       images: imgs.length ? imgs : ['/placeholder.jpg'],
+      imageDetails,
       colors: (p.colors ?? []) as ColorVariant[],
       sizes: (p.sizes ?? []).map(Number),
       availableSizes: (p.sizes ?? []).map(Number),
@@ -211,6 +219,36 @@
       ? Math.round((1 - product.price / product.originalPrice) * 100)
       : null
   );
+
+  const displayedImages = $derived.by(() => {
+    if (!product) return ['/placeholder.jpg'];
+    const details = (product as any).imageDetails || [];
+    const allImages = product.images.length > 0 ? product.images : ['/placeholder.jpg'];
+    
+    if (!selectedColor) return allImages;
+    
+    const colorName = selectedColor.name?.toLowerCase().trim();
+    const colorSpecific = details
+      .filter((img: any) => img.color && String(img.color).toLowerCase().trim() === colorName)
+      .map((img: any) => img.url)
+      .filter(Boolean);
+
+    if (colorSpecific.length > 0) {
+      return colorSpecific;
+    }
+
+    if (selectedColor.image) {
+      const rest = allImages.filter((u: string) => u !== selectedColor?.image);
+      return [selectedColor.image, ...rest];
+    }
+
+    return allImages;
+  });
+
+  function selectColor(c: ColorVariant) {
+    selectedColor = c;
+    activeImage = 0;
+  }
 
   const availableSizes = $derived.by(() => {
     if (!product) return [];
@@ -250,12 +288,13 @@
       (!selectedColor || String(v.color).toLowerCase() === selectedColor.name.toLowerCase())
     );
     const variantId = matchedVariant?.id || null;
+    const currentColorImg = displayedImages[0] || selectedColor.image || product.images[0] || '/placeholder.jpg';
 
     cartStore.addItem({
       productId: product.id,
       slug: product.slug,
       name: product.name,
-      image: product.images[0],
+      image: currentColorImg,
       price: product.price,
       originalPrice: product.originalPrice,
       color: selectedColor,
@@ -263,7 +302,7 @@
       quantity,
       variantId
     });
-    uiStore.addToast(`${product.name} added to cart 🛍️`, 'success');
+    uiStore.addToast(`${product.name} (${selectedColor.name}) added to cart 🛍️`, 'success');
     setTimeout(() => { adding = false; }, 1000);
   }
 
@@ -349,7 +388,7 @@
             onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') isLightboxOpen = true; }}
           >
             <img
-              src={product.images[activeImage]}
+              src={displayedImages[activeImage] ?? displayedImages[0] ?? '/placeholder.jpg'}
               alt="{product.name} in {selectedColor?.name ?? 'selected color'}"
               class="w-full h-full object-cover transition-opacity duration-300"
               style="{zoomStyle} transition: transform 0.08s ease-out, transform-origin 0.08s ease-out;"
@@ -379,7 +418,7 @@
           
           <!-- Thumbnails -->
           <div class="flex gap-3 overflow-x-auto pb-2 scrollbar-hide">
-            {#each product.images as img, i}
+            {#each displayedImages as img, i}
               <button 
                 onclick={() => activeImage = i} 
                 class="w-20 h-20 rounded-xl overflow-hidden border-2 transition-all shrink-0 hover:scale-105 cursor-pointer" 
@@ -395,7 +434,7 @@
 
         <!-- Lightbox Fullscreen Modal -->
         <ProductModal 
-          images={product.images} 
+          images={displayedImages} 
           activeImage={activeImage} 
           isOpen={isLightboxOpen} 
           onClose={() => isLightboxOpen = false} 
@@ -462,7 +501,7 @@
               <ColorSwatch
                 colors={product.colors}
                 selected={selectedColor}
-                onSelect={(c) => { selectedColor = c; }}
+                onSelect={selectColor}
               />
             </div>
           {/if}

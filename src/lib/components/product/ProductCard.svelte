@@ -22,6 +22,19 @@
   let adding = $state(false);
   let cardRef: HTMLDivElement | undefined = $state();
   let isVisible = $state(false);
+  let activeColorIndex = $state(0);
+
+  const currentColor = $derived(product.colors?.[activeColorIndex] || product.colors?.[0]);
+  const currentDisplayImage = $derived.by(() => {
+    if (currentColor?.image) return currentColor.image;
+    if (product.imageDetails) {
+      const match = product.imageDetails.find(
+        (img: any) => img.color && currentColor && img.color.toLowerCase() === currentColor.name.toLowerCase()
+      );
+      if (match?.url) return match.url;
+    }
+    return product.images[0] || '/placeholder.jpg';
+  });
 
   const isWishlisted = $derived.by(() => {
     try {
@@ -105,6 +118,8 @@
       e.preventDefault();
       e.stopPropagation();
       
+      const activeColor = currentColor ?? product.colors[0] ?? { name: 'Default', hex: '#f4a7c3' };
+
       // Open size modal
       const productShape = {
         id: product.id,
@@ -112,8 +127,8 @@
         price: product.price,
         sizes: product.sizes,
         availableSizes: product.availableSizes ?? product.sizes,
-        image: product.images[0],
-        colorName: product.colors[0]?.name ?? 'Blossom'
+        image: currentDisplayImage,
+        colorName: activeColor.name
       };
 
       console.log('[FUNCTION] quickAdd: opening size modal with productShape:', productShape);
@@ -126,14 +141,14 @@
           productId: product.id,
           slug: product.slug,
           name: product.name,
-          image: product.images[0],
+          image: currentDisplayImage,
           price: product.price,
           originalPrice: product.originalPrice,
-          color: product.colors[0] ?? { name: 'Default', hex: '#f4a7c3' },
+          color: activeColor,
           size: selectedSize,
           quantity: 1,
         });
-        uiStore.addToast(`${product.name} (Size ${selectedSize}) added to cart 🛍️`, 'success');
+        uiStore.addToast(`${product.name} (${activeColor.name} - Size ${selectedSize}) added to cart 🛍️`, 'success');
         setTimeout(() => { adding = false; }, 800);
       });
     } catch (err) {
@@ -317,14 +332,14 @@
     <!-- Image -->
     <div class="img-zoom relative aspect-square overflow-hidden" style="background: var(--color-blush);">
       <img
-        src={product.images[0]}
+        src={currentDisplayImage}
         alt="{product.name} — {product.tagline}"
         class="w-full h-full object-cover product-img-primary"
         loading="lazy"
       />
       
-      <!-- Secondary image (shown on hover if available) -->
-      {#if hasSecondaryImage && secondaryImage}
+      <!-- Secondary image (shown on hover if available and on default image) -->
+      {#if hasSecondaryImage && secondaryImage && activeColorIndex === 0}
         <img
           src={secondaryImage}
           alt="{product.name} alternate view"
@@ -343,7 +358,7 @@
       </div>
 
       <!-- Quick Add button (hover) - only show if no secondary image swap -->
-      {#if !hasSecondaryImage}
+      {#if !hasSecondaryImage || activeColorIndex > 0}
         <div
           class="absolute bottom-0 left-0 right-0 p-3 transition-all duration-300"
           style="
@@ -400,15 +415,18 @@
 
   <!-- Product info -->
   <a href="/product/{product.slug}" class="block p-3 pb-4">
-    <!-- Color swatches preview -->
-    <div class="ft-swatches">
-      {#each product.colors.slice(0, 5) as color}
-        <span
-          class="ft-swatch"
-          style="background: {color.hex};"
+    <!-- Color swatches preview with interactive selection -->
+    <div class="ft-swatches flex items-center gap-1.5 flex-wrap">
+      {#each product.colors.slice(0, 5) as color, idx}
+        <button
+          type="button"
+          class="ft-swatch cursor-pointer transition-all hover:scale-125 {activeColorIndex === idx ? 'scale-110 shadow-sm' : 'opacity-80 hover:opacity-100'}"
+          style="background: {color.hex}; border: 2px solid {activeColorIndex === idx ? 'var(--color-brand-magenta, #d81b60)' : 'rgba(255,255,255,0.8)'}; width: 14px; height: 14px; border-radius: 50%;"
           title={color.name}
-          aria-label="Color: {color.name}"
-        ></span>
+          aria-label="Select color {color.name}"
+          onclick={(e) => { e.preventDefault(); e.stopPropagation(); activeColorIndex = idx; }}
+          onmouseenter={() => { activeColorIndex = idx; }}
+        ></button>
       {/each}
       {#if product.colors.length > 5}
         <span class="text-xs self-center" style="color: var(--color-text-soft);">+{product.colors.length - 5}</span>
