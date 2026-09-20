@@ -35,12 +35,10 @@
     if (isNaN(newQty) || newQty < 0) return;
     updatingId = id;
     try {
-      const stockStatus = newQty === 0 ? 'out_of_stock' : newQty <= 10 ? 'low_stock' : 'in_stock';
       const { error } = await supabase
         .from('products')
         .update({
           stock_quantity: newQty,
-          stock_status: stockStatus,
           updated_at: new Date().toISOString(),
         })
         .eq('id', id);

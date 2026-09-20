@@ -475,6 +475,7 @@
       is_limited_edition: form.is_limited_edition,
       is_active: form.is_active,
     };
+    delete payload.stock_status;
 
     try {
       let savedProductId = editId;
@@ -491,27 +492,32 @@
 
       // Automatically synchronize size & variant inventory to product_variants table
       if (savedProductId) {
-        const baseSku = form.sku.trim() || `FT-${form.slug.trim().substring(0, 6).toUpperCase()}`;
-        const variantInserts: any[] = [];
-        for (const color of form.colors) {
-          const colorCode = (color.name || 'DEF').replace(/[^a-zA-Z0-9]/g, '').substring(0, 3).toUpperCase();
-          for (const size of form.sizes) {
-            const key = `${color.name}__${size}`;
-            const qty = variantStockMap[key] !== undefined ? variantStockMap[key] : (parseInt(form.stock_quantity) || 0);
-            const sku = `${baseSku}-${colorCode}-${size}`;
-            variantInserts.push({
-              product_id: savedProductId,
-              sku,
-              size: String(size),
-              color: color.name,
-              stock_quantity: qty,
-              price_adjustment: 0,
-              is_active: true
-            });
+        try {
+          const baseSku = form.sku.trim() || `FT-${form.slug.trim().substring(0, 6).toUpperCase()}`;
+          const variantInserts: any[] = [];
+          for (const color of form.colors) {
+            const colorCode = (color.name || 'DEF').replace(/[^a-zA-Z0-9]/g, '').substring(0, 3).toUpperCase();
+            for (const size of form.sizes) {
+              const key = `${color.name}__${size}`;
+              const qty = variantStockMap[key] !== undefined ? variantStockMap[key] : (parseInt(form.stock_quantity) || 0);
+              const sku = `${baseSku}-${colorCode}-${size}`;
+              variantInserts.push({
+                product_id: savedProductId,
+                sku,
+                size: String(size),
+                color: color.name,
+                stock_quantity: qty,
+                price_adjustment: 0,
+                is_active: true
+              });
+            }
           }
-        }
-        if (variantInserts.length > 0) {
-          await supabase.from('product_variants').upsert(variantInserts, { onConflict: 'product_id,sku' });
+          if (variantInserts.length > 0) {
+            const { error: vErr } = await supabase.from('product_variants').upsert(variantInserts, { onConflict: 'product_id,sku' });
+            if (vErr) console.warn('[Variants Sync Warning]', vErr.message);
+          }
+        } catch (vSyncErr) {
+          console.warn('[Variants Sync Exception]', vSyncErr);
         }
       }
 
