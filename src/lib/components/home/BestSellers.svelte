@@ -61,26 +61,18 @@
     return filtered;
   });
 
+  import { fetchProducts } from '$lib/api/products';
+
   onMount(async () => {
-    console.log('[BestSellers] Component mounted. Starting fetch from Supabase...');
     try {
-      const { data, error } = await supabase
-        .from('products')
-        .select('*')
-        .eq('is_active', true);
-      if (error) {
-        console.error('[BestSellers] Supabase query error fetching products:', error);
-      } else {
-        console.log(`[BestSellers] Supabase query returned ${data?.length ?? 0} active products.`);
-        if (data && data.length > 0) {
-          dbProducts = data;
-        }
+      const data = await fetchProducts();
+      if (data && data.length > 0) {
+        dbProducts = data;
       }
     } catch (err) {
       console.error('[BestSellers] Exception in onMount:', err);
     } finally {
       loading = false;
-      console.log('[BestSellers] Fetch complete. Loading state set to false.');
     }
   });
 

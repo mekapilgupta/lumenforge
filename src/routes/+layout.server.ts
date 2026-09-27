@@ -23,14 +23,29 @@ export const load: LayoutServerLoad = async ({ cookies }) => {
       }
     });
 
+    // Try relational join with products and product_variants
     const { data, error } = await supabase
       .from('cart')
-      .select('*, product:product_id(id, slug, name, price, images, colors, sizes), variant:variant_id(*)')
+      .select(`
+        *,
+        product:products(
+          id, slug, name, base_price, description, brand, category
+        ),
+        variant:product_variants(
+          id, sku, color_name, color_slug, color_hex, price_override, stock_quantity,
+          images:product_images(image_url, is_primary)
+        )
+      `)
       .eq('user_id', userId);
 
     if (error) {
-      console.error('Error fetching cart in layout load:', error);
-      return { cart: [], isUnlocked };
+      console.warn('[Layout Load] Relational cart query note, attempting plain cart query:', error.message);
+      const { data: plainCart } = await supabase
+        .from('cart')
+        .select('*')
+        .eq('user_id', userId);
+
+      return { cart: plainCart || [], isUnlocked };
     }
 
     return {

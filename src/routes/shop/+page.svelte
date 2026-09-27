@@ -4,15 +4,16 @@
   import { fade, fly } from 'svelte/transition';
   import { browser } from '$app/environment';
   import { page } from '$app/stores';
-  import { products as staticProducts, PASTEL_COLORS, getProductBySlug, PRODUCT_DEFAULTS } from '$lib/data/products';
-  import { fetchProducts, fetchCategories, paiseToRupees, type ProductFilters } from '$lib/api/products';
-  import type { SupabaseProduct, Category } from '$lib/types';
+  import { PASTEL_COLORS, PRODUCT_DEFAULTS } from '$lib/data/products';
+  import { fetchProducts, fetchCategories, fetchDynamicColors, paiseToRupees, type ProductFilters } from '$lib/api/products';
+  import type { SupabaseProduct, Category, ColorVariant } from '$lib/types';
   import ProductCard from '$lib/components/product/ProductCard.svelte';
   import { STANDARD_SIZE_MAP, isSameSize, findSizeOption } from '$lib/sizes';
 
   // ─── State ────────────────────────────────────────────────────────────────
   let dbProducts = $state<SupabaseProduct[]>([]);
   let categories = $state<Category[]>([]);
+  let dynamicColors = $state<ColorVariant[]>([]);
   let loadingDB = $state(true);
 
   // Filter state
@@ -25,12 +26,24 @@
   let filtersOpen = $state(false);
 
   const allSizes = STANDARD_SIZE_MAP;
-  const allColors = Object.values(PASTEL_COLORS);
+  const allColors = $derived.by(() => {
+    if (dynamicColors && dynamicColors.length > 0) return dynamicColors;
+    const extracted: ColorVariant[] = [];
+    const seen = new Set<string>();
+    for (const p of dbProducts) {
+      for (const c of p.colors || []) {
+        if (c.name && !seen.has(c.name.toLowerCase())) {
+          seen.add(c.name.toLowerCase());
+          extracted.push(c);
+        }
+      }
+    }
+    return extracted.length > 0 ? extracted : Object.values(PASTEL_COLORS || {});
+  });
   const badges = ['Best Seller', 'Limited Edition', 'New Arrival', 'Sale'];
 
   // ─── Load from Supabase ───────────────────────────────────────────────────
   async function loadProducts() {
-    console.log('[FUNCTION] Entering loadProducts');
     loadingDB = true;
     const filters: ProductFilters = {
       sort: sortBy as ProductFilters['sort'],
@@ -43,21 +56,12 @@
     if (searchQuery) filters.search = searchQuery;
 
     try {
-      console.log('[FUNCTION] loadProducts calling fetchProducts');
-      console.log('[TYPE CHECK] typeof fetchProducts:', typeof fetchProducts);
-      console.log('[TYPE CHECK] typeof filters:', typeof filters, 'value:', JSON.stringify(filters));
-      
       const all = await fetchProducts(filters);
-      
-      console.log('[TYPE CHECK] typeof fetchProducts return value (all):', typeof all, 'isArray:', Array.isArray(all));
       dbProducts = all;
-      console.log('[FUNCTION] loadProducts products successfully loaded. Count:', all.length);
     } catch (err) {
-      console.log('[ERROR] in loadProducts:', err);
       console.error('[API] loadProducts failed:', err);
     } finally {
       loadingDB = false;
-      console.log('[FUNCTION] Exiting loadProducts');
     }
   }
 
@@ -65,41 +69,28 @@
   let _ready = false;
 
   onMount(async () => {
-    console.log('[FUNCTION] Entering shop page onMount');
     try {
-      // Read URL params on client
       if (browser) {
         const params = $page.url.searchParams;
-        console.log('[FETCH] Request (URL Search Params):', params.toString());
         selectedBadge = params.get('badge') ?? '';
         selectedCategory = params.get('category') ?? '';
         searchQuery = params.get('q') ?? '';
-        // Read color from URL (e.g. ?color=SeaGreen from ShopByColor)
         const colorParam = params.get('color');
-        console.log('[TYPE CHECK] typeof selectedBadge:', typeof selectedBadge, 'value:', selectedBadge);
-        console.log('[TYPE CHECK] typeof selectedCategory:', typeof selectedCategory, 'value:', selectedCategory);
-        console.log('[TYPE CHECK] typeof searchQuery:', typeof searchQuery, 'value:', searchQuery);
-        
         if (colorParam) {
-          console.log('[TYPE CHECK] typeof colorParam:', typeof colorParam, 'value:', colorParam);
           selectedColors = [colorParam];
         }
       }
       _ready = true;
-      console.log('[FUNCTION] onMount: Loading initial categories and products');
-      console.log('[TYPE CHECK] typeof fetchCategories:', typeof fetchCategories);
-      console.log('[TYPE CHECK] typeof loadProducts:', typeof loadProducts);
-      
-      const [cats] = await Promise.all([fetchCategories(), loadProducts()]);
-      
-      console.log('[TYPE CHECK] typeof cats:', typeof cats, 'isArray:', Array.isArray(cats));
+      const [cats, colors] = await Promise.all([
+        fetchCategories(),
+        fetchDynamicColors(),
+        loadProducts()
+      ]);
       categories = cats;
-      console.log('[FUNCTION] onMount loaded categories count:', cats?.length ?? 0);
+      dynamicColors = colors;
     } catch (err) {
-      console.log('[ERROR] in shop page onMount:', err);
       console.error('[API] shop page onMount failed:', err);
     }
-    console.log('[FUNCTION] Exiting shop page onMount');
   });
 
   // Re-load ONLY when the user changes a filter.

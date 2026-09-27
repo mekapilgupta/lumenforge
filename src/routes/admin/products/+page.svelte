@@ -1,1762 +1,436 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { authStore } from '$lib/stores/auth.svelte';
   import { uiStore } from '$lib/stores/ui.svelte';
   import { supabase } from '$lib/supabaseClient';
-  import type { SupabaseProduct, Category, ColorVariant } from '$lib/types';
-  import { STANDARD_SIZE_MAP, formatSizeDisplay, findSizeOption, canonicalizeSize } from '$lib/sizes';
+  import { formatCurrency, getImageKitUrl } from '$lib/types/product';
+  import type { CompleteProduct, ProductStatus } from '$lib/types/product';
 
-  let products = $state<any[]>([]);
-  let categories = $state<Category[]>([]);
+  let products = $state<CompleteProduct[]>([]);
   let loading = $state(true);
-  let showForm = $state(false);
-  let editId = $state<string | null>(null);
-  let saving = $state(false);
-  let deletingId = $state<string | null>(null);
-  let toggling = $state<string | null>(null);
-  let duplicatingId = $state<string | null>(null);
 
-  // Filter & Search states
+  // Search & Filters
   let searchQuery = $state('');
-  let selectedCategory = $state('');
-  let selectedStatus = $state<'all' | 'active' | 'inactive'>('all');
-  let selectedStock = $state<'all' | 'in_stock' | 'low_stock' | 'out_of_stock'>('all');
-  let selectedBadge = $state<'all' | 'featured' | 'bestseller' | 'new' | 'limited'>('all');
-  let sortBy = $state<'newest' | 'price_asc' | 'price_desc' | 'stock_asc' | 'name_asc'>('newest');
+  let selectedStatus = $state<'all' | ProductStatus>('all');
+  let selectedCategory = $state('all');
+  let sortBy = $state<'newest' | 'price_asc' | 'price_desc' | 'name_asc'>('newest');
 
-  // Form State
-  interface ProductImage {
-    url: string;
-    alt: string;
-    order: number;
-    color?: string;
-  }
-
-  const emptyForm = () => ({
-    name: '',
-    slug: '',
-    sku: '',
-    tagline: '',
-    description: '',
-    price: '',
-    original_price: '',
-    category_id: '',
-    sizes: ['36', '37', '38', '39', '40', '41'],
-    colors: [{ name: 'Default', hex: '#f4a7c3' }] as ColorVariant[],
-    images: [] as ProductImage[],
-    thumbnail_url: '',
-    stock_quantity: '120',
-    low_stock_threshold: '10',
-    gst_percent: '5',
-    is_featured: false,
-    is_best_seller: false,
-    is_new_arrival: false,
-    is_limited_edition: false,
-    is_active: true,
-  });
-
-  let form = $state(emptyForm());
-  let variantStockMap = $state<Record<string, number>>({});
-
-  // Image upload states & color filter
-  let uploadingImages = $state(false);
-  let directImageUrl = $state('');
-  let imageUploadError = $state('');
-  let activeImageColorTab = $state<string>('all');
-
-  // Color management states
-  let newColorName = $state('');
-  let newColorHex = $state('#f4a7c3');
-  let customSizeInput = $state('');
-
-  // Variants state
-  let variants = $state<any[]>([]);
-  let loadingVariants = $state(false);
-  let showVariantForm = $state(false);
-  let newVariant = $state({
-    sku: '',
-    size: '',
-    color: '',
-    price_adjustment: '0',
-    stock_quantity: '20',
-    is_active: true,
-  });
-
-  // Calculate sum of variant stocks
-  const totalVariantStock = $derived.by(() => {
-    let sum = 0;
-    for (const color of form.colors) {
-      for (const size of form.sizes) {
-        const key = `${color.name}__${size}`;
-        sum += (variantStockMap[key] ?? 20);
-      }
-    }
-    return sum;
-  });
-
-  function getVariantStock(colorName: string, size: string): number {
-    const key = `${colorName}__${size}`;
-    return variantStockMap[key] ?? 20;
-  }
-
-  function setVariantStock(colorName: string, size: string, value: string | number) {
-    const key = `${colorName}__${size}`;
-    const num = Math.max(0, parseInt(String(value)) || 0);
-    variantStockMap[key] = num;
-    form.stock_quantity = String(totalVariantStock);
-  }
-
-  function bulkSetVariantStock(qty: number) {
-    for (const color of form.colors) {
-      for (const size of form.sizes) {
-        const key = `${color.name}__${size}`;
-        variantStockMap[key] = qty;
-      }
-    }
-    form.stock_quantity = String(totalVariantStock);
-    uiStore.addToast(`Updated all size quantities to ${qty} pcs 📦`, 'info');
-  }
+  // Deleting state
+  let deletingId = $state<string | null>(null);
 
   onMount(async () => {
-    await authStore.init();
-    if (!authStore.user || !authStore.isAdmin) return;
-    await Promise.all([loadProducts(), loadCategories()]);
-    loading = false;
+    await fetchProducts();
   });
 
-  async function loadProducts() {
-    const { data, error } = await supabase
-      .from('products')
-      .select('*, category:category_id(name)')
-      .order('created_at', { ascending: false });
-    if (error) {
-      uiStore.addToast('Error loading products: ' + error.message, 'error');
-    } else {
-      products = (data ?? []) as any[];
-    }
-  }
-
-  async function loadCategories() {
-    const { data } = await supabase.from('categories').select('*').order('name');
-    categories = (data ?? []) as Category[];
-  }
-
-  // ─── ImageKit Upload & Management ──────────────────────────────────────────
-
-  async function handleFileUpload(e: Event) {
-    const target = e.target as HTMLInputElement;
-    if (!target.files || target.files.length === 0) return;
-    uploadingImages = true;
-    imageUploadError = '';
-
-    const formData = new FormData();
-    for (let i = 0; i < target.files.length; i++) {
-      formData.append('file', target.files[i]);
-    }
-    formData.append('folder', '/products');
-
-    const targetColor = activeImageColorTab !== 'all' && activeImageColorTab !== 'general' ? activeImageColorTab : undefined;
-
+  async function fetchProducts() {
+    loading = true;
     try {
-      const res = await fetch('/api/admin/upload-image', {
-        method: 'POST',
-        body: formData,
-      });
-      const data = await res.json();
+      const { data, error } = await supabase
+        .from('products')
+        .select(`
+          *,
+          variants:product_variants(
+            *,
+            images:product_images(*)
+          )
+        `)
+        .order('created_at', { ascending: false });
 
-      if (!res.ok || !data.success) {
-        throw new Error(data.error || 'Failed to upload images to ImageKit');
+      if (error) {
+        console.error('Error loading products:', error);
+        uiStore.addToast('Failed to fetch products: ' + error.message, 'error');
+        products = [];
+      } else {
+        // Sort variants and images
+        products = (data || []).map((p: any) => ({
+          ...p,
+          variants: (p.variants || [])
+            .sort((a: any, b: any) => (a.position ?? 0) - (b.position ?? 0))
+            .map((v: any) => ({
+              ...v,
+              images: (v.images || []).sort((a: any, b: any) => (a.position ?? 0) - (b.position ?? 0))
+            }))
+        }));
       }
-
-      const uploadedList = data.results || (data.url ? [data] : []);
-      for (const item of uploadedList) {
-        if (item.url) {
-          const nextOrder = form.images.length + 1;
-          const newImg: ProductImage = {
-            url: item.url,
-            alt: form.name ? `${form.name} ${targetColor ? `(${targetColor}) ` : ''}view ${nextOrder}` : `Product view ${nextOrder}`,
-            order: nextOrder,
-            color: targetColor,
-          };
-          form.images = [...form.images, newImg];
-          if (!form.thumbnail_url) {
-            form.thumbnail_url = item.url;
-          }
-          if (targetColor) {
-            const col = form.colors.find(c => c.name.toLowerCase() === targetColor.toLowerCase());
-            if (col && !col.image) {
-              col.image = item.url;
-            }
-          }
-        }
-      }
-      uiStore.addToast(`Uploaded ${uploadedList.length} photo(s)${targetColor ? ` for ${targetColor}` : ''}! 📸`, 'success');
-    } catch (err: any) {
-      imageUploadError = err.message || 'Image upload failed';
-      uiStore.addToast('Upload error: ' + imageUploadError, 'error');
+    } catch (e: any) {
+      console.error('Error loading products:', e);
+      uiStore.addToast(e.message || 'Error loading products', 'error');
     } finally {
-      uploadingImages = false;
-      target.value = '';
+      loading = false;
     }
   }
 
-  function addDirectImageUrl() {
-    const url = directImageUrl.trim();
-    if (!url) return;
-    if (!url.startsWith('http://') && !url.startsWith('https://')) {
-      uiStore.addToast('Please enter a valid URL (starting with https://)', 'error');
-      return;
-    }
-    const targetColor = activeImageColorTab !== 'all' && activeImageColorTab !== 'general' ? activeImageColorTab : undefined;
-    const nextOrder = form.images.length + 1;
-    const newImg: ProductImage = {
-      url,
-      alt: form.name ? `${form.name} ${targetColor ? `(${targetColor}) ` : ''}view ${nextOrder}` : `Product view ${nextOrder}`,
-      order: nextOrder,
-      color: targetColor,
-    };
-    form.images = [...form.images, newImg];
-    if (!form.thumbnail_url) {
-      form.thumbnail_url = url;
-    }
-    if (targetColor) {
-      const col = form.colors.find(c => c.name.toLowerCase() === targetColor.toLowerCase());
-      if (col && !col.image) {
-        col.image = url;
-      }
-    }
-    directImageUrl = '';
-    uiStore.addToast(`Image added${targetColor ? ` to ${targetColor}` : ''} gallery`, 'success');
-  }
-
-  function setAsThumbnail(url: string) {
-    form.thumbnail_url = url;
-    uiStore.addToast('Set as main product preview thumbnail 🌟', 'info');
-  }
-
-  function setColorThumbnail(colorName: string, url: string) {
-    const col = form.colors.find(c => c.name.toLowerCase() === colorName.toLowerCase());
-    if (col) {
-      col.image = url;
-      uiStore.addToast(`Set primary photo for "${colorName}" 🎨`, 'success');
-    }
-  }
-
-  function assignImageColor(imgIndex: number, colorName: string) {
-    if (imgIndex < 0 || imgIndex >= form.images.length) return;
-    form.images[imgIndex].color = colorName || undefined;
-    if (colorName) {
-      const col = form.colors.find(c => c.name.toLowerCase() === colorName.toLowerCase());
-      if (col && !col.image) {
-        col.image = form.images[imgIndex].url;
-      }
-    }
-  }
-
-  function removeImage(index: number) {
-    const removedUrl = form.images[index].url;
-    const removedColor = form.images[index].color;
-    form.images = form.images.filter((_, i) => i !== index);
-    form.images = form.images.map((img, i) => ({ ...img, order: i + 1 }));
-    if (form.thumbnail_url === removedUrl) {
-      form.thumbnail_url = form.images[0]?.url || '';
-    }
-    if (removedColor) {
-      const col = form.colors.find(c => c.name.toLowerCase() === removedColor.toLowerCase());
-      if (col && col.image === removedUrl) {
-        const nextColImg = form.images.find(img => img.color && img.color.toLowerCase() === removedColor.toLowerCase());
-        col.image = nextColImg?.url || undefined;
-      }
-    }
-  }
-
-  function moveImage(index: number, direction: 'left' | 'right') {
-    const targetIndex = direction === 'left' ? index - 1 : index + 1;
-    if (targetIndex < 0 || targetIndex >= form.images.length) return;
-    const reordered = [...form.images];
-    const temp = reordered[index];
-    reordered[index] = reordered[targetIndex];
-    reordered[targetIndex] = temp;
-    form.images = reordered.map((img, i) => ({ ...img, order: i + 1 }));
-  }
-
-  // ─── Colors & Sizes Helpers ────────────────────────────────────────────────
-
-  function addColor() {
-    const name = newColorName.trim();
-    if (!name) {
-      uiStore.addToast('Please enter a color name', 'error');
-      return;
-    }
-    if (form.colors.some(c => c.name.toLowerCase() === name.toLowerCase())) {
-      uiStore.addToast('Color already exists in this product', 'error');
-      return;
-    }
-    form.colors = [...form.colors, { name, hex: newColorHex }];
-    newColorName = '';
-    activeImageColorTab = name; // Auto switch to newly added color for instant photo uploading!
-    uiStore.addToast(`Added color: ${name}`, 'success');
-  }
-
-  function removeColor(name: string) {
-    if (form.colors.length <= 1) {
-      uiStore.addToast('At least one color is required', 'info');
-      return;
-    }
-    form.colors = form.colors.filter(c => c.name !== name);
-    // Un-tag images belonging to removed color
-    form.images = form.images.map(img => img.color === name ? { ...img, color: undefined } : img);
-    if (activeImageColorTab === name) {
-      activeImageColorTab = 'all';
-    }
-  }
-
-  function toggleSize(s: string) {
-    const canon = canonicalizeSize(s);
-    const existingIndex = form.sizes.findIndex(x => canonicalizeSize(x) === canon);
-    if (existingIndex !== -1) {
-      if (form.sizes.length <= 1) {
-        uiStore.addToast('At least one size is required', 'info');
-        return;
-      }
-      form.sizes = form.sizes.filter((_, i) => i !== existingIndex);
-    } else {
-      form.sizes = [...form.sizes, canon];
-      for (const color of form.colors) {
-        const key = `${color.name}__${canon}`;
-        if (variantStockMap[key] === undefined) {
-          variantStockMap[key] = 20;
-        }
-      }
-    }
-    form.stock_quantity = String(totalVariantStock);
-  }
-
-  function addCustomSize() {
-    const s = customSizeInput.trim();
-    if (!s) return;
-    const canon = canonicalizeSize(s);
-    if (form.sizes.some(x => canonicalizeSize(x) === canon)) {
-      uiStore.addToast('Size already exists', 'error');
-      return;
-    }
-    form.sizes = [...form.sizes, canon];
-    for (const color of form.colors) {
-      const key = `${color.name}__${canon}`;
-      if (variantStockMap[key] === undefined) {
-        variantStockMap[key] = 20;
-      }
-    }
-    customSizeInput = '';
-    form.stock_quantity = String(totalVariantStock);
-  }
-
-  function autoFillSlug() {
-    if (!editId && form.name) {
-      form.slug = form.name
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, '-')
-        .replace(/(^-|-$)+/g, '');
-      if (!form.sku) {
-        const initials = form.name.replace(/[^a-zA-Z0-9]/g, '').substring(0, 6).toUpperCase();
-        form.sku = `FT-${initials || 'PROD'}`;
-      }
-    }
-  }
-
-  // ─── CRUD Handlers ─────────────────────────────────────────────────────────
-
-  function openCreateModal() {
-    form = emptyForm();
-    editId = null;
-    variants = [];
-    variantStockMap = {};
-    for (const color of form.colors) {
-      for (const size of form.sizes) {
-        variantStockMap[`${color.name}__${size}`] = 20;
-      }
-    }
-    form.stock_quantity = String(totalVariantStock);
-    showForm = true;
-  }
-
-  function startEdit(p: any) {
-    editId = p.id;
-    const rawImages = Array.isArray(p.images) ? p.images : [];
-    const formattedImages: ProductImage[] = rawImages.map((img: any, idx: number) => ({
-      url: typeof img === 'string' ? img : img?.url || '',
-      alt: typeof img === 'string' ? `${p.name} ${idx + 1}` : img?.alt || `${p.name} ${idx + 1}`,
-      order: typeof img === 'string' ? idx + 1 : img?.order || idx + 1,
-      color: typeof img === 'object' && img?.color ? img.color : undefined,
-    }));
-
-    const rawColors = Array.isArray(p.colors) && p.colors.length > 0 ? p.colors : [{ name: 'Default', hex: '#f4a7c3' }];
-    const formattedColors: ColorVariant[] = rawColors.map((c: any) => ({
-      name: c.name || 'Default',
-      hex: c.hex || '#f4a7c3',
-      image: c.image || formattedImages.find(img => img.color && img.color.toLowerCase() === (c.name || '').toLowerCase())?.url || undefined,
-    }));
-
-    form = {
-      name: p.name,
-      slug: p.slug,
-      sku: p.sku ?? '',
-      tagline: p.tagline ?? '',
-      description: p.description ?? '',
-      price: String(p.price / 100),
-      original_price: p.original_price ? String(p.original_price / 100) : '',
-      category_id: p.category_id ?? '',
-      sizes: Array.isArray(p.sizes) && p.sizes.length > 0 ? p.sizes.map(String) : ['36', '37', '38', '39', '40', '41'],
-      colors: formattedColors,
-      images: formattedImages,
-      thumbnail_url: p.thumbnail_url || (formattedImages[0]?.url ?? ''),
-      stock_quantity: String(p.stock_quantity ?? 100),
-      low_stock_threshold: String(p.low_stock_threshold ?? 10),
-      gst_percent: String(p.gst_percent ?? 5),
-      is_featured: Boolean(p.is_featured),
-      is_best_seller: Boolean(p.is_best_seller),
-      is_new_arrival: Boolean(p.is_new_arrival),
-      is_limited_edition: Boolean(p.is_limited_edition),
-      is_active: Boolean(p.is_active),
-    };
-    activeImageColorTab = 'all';
-    showForm = true;
-    loadVariants(p.id);
-  }
-
-  async function cloneProduct(p: any) {
-    if (duplicatingId) return;
-    duplicatingId = p.id;
+  // Quick Status Toggle (Publish / Draft / Archive)
+  async function updateProductStatus(id: string, newStatus: ProductStatus) {
     try {
-      const clonedSlug = `${p.slug}-copy-${Date.now().toString().slice(-4)}`;
-      const clonedSku = p.sku ? `${p.sku}-CP` : `FT-${Date.now().toString().slice(-6)}`;
-      
-      const payload: any = {
-        name: `${p.name} (Copy)`,
-        slug: clonedSlug,
-        sku: clonedSku,
-        tagline: p.tagline,
-        description: p.description,
-        price: p.price,
-        original_price: p.original_price,
-        category_id: p.category_id,
-        sizes: p.sizes,
-        colors: p.colors,
-        images: p.images,
-        thumbnail_url: p.thumbnail_url,
-        stock_quantity: p.stock_quantity,
-        low_stock_threshold: p.low_stock_threshold,
-        gst_percent: p.gst_percent,
-        is_featured: false,
-        is_best_seller: false,
-        is_new_arrival: true,
-        is_limited_edition: false,
-        is_active: true,
-      };
+      const { error } = await supabase
+        .from('products')
+        .update({ status: newStatus })
+        .eq('id', id);
 
-      const { data: newProd, error } = await supabase.from('products').insert(payload).select().single();
       if (error) throw error;
 
-      uiStore.addToast(`Product cloned as "${newProd.name}"! 📋`, 'success');
-      await loadProducts();
-    } catch (err: any) {
-      uiStore.addToast('Failed to clone product: ' + err.message, 'error');
-    } finally {
-      duplicatingId = null;
+      products = products.map(p => p.id === id ? { ...p, status: newStatus } : p);
+      uiStore.addToast(`Product status updated to ${newStatus}.`, 'success');
+    } catch (e: any) {
+      uiStore.addToast('Failed to update status: ' + e.message, 'error');
     }
   }
 
+  // Delete Product with cascade
   async function deleteProduct(id: string, name: string) {
-    if (!confirm(`Are you sure you want to permanently delete "${name}"?\nThis action cannot be undone.`)) {
+    if (!confirm(`Are you sure you want to permanently delete "${name}"? This action cannot be undone.`)) {
       return;
     }
+
     deletingId = id;
     try {
-      await supabase.from('product_variants').delete().eq('product_id', id);
-      const { error } = await supabase.from('products').delete().eq('id', id);
+      const { error } = await supabase
+        .from('products')
+        .delete()
+        .eq('id', id);
+
       if (error) throw error;
 
-      uiStore.addToast(`Product "${name}" deleted successfully 🗑️`, 'success');
       products = products.filter(p => p.id !== id);
-      if (editId === id) {
-        showForm = false;
-        editId = null;
-      }
-    } catch (err: any) {
-      uiStore.addToast('Error deleting product: ' + err.message, 'error');
+      uiStore.addToast(`Deleted "${name}".`, 'info');
+    } catch (e: any) {
+      uiStore.addToast('Failed to delete product: ' + e.message, 'error');
     } finally {
       deletingId = null;
     }
   }
 
-  async function saveProduct() {
-    if (!form.name.trim() || !form.slug.trim() || !form.price) {
-      uiStore.addToast('Product name, slug, and price are required', 'error');
-      return;
-    }
-
-    const pricePaise = Math.round(parseFloat(form.price) * 100);
-    const originalPricePaise = form.original_price ? Math.round(parseFloat(form.original_price) * 100) : null;
-
-    if (isNaN(pricePaise) || pricePaise <= 0) {
-      uiStore.addToast('Please enter a valid price', 'error');
-      return;
-    }
-
-    saving = true;
-
-    const formattedImages = form.images.map((img, i) => ({
-      url: img.url,
-      alt: img.alt || `${form.name} view ${i + 1}`,
-      order: i + 1,
-      color: img.color || null,
-    }));
-
-    const colorsWithImages = form.colors.map(c => {
-      const assignedImg = form.images.find(img => img.color && img.color.toLowerCase() === c.name.toLowerCase());
-      return {
-        name: c.name,
-        hex: c.hex,
-        image: c.image || assignedImg?.url || undefined
-      };
+  // Categories list
+  const categories = $derived.by(() => {
+    const cats = new Set<string>();
+    products.forEach(p => {
+      if (p.category) cats.add(p.category);
     });
+    return Array.from(cats);
+  });
 
-    const thumbnail = form.thumbnail_url || (formattedImages[0]?.url ?? null);
-    const finalStock = totalVariantStock > 0 ? totalVariantStock : (parseInt(form.stock_quantity) || 0);
-
-    const payload: any = {
-      name: form.name.trim(),
-      slug: form.slug.trim().toLowerCase(),
-      sku: form.sku.trim() || null,
-      tagline: form.tagline.trim() || null,
-      description: form.description.trim() || null,
-      price: pricePaise,
-      original_price: originalPricePaise,
-      category_id: form.category_id || null,
-      sizes: form.sizes,
-      colors: colorsWithImages,
-      images: formattedImages,
-      thumbnail_url: thumbnail,
-      stock_quantity: finalStock,
-      low_stock_threshold: parseInt(form.low_stock_threshold) || 10,
-      gst_percent: parseFloat(form.gst_percent) || 5,
-      is_featured: form.is_featured,
-      is_best_seller: form.is_best_seller,
-      is_new_arrival: form.is_new_arrival,
-      is_limited_edition: form.is_limited_edition,
-      is_active: form.is_active,
-    };
-    delete payload.stock_status;
-
-    try {
-      let savedProductId = editId;
-      if (editId) {
-        const { error } = await supabase.from('products').update(payload).eq('id', editId);
-        if (error) throw error;
-        uiStore.addToast('Product updated successfully! 🌸', 'success');
-      } else {
-        const { data: newProd, error } = await supabase.from('products').insert(payload).select().single();
-        if (error) throw error;
-        savedProductId = newProd.id;
-        uiStore.addToast('Product created successfully! 🚀', 'success');
-      }
-
-      // Automatically synchronize size & variant inventory to product_variants table
-      if (savedProductId) {
-        try {
-          const baseSku = form.sku.trim() || `FT-${form.slug.trim().substring(0, 6).toUpperCase()}`;
-          const variantInserts: any[] = [];
-          for (const color of form.colors) {
-            const colorCode = (color.name || 'DEF').replace(/[^a-zA-Z0-9]/g, '').substring(0, 3).toUpperCase();
-            const colorImg = colorsWithImages.find(c => c.name.toLowerCase() === color.name.toLowerCase())?.image || form.images.find(img => img.color && img.color.toLowerCase() === color.name.toLowerCase())?.url || null;
-            for (const size of form.sizes) {
-              const key = `${color.name}__${size}`;
-              const qty = variantStockMap[key] !== undefined ? variantStockMap[key] : (parseInt(form.stock_quantity) || 0);
-              const sku = `${baseSku}-${colorCode}-${size}`;
-              variantInserts.push({
-                product_id: savedProductId,
-                sku,
-                size: String(size),
-                color: color.name,
-                stock_quantity: qty,
-                price_adjustment: 0,
-                is_active: true,
-                image_url: colorImg
-              });
-            }
-          }
-          if (variantInserts.length > 0) {
-            const { error: vErr } = await supabase.from('product_variants').upsert(variantInserts, { onConflict: 'product_id,sku' });
-            if (vErr) console.warn('[Variants Sync Warning]', vErr.message);
-          }
-        } catch (vSyncErr) {
-          console.warn('[Variants Sync Exception]', vSyncErr);
-        }
-      }
-
-      await loadProducts();
-      showForm = false;
-      editId = null;
-    } catch (err: any) {
-      uiStore.addToast('Error saving product: ' + err.message, 'error');
-    } finally {
-      saving = false;
-    }
-  }
-
-  async function toggleActive(id: string, isActive: boolean) {
-    toggling = id;
-    const { error } = await supabase.from('products').update({ is_active: !isActive }).eq('id', id);
-    if (error) {
-      uiStore.addToast('Failed to toggle status: ' + error.message, 'error');
-    } else {
-      products = products.map(p => p.id === id ? { ...p, is_active: !isActive } as any : p);
-      uiStore.addToast(!isActive ? 'Product published / active ✅' : 'Product set to inactive ⏸️', 'success');
-    }
-    toggling = null;
-  }
-
-  // ─── Variants Management ───────────────────────────────────────────────────
-
-  async function loadVariants(productId: string) {
-    loadingVariants = true;
-    const { data } = await supabase
-      .from('product_variants')
-      .select('*')
-      .eq('product_id', productId)
-      .order('size', { ascending: true });
-    variants = data ?? [];
-    const newMap: Record<string, number> = {};
-    for (const v of variants) {
-      const colorName = v.color || 'Default';
-      const sizeStr = String(v.size);
-      newMap[`${colorName}__${sizeStr}`] = v.stock_quantity ?? 0;
-    }
-    variantStockMap = { ...variantStockMap, ...newMap };
-    loadingVariants = false;
-  }
-
-  async function autoGenerateVariants() {
-    if (!editId) {
-      uiStore.addToast('Please save the product first before generating variants', 'info');
-      return;
-    }
-    loadingVariants = true;
-    try {
-      const generated: any[] = [];
-      const baseSku = form.sku || `FT-${form.slug.substring(0, 6).toUpperCase()}`;
-
-      for (const color of form.colors) {
-        const colorCode = color.name.substring(0, 3).toUpperCase();
-        for (const size of form.sizes) {
-          const sku = `${baseSku}-${colorCode}-${size}`;
-          generated.push({
-            product_id: editId,
-            sku,
-            size: String(size),
-            color: color.name,
-            price_adjustment: 0,
-            stock_quantity: parseInt(form.stock_quantity) || 100,
-            is_active: true,
-          });
-        }
-      }
-
-      const { error } = await supabase.from('product_variants').upsert(generated, { onConflict: 'product_id,sku' });
-      if (error) throw error;
-
-      uiStore.addToast(`Generated ${generated.length} product variants! ⚡`, 'success');
-      await loadVariants(editId);
-    } catch (err: any) {
-      uiStore.addToast('Variant generation failed: ' + err.message, 'error');
-    } finally {
-      loadingVariants = false;
-    }
-  }
-
-  async function saveVariant() {
-    if (!editId) return;
-    if (!newVariant.sku.trim()) {
-      uiStore.addToast('Variant SKU is required', 'error');
-      return;
-    }
-
-    const payload = {
-      product_id: editId,
-      sku: newVariant.sku.trim(),
-      size: newVariant.size.trim() || null,
-      color: newVariant.color.trim() || null,
-      price_adjustment: Math.round((parseFloat(newVariant.price_adjustment) || 0) * 100),
-      stock_quantity: parseInt(newVariant.stock_quantity) || 0,
-      is_active: newVariant.is_active,
-    };
-
-    const { error } = await supabase.from('product_variants').insert(payload);
-    if (error) {
-      uiStore.addToast('Failed to add variant: ' + error.message, 'error');
-      return;
-    }
-
-    uiStore.addToast('Variant created!', 'success');
-    newVariant = { sku: '', size: '', color: '', price_adjustment: '0', stock_quantity: '20', is_active: true };
-    showVariantForm = false;
-    await loadVariants(editId);
-  }
-
-  async function updateVariantStock(variantId: string, newStockStr: string) {
-    const newStock = parseInt(newStockStr);
-    if (isNaN(newStock) || newStock < 0) return;
-    await supabase.from('product_variants').update({ stock_quantity: newStock, updated_at: new Date().toISOString() }).eq('id', variantId);
-    uiStore.addToast('Variant stock updated', 'success');
-    if (editId) await loadVariants(editId);
-  }
-
-  async function updateVariantPriceAdjustment(variantId: string, newPriceAdjStr: string) {
-    const newPriceAdj = Math.round((parseFloat(newPriceAdjStr) || 0) * 100);
-    await supabase.from('product_variants').update({ price_adjustment: newPriceAdj, updated_at: new Date().toISOString() }).eq('id', variantId);
-    uiStore.addToast('Variant price updated', 'success');
-    if (editId) await loadVariants(editId);
-  }
-
-  async function deleteVariant(variantId: string) {
-    if (!confirm('Delete this variant?')) return;
-    await supabase.from('product_variants').delete().eq('id', variantId);
-    uiStore.addToast('Variant removed', 'info');
-    if (editId) await loadVariants(editId);
-  }
-
-  async function toggleVariantActive(variantId: string, currentStatus: boolean) {
-    await supabase.from('product_variants').update({ is_active: !currentStatus }).eq('id', variantId);
-    if (editId) await loadVariants(editId);
-  }
-
-  // ─── Filtered Products Computed ───────────────────────────────────────────
-
+  // Filtered & Sorted products
   const filteredProducts = $derived.by(() => {
-    let result = products;
+    let list = [...products];
 
+    // Search query
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase().trim();
-      result = result.filter(p =>
-        p.name?.toLowerCase().includes(q) ||
-        p.slug?.toLowerCase().includes(q) ||
-        (p.sku && p.sku.toLowerCase().includes(q))
+      list = list.filter(p => 
+        p.name.toLowerCase().includes(q) ||
+        p.slug.toLowerCase().includes(q) ||
+        (p.brand && p.brand.toLowerCase().includes(q)) ||
+        (p.category && p.category.toLowerCase().includes(q)) ||
+        p.variants?.some(v => v.sku.toLowerCase().includes(q) || v.color_name.toLowerCase().includes(q))
       );
     }
 
-    if (selectedCategory) {
-      result = result.filter(p => p.category_id === selectedCategory);
+    // Status filter
+    if (selectedStatus !== 'all') {
+      list = list.filter(p => p.status === selectedStatus);
     }
 
-    if (selectedStatus === 'active') {
-      result = result.filter(p => p.is_active);
-    } else if (selectedStatus === 'inactive') {
-      result = result.filter(p => !p.is_active);
+    // Category filter
+    if (selectedCategory !== 'all') {
+      list = list.filter(p => p.category === selectedCategory);
     }
-
-    if (selectedStock !== 'all') {
-      result = result.filter(p => p.stock_status === selectedStock);
-    }
-
-    if (selectedBadge === 'featured') result = result.filter(p => p.is_featured);
-    else if (selectedBadge === 'bestseller') result = result.filter(p => p.is_best_seller);
-    else if (selectedBadge === 'new') result = result.filter(p => p.is_new_arrival);
-    else if (selectedBadge === 'limited') result = result.filter(p => p.is_limited_edition);
 
     // Sorting
-    return [...result].sort((a, b) => {
-      if (sortBy === 'price_asc') return (a.price || 0) - (b.price || 0);
-      if (sortBy === 'price_desc') return (b.price || 0) - (a.price || 0);
-      if (sortBy === 'stock_asc') return (a.stock_quantity || 0) - (b.stock_quantity || 0);
-      if (sortBy === 'name_asc') return (a.name || '').localeCompare(b.name || '');
-      return new Date(b.created_at || '').getTime() - new Date(a.created_at || '').getTime();
+    list.sort((a, b) => {
+      if (sortBy === 'price_asc') return (a.base_price || 0) - (b.base_price || 0);
+      if (sortBy === 'price_desc') return (b.base_price || 0) - (a.base_price || 0);
+      if (sortBy === 'name_asc') return a.name.localeCompare(b.name);
+      return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
     });
+
+    return list;
   });
 
-  function fmt(paise: number) {
-    return '₹' + ((paise ?? 0) / 100).toLocaleString('en-IN', { maximumFractionDigits: 0 });
+  // Get primary thumbnail image for a product
+  function getProductThumbnail(product: CompleteProduct): string {
+    const defaultVariant = product.variants?.find(v => v.is_default) || product.variants?.[0];
+    if (defaultVariant?.images && defaultVariant.images.length > 0) {
+      const primaryImg = defaultVariant.images.find(img => img.is_primary) || defaultVariant.images[0];
+      return getImageKitUrl(primaryImg.image_url, 'w-150,q-80');
+    }
+    // Fallback if other variants have images
+    for (const v of product.variants || []) {
+      if (v.images && v.images.length > 0) {
+        return getImageKitUrl(v.images[0].image_url, 'w-150,q-80');
+      }
+    }
+    return '';
+  }
+
+  // Calculate total inventory
+  function getTotalStock(product: CompleteProduct): number {
+    return (product.variants || []).reduce((acc, v) => acc + (v.stock_quantity || 0), 0);
   }
 </script>
 
 <svelte:head>
-  <title>Products Manager — Admin French Toes</title>
+  <title>Products Management — French Toes Admin</title>
 </svelte:head>
 
-<div class="flex flex-col gap-6 max-w-7xl mx-auto">
-  <!-- Header Bar -->
-  <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white/5 border border-white/10 p-5 rounded-2xl backdrop-blur-md">
+<div class="space-y-6 pb-12">
+  <!-- Top Bar: Title & Create Action -->
+  <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
     <div>
-      <h1 class="text-2xl font-extrabold text-white tracking-tight flex items-center gap-2.5">
-        <span>👠 Product Catalog</span>
-        <span class="text-xs px-2.5 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300 font-mono font-semibold border border-indigo-500/30">
-          {products.length} Total
+      <div class="flex items-center gap-3">
+        <h1 class="text-2xl font-bold text-white tracking-tight">Products Catalogue</h1>
+        <span class="px-2.5 py-0.5 rounded-full text-xs font-bold bg-pink-500/20 text-pink-300 border border-pink-500/30">
+          {products.length} {products.length === 1 ? 'Product' : 'Products'}
         </span>
-      </h1>
-      <p class="text-xs text-gray-400 mt-1">
-        Manage products, ImageKit uploads, colors, sizes, stock levels, and Shiprocket SKUs.
-      </p>
+      </div>
+      <p class="text-xs text-gray-400 mt-1">Manage products, color variants, ImageKit media, and stock levels.</p>
     </div>
 
-    <div class="flex items-center gap-3">
-      {#if !showForm}
-        <button
-          onclick={openCreateModal}
-          class="flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold text-white bg-gradient-to-r from-indigo-600 to-pink-600 hover:from-indigo-500 hover:to-pink-500 shadow-lg shadow-indigo-500/20 active:scale-95 transition-all cursor-pointer"
-        >
-          <span>＋ Add New Product</span>
-        </button>
-      {/if}
-    </div>
+    <a
+      href="/admin/products/new"
+      class="inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-pink-500 to-rose-400 hover:from-pink-600 hover:to-rose-500 text-white font-bold text-sm shadow-lg transition-all"
+    >
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
+      + Add New Product
+    </a>
   </div>
 
-  <!-- Product Create / Edit Modal Form -->
-  {#if showForm}
-    <div class="rounded-2xl p-6 bg-[#161726] border border-indigo-500/30 shadow-2xl space-y-6">
-      <div class="flex items-center justify-between border-b border-white/10 pb-4">
-        <div>
-          <h2 class="text-lg font-bold text-white flex items-center gap-2">
-            <span>{editId ? '✏️ Edit Product' : '✨ New Product'}</span>
-            {#if form.name}<span class="text-sm font-normal text-gray-400">({form.name})</span>{/if}
-          </h2>
-          <p class="text-xs text-gray-400 mt-0.5">Fill in product information and upload images directly to ImageKit.</p>
-        </div>
-        <button
-          onclick={() => { showForm = false; editId = null; }}
-          class="w-8 h-8 rounded-full bg-white/10 text-gray-400 hover:text-white flex items-center justify-center cursor-pointer"
-        >✕</button>
-      </div>
-
-      <!-- Section 1: Basic Information -->
-      <div class="space-y-4">
-        <h3 class="text-xs font-bold uppercase tracking-wider text-indigo-400">1. Basic Details</h3>
-        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          <div class="sm:col-span-2">
-            <label for="p-name" class="block text-xs font-semibold text-gray-300 mb-1">Product Title *</label>
-            <input
-              id="p-name"
-              bind:value={form.name}
-              oninput={autoFillSlug}
-              type="text"
-              placeholder="e.g. Miami 1 - SeaGreen"
-              class="w-full px-3.5 py-2.5 rounded-xl text-sm text-white bg-white/5 border border-white/15 focus:border-indigo-500 outline-none"
-            />
-          </div>
-
-          <div>
-            <label for="p-slug" class="block text-xs font-semibold text-gray-300 mb-1">URL Slug *</label>
-            <input
-              id="p-slug"
-              bind:value={form.slug}
-              type="text"
-              placeholder="miami-1-seagreen"
-              class="w-full px-3.5 py-2.5 rounded-xl text-sm font-mono text-indigo-300 bg-white/5 border border-white/15 focus:border-indigo-500 outline-none"
-            />
-          </div>
-
-          <div>
-            <label for="p-sku" class="block text-xs font-semibold text-gray-300 mb-1">Base SKU (Shiprocket)</label>
-            <input
-              id="p-sku"
-              bind:value={form.sku}
-              type="text"
-              placeholder="FT-MIA-SGR"
-              class="w-full px-3.5 py-2.5 rounded-xl text-sm font-mono text-amber-300 bg-white/5 border border-white/15 focus:border-indigo-500 outline-none"
-            />
-          </div>
-
-          <div>
-            <label for="p-cat" class="block text-xs font-semibold text-gray-300 mb-1">Category</label>
-            <select
-              id="p-cat"
-              bind:value={form.category_id}
-              class="w-full px-3.5 py-2.5 rounded-xl text-sm text-white bg-[#1a1b2e] border border-white/15 focus:border-indigo-500 outline-none"
-            >
-              <option value="">No Category</option>
-              {#each categories as c}
-                <option value={c.id}>{c.name}</option>
-              {/each}
-            </select>
-          </div>
-
-          <div>
-            <label for="p-price" class="block text-xs font-semibold text-gray-300 mb-1">Selling Price (₹) *</label>
-            <input
-              id="p-price"
-              bind:value={form.price}
-              type="number"
-              min="1"
-              placeholder="799"
-              class="w-full px-3.5 py-2.5 rounded-xl text-sm font-bold text-emerald-400 bg-white/5 border border-white/15 focus:border-indigo-500 outline-none font-mono"
-            />
-          </div>
-
-          <div>
-            <label for="p-orig" class="block text-xs font-semibold text-gray-300 mb-1">MRP / Strikethrough Price (₹)</label>
-            <input
-              id="p-orig"
-              bind:value={form.original_price}
-              type="number"
-              placeholder="1299"
-              class="w-full px-3.5 py-2.5 rounded-xl text-sm text-gray-300 bg-white/5 border border-white/15 focus:border-indigo-500 outline-none font-mono"
-            />
-          </div>
-
-          <div>
-            <div class="flex items-center justify-between mb-1">
-              <label for="p-stock" class="block text-xs font-semibold text-gray-300">Total Stock Qty</label>
-              <span class="text-[10px] font-mono text-emerald-400 font-semibold">Auto-calculated</span>
-            </div>
-            <input
-              id="p-stock"
-              bind:value={form.stock_quantity}
-              type="number"
-              readonly
-              class="w-full px-3.5 py-2.5 rounded-xl text-sm font-bold text-emerald-300 bg-white/10 border border-emerald-500/30 outline-none font-mono cursor-not-allowed"
-              title="Calculated automatically from size & color inventory grid below"
-            />
-          </div>
-
-          <div class="sm:col-span-2">
-            <label for="p-tagline" class="block text-xs font-semibold text-gray-300 mb-1">Tagline / Short Hook</label>
-            <input
-              id="p-tagline"
-              bind:value={form.tagline}
-              type="text"
-              placeholder="Soft cloud comfort with anti-slip grip"
-              class="w-full px-3.5 py-2.5 rounded-xl text-sm text-white bg-white/5 border border-white/15 focus:border-indigo-500 outline-none"
-            />
-          </div>
-
-          <div class="sm:col-span-2">
-            <label for="p-desc" class="block text-xs font-semibold text-gray-300 mb-1">Full Description</label>
-            <textarea
-              id="p-desc"
-              bind:value={form.description}
-              rows="3"
-              placeholder="Enter comprehensive product features, materials, and sizing tips..."
-              class="w-full px-3.5 py-2.5 rounded-xl text-sm text-white bg-white/5 border border-white/15 focus:border-indigo-500 outline-none resize-none"
-            ></textarea>
-          </div>
-        </div>
-      </div>
-
-      <!-- Section 2: ImageKit Image Management with Color Variant Support -->
-      <div class="space-y-4 pt-4 border-t border-white/10">
-        <div class="flex items-center justify-between">
-          <div>
-            <h3 class="text-xs font-bold uppercase tracking-wider text-pink-400">2. Product Images & Color Photos</h3>
-            <p class="text-xs text-gray-400 mt-0.5">Upload color-specific photos or general product gallery images.</p>
-          </div>
-          <span class="text-xs font-mono text-gray-400">{form.images.length} Image(s) in Gallery</span>
-        </div>
-
-        <!-- Color Filter & Upload Target Bar -->
-        <div class="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-hide text-xs">
-          <span class="text-[11px] font-semibold text-gray-400 mr-1 uppercase tracking-wider">Target Color:</span>
-          <button
-            type="button"
-            onclick={() => activeImageColorTab = 'all'}
-            class="px-3 py-1.5 rounded-xl font-medium transition-all cursor-pointer border {activeImageColorTab === 'all' ? 'bg-pink-600 text-white border-pink-400 shadow-md shadow-pink-500/20' : 'bg-white/5 text-gray-300 border-white/10 hover:border-white/20'}"
-          >
-            All ({form.images.length})
-          </button>
-          <button
-            type="button"
-            onclick={() => activeImageColorTab = 'general'}
-            class="px-3 py-1.5 rounded-xl font-medium transition-all cursor-pointer border {activeImageColorTab === 'general' ? 'bg-pink-600 text-white border-pink-400 shadow-md shadow-pink-500/20' : 'bg-white/5 text-gray-300 border-white/10 hover:border-white/20'}"
-          >
-            General ({form.images.filter(img => !img.color).length})
-          </button>
-          {#each form.colors as color}
-            {@const count = form.images.filter(img => img.color && img.color.toLowerCase() === color.name.toLowerCase()).length}
-            {@const isSelected = activeImageColorTab.toLowerCase() === color.name.toLowerCase()}
-            <button
-              type="button"
-              onclick={() => activeImageColorTab = color.name}
-              class="flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-medium transition-all cursor-pointer border {isSelected ? 'bg-pink-600 text-white border-pink-400 shadow-md shadow-pink-500/20' : 'bg-white/5 text-gray-300 border-white/10 hover:border-white/20'}"
-            >
-              <span class="w-2.5 h-2.5 rounded-full border border-white/30" style="background: {color.hex};"></span>
-              <span>{color.name} ({count})</span>
-            </button>
-          {/each}
-        </div>
-
-        {#if activeImageColorTab !== 'all' && activeImageColorTab !== 'general'}
-          {@const activeCol = form.colors.find(c => c.name.toLowerCase() === activeImageColorTab.toLowerCase())}
-          <div class="p-2.5 rounded-xl bg-pink-500/10 border border-pink-500/20 flex items-center justify-between text-xs text-pink-300">
-            <div class="flex items-center gap-2">
-              <span class="w-3 h-3 rounded-full border border-pink-300 shadow" style="background: {activeCol?.hex};"></span>
-              <span>Uploading for variant <strong>{activeCol?.name}</strong> — newly uploaded photos will automatically be tagged to {activeCol?.name}.</span>
-            </div>
-            {#if activeCol?.image}
-              <div class="flex items-center gap-1.5 text-[11px] text-gray-300">
-                <span>Color Main:</span>
-                <img src={activeCol.image} alt={activeCol.name} class="w-5 h-5 rounded object-cover border border-pink-400/40" />
-              </div>
-            {/if}
-          </div>
-        {/if}
-
-        <!-- Upload Box -->
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <!-- File Dropzone -->
-          <div class="border-2 border-dashed border-indigo-500/40 hover:border-indigo-400 bg-indigo-950/20 rounded-2xl p-5 text-center flex flex-col items-center justify-center transition-all">
-            {#if uploadingImages}
-              <div class="w-8 h-8 border-3 border-indigo-500 border-t-transparent rounded-full animate-spin mb-2"></div>
-              <p class="text-xs font-bold text-indigo-300">Uploading to ImageKit & Compressing...</p>
-            {:else}
-              <span class="text-2xl mb-1">📸</span>
-              <p class="text-xs font-bold text-white">Upload Images to ImageKit</p>
-              <p class="text-[11px] text-gray-400 mt-0.5 mb-3">
-                {#if activeImageColorTab !== 'all' && activeImageColorTab !== 'general'}
-                  Uploading for <span class="text-pink-300 font-bold">{activeImageColorTab}</span> variant
-                {:else}
-                  PNG, JPG, WEBP (Multiple allowed)
-                {/if}
-              </p>
-              <label class="px-4 py-2 rounded-xl text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-500 cursor-pointer transition-colors shadow-md">
-                <span>Select Files</span>
-                <input type="file" multiple accept="image/*" onchange={handleFileUpload} class="hidden" />
-              </label>
-            {/if}
-          </div>
-
-          <!-- URL Input -->
-          <div class="bg-white/5 border border-white/10 rounded-2xl p-5 flex flex-col justify-center gap-3">
-            <p class="text-xs font-bold text-white">Or Add by Direct ImageKit / CDN URL</p>
-            <div class="flex gap-2">
-              <input
-                type="text"
-                placeholder="https://ik.imagekit.io/who7qvgvp/..."
-                bind:value={directImageUrl}
-                onkeydown={(e) => { if (e.key === 'Enter') addDirectImageUrl(); }}
-                class="flex-1 px-3 py-2 rounded-xl text-xs font-mono text-white bg-white/5 border border-white/15 outline-none focus:border-pink-500"
-              />
-              <button
-                type="button"
-                onclick={addDirectImageUrl}
-                class="px-3 py-2 rounded-xl text-xs font-bold text-white bg-pink-600 hover:bg-pink-500 transition-colors cursor-pointer"
-              >
-                Add
-              </button>
-            </div>
-            <p class="text-[10px] text-gray-500">Supports direct ImageKit CDN links or external high-res product photos.</p>
-          </div>
-        </div>
-
-        <!-- Image Gallery Previews -->
-        {#if form.images.length > 0}
-          {@const visibleImages = activeImageColorTab === 'all' 
-            ? form.images.map((img, idx) => ({ img, originalIdx: idx }))
-            : activeImageColorTab === 'general'
-              ? form.images.map((img, idx) => ({ img, originalIdx: idx })).filter(x => !x.img.color)
-              : form.images.map((img, idx) => ({ img, originalIdx: idx })).filter(x => x.img.color && x.img.color.toLowerCase() === activeImageColorTab.toLowerCase())
-          }
-
-          {#if visibleImages.length === 0}
-            <div class="p-6 rounded-2xl bg-white/[0.02] border border-dashed border-white/15 text-center text-xs text-gray-400">
-              No photos currently tagged for {activeImageColorTab === 'general' ? 'General' : activeImageColorTab}. Upload or select files above to attach photos to this color variant! 🌸
-            </div>
-          {:else}
-            <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3 pt-2">
-              {#each visibleImages as { img, originalIdx } (img.url + originalIdx)}
-                {@const isThumb = form.thumbnail_url === img.url}
-                {@const colorObj = form.colors.find(c => c.name.toLowerCase() === (img.color ?? '').toLowerCase())}
-                {@const isColorThumb = Boolean(colorObj && colorObj.image === img.url)}
-                
-                <div class="relative group bg-white/5 rounded-xl border {isThumb ? 'border-amber-400 shadow-md shadow-amber-500/20' : isColorThumb ? 'border-pink-400 shadow-md shadow-pink-500/20' : 'border-white/10'} overflow-hidden flex flex-col">
-                  <div class="aspect-square w-full bg-black/40 overflow-hidden relative">
-                    <img src={img.url} alt={img.alt} class="w-full h-full object-cover" />
-                    
-                    <div class="absolute top-1.5 left-1.5 flex flex-col gap-1 pointer-events-none z-10">
-                      {#if isThumb}
-                        <span class="px-1.5 py-0.5 rounded text-[9px] font-bold bg-amber-400 text-black shadow">
-                          ★ Product Main
-                        </span>
-                      {/if}
-                      {#if isColorThumb}
-                        <span class="px-1.5 py-0.5 rounded text-[9px] font-bold bg-pink-500 text-white shadow">
-                          ★ {colorObj?.name} Main
-                        </span>
-                      {/if}
-                    </div>
-
-                    {#if img.color}
-                      <span class="absolute bottom-1.5 right-1.5 px-1.5 py-0.5 rounded text-[9px] font-semibold bg-black/70 text-white border border-white/20 flex items-center gap-1 backdrop-blur-xs">
-                        <span class="w-1.5 h-1.5 rounded-full" style="background: {colorObj?.hex || '#ccc'};"></span>
-                        {img.color}
-                      </span>
-                    {/if}
-                  </div>
-                  
-                  <div class="p-2 bg-[#121320] flex flex-col gap-1.5 text-[11px]">
-                    <!-- Color variant assign selector -->
-                    <div class="flex items-center gap-1">
-                      <span class="text-[9px] text-gray-400 uppercase">Color:</span>
-                      <select
-                        value={img.color || ''}
-                        onchange={(e) => assignImageColor(originalIdx, e.currentTarget.value)}
-                        class="flex-1 px-1.5 py-0.5 rounded bg-white/10 text-white text-[10px] border border-white/15 outline-none cursor-pointer"
-                      >
-                        <option value="" class="bg-[#1a1b2e] text-gray-300">General / All</option>
-                        {#each form.colors as c}
-                          <option value={c.name} class="bg-[#1a1b2e] text-white">{c.name}</option>
-                        {/each}
-                      </select>
-                    </div>
-
-                    <div class="flex items-center justify-between pt-0.5 border-t border-white/5">
-                      <span class="text-[10px] text-gray-400 font-mono">#{img.order}</span>
-                      <div class="flex items-center gap-1">
-                        <button
-                          type="button"
-                          onclick={() => moveImage(originalIdx, 'left')}
-                          disabled={originalIdx === 0}
-                          class="px-1 py-0.5 rounded bg-white/10 hover:bg-white/20 disabled:opacity-30 text-[10px] cursor-pointer"
-                          title="Move Left"
-                        >←</button>
-                        <button
-                          type="button"
-                          onclick={() => moveImage(originalIdx, 'right')}
-                          disabled={originalIdx === form.images.length - 1}
-                          class="px-1 py-0.5 rounded bg-white/10 hover:bg-white/20 disabled:opacity-30 text-[10px] cursor-pointer"
-                          title="Move Right"
-                        >→</button>
-                      </div>
-                    </div>
-
-                    <div class="flex flex-col gap-1 mt-0.5">
-                      <div class="flex gap-1">
-                        {#if !isThumb}
-                          <button
-                            type="button"
-                            onclick={() => setAsThumbnail(img.url)}
-                            class="flex-1 py-1 rounded text-[9px] font-semibold bg-amber-500/20 text-amber-300 hover:bg-amber-500/30 border border-amber-500/30 cursor-pointer"
-                            title="Set as overall product primary thumbnail"
-                          >
-                            Main Photo
-                          </button>
-                        {/if}
-                        {#if img.color && !isColorThumb}
-                          <button
-                            type="button"
-                            onclick={() => setColorThumbnail(img.color!, img.url)}
-                            class="flex-1 py-1 rounded text-[9px] font-semibold bg-pink-500/20 text-pink-300 hover:bg-pink-500/30 border border-pink-500/30 cursor-pointer"
-                            title="Set as thumbnail for {img.color}"
-                          >
-                            {img.color} Main
-                          </button>
-                        {/if}
-                      </div>
-
-                      <button
-                        type="button"
-                        onclick={() => removeImage(originalIdx)}
-                        class="w-full py-0.5 rounded text-[9px] font-semibold bg-red-500/10 text-red-400 hover:bg-red-500/20 border border-red-500/20 cursor-pointer text-center"
-                        title="Delete Image"
-                      >
-                        Delete 🗑️
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              {/each}
-            </div>
-          {/if}
-        {/if}
-      </div>
-
-      <!-- Section 3: Colors, Sizing & Size-Wise Stock Matrix -->
-      <div class="space-y-5 pt-4 border-t border-white/10">
-        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-          <div>
-            <h3 class="text-xs font-bold uppercase tracking-wider text-emerald-400">3. Colors, Sizing & Stock Per Size</h3>
-            <p class="text-xs text-gray-400 mt-0.5">Select available colors and sizes, then enter exact pieces for each size.</p>
-          </div>
-          <span class="text-xs font-mono font-bold px-2.5 py-1 rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 self-start sm:self-auto">
-            Total Inventory: {totalVariantStock} pcs
-          </span>
-        </div>
-        
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <!-- Color Swatches -->
-          <div class="space-y-3">
-            <label class="block text-xs font-semibold text-gray-300">Color Variants</label>
-            <div class="flex flex-wrap gap-2">
-              {#each form.colors as color}
-                <div class="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-white/5 border border-white/15 text-xs text-white">
-                  {#if color.image}
-                    <img src={color.image} alt={color.name} class="w-5 h-5 rounded-md object-cover border border-white/20 shadow" />
-                  {:else}
-                    <span class="w-3.5 h-3.5 rounded-full border border-white/30 shadow" style="background: {color.hex};"></span>
-                  {/if}
-                  <span class="font-medium">{color.name}</span>
-                  {#if form.colors.length > 1}
-                    <button
-                      type="button"
-                      onclick={() => removeColor(color.name)}
-                      class="ml-1 text-gray-400 hover:text-red-400 cursor-pointer"
-                    >×</button>
-                  {/if}
-                </div>
-              {/each}
-            </div>
-
-            <!-- Add Color Input -->
-            <div class="flex items-center gap-2 pt-1">
-              <input type="color" bind:value={newColorHex} class="w-8 h-8 rounded-lg cursor-pointer bg-transparent border-0" />
-              <input
-                type="text"
-                placeholder="Color name (e.g. Berry)"
-                bind:value={newColorName}
-                onkeydown={(e) => { if (e.key === 'Enter') addColor(); }}
-                class="flex-1 px-3 py-1.5 rounded-xl text-xs text-white bg-white/5 border border-white/15 outline-none"
-              />
-              <button
-                type="button"
-                onclick={addColor}
-                class="px-3 py-1.5 rounded-xl text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-500 cursor-pointer"
-              >
-                + Add Color
-              </button>
-            </div>
-          </div>
-
-          <!-- Mapped Sizes Chips -->
-          <div class="space-y-3">
-            <div class="flex items-center justify-between">
-              <label class="block text-xs font-semibold text-gray-300">Available Sizes (UK / EU Mapped)</label>
-              <span class="text-[10px] text-gray-400">Footwear Standard</span>
-            </div>
-            <div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
-              {#each STANDARD_SIZE_MAP as s}
-                {@const isSelected = form.sizes.some(x => canonicalizeSize(x) === s.euro)}
-                <button
-                  type="button"
-                  onclick={() => toggleSize(s.euro)}
-                  class="flex flex-col items-center justify-center p-2 rounded-xl text-xs transition-all cursor-pointer border {isSelected ? 'bg-indigo-600 text-white border-indigo-400 shadow-md shadow-indigo-500/20' : 'bg-white/5 text-gray-400 border-white/10 hover:border-white/25 hover:text-white'}"
-                >
-                  <span class="font-bold text-xs">{s.shortLabel}</span>
-                  <span class="text-[10px] opacity-75">{s.cm} cm</span>
-                </button>
-              {/each}
-            </div>
-
-            <div class="flex items-center gap-2 pt-1">
-              <input
-                type="text"
-                placeholder="Custom size (e.g. 43 or 10)"
-                bind:value={customSizeInput}
-                onkeydown={(e) => { if (e.key === 'Enter') addCustomSize(); }}
-                class="flex-1 px-3 py-1.5 rounded-xl text-xs text-white bg-white/5 border border-white/15 outline-none"
-              />
-              <button
-                type="button"
-                onclick={addCustomSize}
-                class="px-3 py-1.5 rounded-xl text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-500 cursor-pointer"
-              >
-                + Add Custom
-              </button>
-            </div>
-          </div>
-        </div>
-
-        <!-- Size-Wise Stock Inventory Grid -->
-        <div class="mt-4 p-4 rounded-2xl bg-white/[0.03] border border-white/10 space-y-3">
-          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-            <div>
-              <h4 class="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-2">
-                <span>📦 Size-Wise Stock Pieces</span>
-                <span class="text-[10px] font-normal text-emerald-400 font-mono">({form.colors.length} Color × {form.sizes.length} Sizes = {form.colors.length * form.sizes.length} Variants)</span>
-              </h4>
-              <p class="text-[11px] text-gray-400">Specify exact inventory pieces for each individual size and color.</p>
-            </div>
-            <div class="flex items-center gap-1.5 flex-wrap">
-              <span class="text-[11px] text-gray-400 mr-1">Bulk fill:</span>
-              <button
-                type="button"
-                onclick={() => bulkSetVariantStock(10)}
-                class="px-2 py-1 rounded-lg text-[10px] font-semibold text-gray-300 bg-white/10 hover:bg-white/20 cursor-pointer"
-              >
-                10 pcs
-              </button>
-              <button
-                type="button"
-                onclick={() => bulkSetVariantStock(25)}
-                class="px-2 py-1 rounded-lg text-[10px] font-semibold text-gray-300 bg-white/10 hover:bg-white/20 cursor-pointer"
-              >
-                25 pcs
-              </button>
-              <button
-                type="button"
-                onclick={() => bulkSetVariantStock(50)}
-                class="px-2 py-1 rounded-lg text-[10px] font-semibold text-gray-300 bg-white/10 hover:bg-white/20 cursor-pointer"
-              >
-                50 pcs
-              </button>
-              <button
-                type="button"
-                onclick={() => bulkSetVariantStock(0)}
-                class="px-2 py-1 rounded-lg text-[10px] font-semibold text-red-400 bg-red-950/40 hover:bg-red-900/40 cursor-pointer"
-              >
-                Zero
-              </button>
-            </div>
-          </div>
-
-          <div class="overflow-x-auto rounded-xl border border-white/10">
-            <table class="w-full text-left text-xs text-gray-300">
-              <thead class="bg-white/5 border-b border-white/10 text-gray-400">
-                <tr>
-                  <th class="py-2.5 px-3">Color</th>
-                  <th class="py-2.5 px-3">Size (UK / EU / US)</th>
-                  <th class="py-2.5 px-3">Foot Length</th>
-                  <th class="py-2.5 px-3">Pieces In Stock</th>
-                  <th class="py-2.5 px-3">Status</th>
-                </tr>
-              </thead>
-              <tbody class="divide-y divide-white/5 bg-[#141524]">
-                {#each form.colors as color}
-                  {#each form.sizes as size}
-                    {@const opt = findSizeOption(size)}
-                    {@const currentStock = getVariantStock(color.name, size)}
-                    <tr>
-                      <td class="py-2 px-3">
-                        <div class="flex items-center gap-2">
-                          <span class="w-3 h-3 rounded-full border border-white/30" style="background: {color.hex};"></span>
-                          <span class="font-medium text-white">{color.name}</span>
-                        </div>
-                      </td>
-                      <td class="py-2 px-3">
-                        <span class="font-bold text-white">
-                          {opt ? `UK ${opt.ukIndia} (EU ${opt.euro})` : `Size ${size}`}
-                        </span>
-                        {#if opt}
-                          <span class="text-[10px] text-gray-400 ml-1.5 font-mono">US {opt.us}</span>
-                        {/if}
-                      </td>
-                      <td class="py-2 px-3 font-mono text-gray-400 text-[11px]">
-                        {opt ? `${opt.cm} cm` : '—'}
-                      </td>
-                      <td class="py-2 px-3">
-                        <div class="flex items-center gap-1.5">
-                          <input
-                            type="number"
-                            min="0"
-                            value={currentStock}
-                            oninput={(e) => setVariantStock(color.name, size, (e.target as HTMLInputElement).value)}
-                            class="w-20 px-2.5 py-1 rounded-lg bg-white/10 border border-white/20 text-white font-mono text-xs outline-none focus:border-emerald-500 font-bold"
-                          />
-                          <span class="text-[10px] text-gray-400">units</span>
-                        </div>
-                      </td>
-                      <td class="py-2 px-3">
-                        {#if currentStock === 0}
-                          <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-red-500/20 text-red-400 border border-red-500/30">
-                            Out of Stock
-                          </span>
-                        {:else if currentStock <= 5}
-                          <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">
-                            Low Stock ({currentStock})
-                          </span>
-                        {:else}
-                          <span class="px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-500/20 text-emerald-300">
-                            In Stock ({currentStock})
-                          </span>
-                        {/if}
-                      </td>
-                    </tr>
-                  {/each}
-                {/each}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </div>
-
-      <!-- Section 4: Merchandising Flags -->
-      <div class="space-y-3 pt-4 border-t border-white/10">
-        <h3 class="text-xs font-bold uppercase tracking-wider text-amber-400">4. Merchandising Badges & Visibility</h3>
-        <div class="grid grid-cols-2 sm:grid-cols-5 gap-3">
-          <label class="flex items-center gap-2 p-3 rounded-xl bg-white/5 border border-white/10 cursor-pointer hover:bg-white/10">
-            <input type="checkbox" bind:checked={form.is_active} class="accent-indigo-500" />
-            <span class="text-xs font-medium text-white">Active / Published</span>
-          </label>
-          <label class="flex items-center gap-2 p-3 rounded-xl bg-white/5 border border-white/10 cursor-pointer hover:bg-white/10">
-            <input type="checkbox" bind:checked={form.is_featured} class="accent-amber-500" />
-            <span class="text-xs font-medium text-white">⭐ Featured</span>
-          </label>
-          <label class="flex items-center gap-2 p-3 rounded-xl bg-white/5 border border-white/10 cursor-pointer hover:bg-white/10">
-            <input type="checkbox" bind:checked={form.is_best_seller} class="accent-pink-500" />
-            <span class="text-xs font-medium text-white">🔥 Best Seller</span>
-          </label>
-          <label class="flex items-center gap-2 p-3 rounded-xl bg-white/5 border border-white/10 cursor-pointer hover:bg-white/10">
-            <input type="checkbox" bind:checked={form.is_new_arrival} class="accent-emerald-500" />
-            <span class="text-xs font-medium text-white">✨ New Arrival</span>
-          </label>
-          <label class="flex items-center gap-2 p-3 rounded-xl bg-white/5 border border-white/10 cursor-pointer hover:bg-white/10">
-            <input type="checkbox" bind:checked={form.is_limited_edition} class="accent-purple-500" />
-            <span class="text-xs font-medium text-white">💎 Limited Edition</span>
-          </label>
-        </div>
-      </div>
-
-      <!-- Section 5: Variants Table (When Editing) -->
-      {#if editId}
-        <div class="space-y-4 pt-4 border-t border-white/10">
-          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-            <div>
-              <h3 class="text-xs font-bold uppercase tracking-wider text-indigo-400">5. Individual SKU Variants</h3>
-              <p class="text-xs text-gray-400 mt-0.5">Manage exact inventory quantities and Shiprocket SKU identifiers.</p>
-            </div>
-            <div class="flex items-center gap-2">
-              <button
-                type="button"
-                onclick={autoGenerateVariants}
-                disabled={loadingVariants}
-                class="px-3 py-1.5 rounded-xl text-xs font-bold text-indigo-200 bg-indigo-900/50 hover:bg-indigo-800/60 border border-indigo-700/50 cursor-pointer"
-              >
-                ⚡ Auto-Generate All Variants
-              </button>
-              <button
-                type="button"
-                onclick={() => showVariantForm = !showVariantForm}
-                class="px-3 py-1.5 rounded-xl text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-500 cursor-pointer"
-              >
-                {showVariantForm ? 'Cancel' : '＋ Add Variant'}
-              </button>
-            </div>
-          </div>
-
-          {#if showVariantForm}
-            <div class="p-4 rounded-xl bg-white/5 border border-white/10 grid grid-cols-1 sm:grid-cols-3 gap-3">
-              <div>
-                <label for="v-sku" class="block text-[11px] font-semibold text-gray-400 mb-1">Variant SKU *</label>
-                <input id="v-sku" bind:value={newVariant.sku} placeholder="e.g. FT-MIA-SGR-6" class="w-full px-3 py-2 rounded-lg text-xs font-mono text-white bg-white/10 border border-white/20 outline-none" />
-              </div>
-              <div>
-                <label for="v-size" class="block text-[11px] font-semibold text-gray-400 mb-1">Size</label>
-                <input id="v-size" bind:value={newVariant.size} placeholder="6" class="w-full px-3 py-2 rounded-lg text-xs text-white bg-white/10 border border-white/20 outline-none" />
-              </div>
-              <div>
-                <label for="v-color" class="block text-[11px] font-semibold text-gray-400 mb-1">Color</label>
-                <input id="v-color" bind:value={newVariant.color} placeholder="SeaGreen" class="w-full px-3 py-2 rounded-lg text-xs text-white bg-white/10 border border-white/20 outline-none" />
-              </div>
-              <div>
-                <label for="v-price-adj" class="block text-[11px] font-semibold text-gray-400 mb-1">Price Adjustment (₹)</label>
-                <input id="v-price-adj" bind:value={newVariant.price_adjustment} type="number" placeholder="0" class="w-full px-3 py-2 rounded-lg text-xs text-white bg-white/10 border border-white/20 outline-none" />
-              </div>
-              <div>
-                <label for="v-stock" class="block text-[11px] font-semibold text-gray-400 mb-1">Stock Qty</label>
-                <input id="v-stock" bind:value={newVariant.stock_quantity} type="number" placeholder="20" class="w-full px-3 py-2 rounded-lg text-xs text-white bg-white/10 border border-white/20 outline-none" />
-              </div>
-              <div class="flex items-end">
-                <button
-                  type="button"
-                  onclick={saveVariant}
-                  class="w-full py-2 rounded-lg text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-500 cursor-pointer"
-                >
-                  Save Variant
-                </button>
-              </div>
-            </div>
-          {/if}
-
-          {#if loadingVariants}
-            <p class="text-xs text-gray-400 py-2">Loading variants...</p>
-          {:else if variants.length === 0}
-            <p class="text-xs text-gray-500 py-2 italic">No variants created yet. Click "Auto-Generate All Variants" above.</p>
-          {:else}
-            <div class="overflow-x-auto rounded-xl border border-white/10">
-              <table class="w-full text-left text-xs text-gray-300">
-                <thead class="bg-white/5 border-b border-white/10 text-gray-400">
-                  <tr>
-                    <th class="py-2.5 px-3">SKU</th>
-                    <th class="py-2.5 px-3">Size</th>
-                    <th class="py-2.5 px-3">Color</th>
-                    <th class="py-2.5 px-3">Price Adj. (₹)</th>
-                    <th class="py-2.5 px-3">Stock</th>
-                    <th class="py-2.5 px-3">Status</th>
-                    <th class="py-2.5 px-3 text-right">Actions</th>
-                  </tr>
-                </thead>
-                <tbody class="divide-y divide-white/5 bg-[#141524]">
-                  {#each variants as v (v.id)}
-                    <tr>
-                      <td class="py-2 px-3 font-mono text-indigo-300">{v.sku}</td>
-                      <td class="py-2 px-3 font-bold text-white">Size {v.size || '—'}</td>
-                      <td class="py-2 px-3 text-gray-300">{v.color || '—'}</td>
-                      <td class="py-2 px-3">
-                        <input
-                          type="number"
-                          value={v.price_adjustment ? v.price_adjustment / 100 : 0}
-                          onchange={(e) => updateVariantPriceAdjustment(v.id, (e.target as HTMLInputElement).value)}
-                          class="w-20 px-2 py-1 rounded bg-white/10 border border-white/20 text-white text-xs outline-none font-mono"
-                        />
-                      </td>
-                      <td class="py-2 px-3">
-                        <input
-                          type="number"
-                          value={v.stock_quantity}
-                          onchange={(e) => updateVariantStock(v.id, (e.target as HTMLInputElement).value)}
-                          class="w-16 px-2 py-1 rounded bg-white/10 border border-white/20 text-white text-xs outline-none font-mono"
-                        />
-                      </td>
-                      <td class="py-2 px-3">
-                        <button
-                          type="button"
-                          onclick={() => toggleVariantActive(v.id, v.is_active)}
-                          class="px-2 py-0.5 rounded text-[10px] font-semibold cursor-pointer"
-                          style="background: {v.is_active ? 'rgba(34,197,94,0.2)' : 'rgba(239,68,68,0.2)'}; color: {v.is_active ? '#22c55e' : '#ef4444'};"
-                        >
-                          {v.is_active ? 'Active' : 'Inactive'}
-                        </button>
-                      </td>
-                      <td class="py-2 px-3 text-right">
-                        <button
-                          type="button"
-                          onclick={() => deleteVariant(v.id)}
-                          class="text-xs text-red-400 hover:text-red-300 font-semibold cursor-pointer"
-                        >
-                          Delete
-                        </button>
-                      </td>
-                    </tr>
-                  {/each}
-                </tbody>
-              </table>
-            </div>
-          {/if}
-        </div>
-      {/if}
-
-      <!-- Form Actions Footer -->
-      <div class="flex items-center justify-between pt-4 border-t border-white/10">
-        <div>
-          {#if editId}
-            <button
-              type="button"
-              onclick={() => deleteProduct(editId!, form.name)}
-              disabled={deletingId === editId}
-              class="px-4 py-2.5 rounded-xl text-xs font-bold text-red-400 hover:text-red-300 bg-red-950/30 border border-red-800/40 cursor-pointer"
-            >
-              {deletingId === editId ? 'Deleting...' : '🗑️ Delete Product'}
-            </button>
-          {/if}
-        </div>
-
-        <div class="flex items-center gap-3">
-          <button
-            type="button"
-            onclick={() => { showForm = false; editId = null; }}
-            class="px-5 py-2.5 rounded-xl text-xs font-semibold text-gray-300 bg-white/10 hover:bg-white/15 cursor-pointer"
-          >
-            Cancel
-          </button>
-          <button
-            type="button"
-            onclick={saveProduct}
-            disabled={saving}
-            class="px-6 py-2.5 rounded-xl text-xs font-bold text-white bg-gradient-to-r from-indigo-600 to-pink-600 hover:from-indigo-500 hover:to-pink-500 shadow-lg shadow-indigo-500/25 cursor-pointer disabled:opacity-50"
-          >
-            {saving ? 'Saving...' : editId ? 'Save Changes' : 'Publish Product 🚀'}
-          </button>
-        </div>
-      </div>
-    </div>
-  {/if}
-
-  <!-- Filters & Search Toolbar -->
-  <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3 p-4 rounded-2xl bg-white/5 border border-white/10">
-    <div class="lg:col-span-2">
+  <!-- Search, Filters, and Sorting Controls -->
+  <div class="bg-[#1a1b29] border border-white/10 rounded-2xl p-4 shadow-xl flex flex-col md:flex-row gap-4 items-center justify-between">
+    <!-- Search Bar -->
+    <div class="relative w-full md:w-96">
+      <svg class="absolute left-3.5 top-3 w-4 h-4 text-gray-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
       <input
         type="text"
-        placeholder="🔍 Search by product name, slug, or SKU..."
         bind:value={searchQuery}
-        class="w-full px-3.5 py-2.5 rounded-xl text-xs text-white bg-white/5 border border-white/15 focus:border-indigo-500 outline-none"
+        placeholder="Search title, SKU, color, or slug..."
+        class="w-full bg-[#13141f] border border-white/10 rounded-xl pl-10 pr-4 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-pink-500 transition-colors"
       />
     </div>
 
-    <div>
-      <select
-        bind:value={selectedCategory}
-        class="w-full px-3 py-2.5 rounded-xl text-xs text-white bg-[#1a1b2e] border border-white/15 outline-none"
-      >
-        <option value="">All Categories</option>
-        {#each categories as c}
-          <option value={c.id}>{c.name}</option>
-        {/each}
-      </select>
-    </div>
-
-    <div>
+    <!-- Filter Dropdowns -->
+    <div class="flex items-center gap-3 w-full md:w-auto overflow-x-auto">
+      <!-- Status Filter -->
       <select
         bind:value={selectedStatus}
-        class="w-full px-3 py-2.5 rounded-xl text-xs text-white bg-[#1a1b2e] border border-white/15 outline-none"
+        class="bg-[#13141f] border border-white/10 rounded-xl px-3 py-2 text-xs font-medium text-white focus:outline-none focus:border-pink-500"
       >
-        <option value="all">All Status</option>
-        <option value="active">Active / Published</option>
-        <option value="inactive">Inactive / Draft</option>
+        <option value="all">All Statuses</option>
+        <option value="published">Published</option>
+        <option value="draft">Draft</option>
+        <option value="archived">Archived</option>
       </select>
-    </div>
 
-    <div>
-      <select
-        bind:value={selectedStock}
-        class="w-full px-3 py-2.5 rounded-xl text-xs text-white bg-[#1a1b2e] border border-white/15 outline-none"
-      >
-        <option value="all">All Stock Status</option>
-        <option value="in_stock">In Stock</option>
-        <option value="low_stock">Low Stock</option>
-        <option value="out_of_stock">Out of Stock</option>
-      </select>
-    </div>
+      <!-- Category Filter -->
+      {#if categories.length > 0}
+        <select
+          bind:value={selectedCategory}
+          class="bg-[#13141f] border border-white/10 rounded-xl px-3 py-2 text-xs font-medium text-white focus:outline-none focus:border-pink-500"
+        >
+          <option value="all">All Categories</option>
+          {#each categories as cat}
+            <option value={cat}>{cat}</option>
+          {/each}
+        </select>
+      {/if}
 
-    <div>
+      <!-- Sort By -->
       <select
         bind:value={sortBy}
-        class="w-full px-3 py-2.5 rounded-xl text-xs text-white bg-[#1a1b2e] border border-white/15 outline-none"
+        class="bg-[#13141f] border border-white/10 rounded-xl px-3 py-2 text-xs font-medium text-white focus:outline-none focus:border-pink-500"
       >
         <option value="newest">Sort: Newest</option>
-        <option value="price_desc">Price: High to Low</option>
         <option value="price_asc">Price: Low to High</option>
-        <option value="stock_asc">Stock: Low to High</option>
-        <option value="name_asc">Name: A to Z</option>
+        <option value="price_desc">Price: High to Low</option>
+        <option value="name_asc">Alphabetical</option>
       </select>
     </div>
   </div>
 
-  <!-- Products List Table -->
+  <!-- Products List / Table -->
   {#if loading}
-    <div class="flex justify-center py-20">
-      <div class="w-10 h-10 border-4 rounded-full animate-spin border-gray-600 border-t-indigo-500"></div>
+    <div class="bg-[#1a1b29] border border-white/10 rounded-2xl p-16 text-center shadow-xl">
+      <div class="w-8 h-8 border-3 border-pink-500 border-t-transparent rounded-full animate-spin mx-auto mb-3"></div>
+      <p class="text-sm font-semibold text-gray-300">Loading products catalogue...</p>
     </div>
   {:else if filteredProducts.length === 0}
-    <div class="p-12 text-center rounded-2xl bg-white/5 border border-white/10 space-y-3">
-      <p class="text-3xl">🔍</p>
-      <p class="text-base font-bold text-white">No products found</p>
-      <p class="text-xs text-gray-400">Try adjusting your search query or filters.</p>
+    <div class="bg-[#1a1b29] border border-white/10 rounded-2xl p-16 text-center shadow-xl space-y-4">
+      <div class="w-16 h-16 rounded-full bg-pink-500/10 text-pink-400 flex items-center justify-center mx-auto">
+        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"></rect><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"></path></svg>
+      </div>
+      <div>
+        <h3 class="text-base font-bold text-white">No products found</h3>
+        <p class="text-xs text-gray-400 mt-1 max-w-sm mx-auto">
+          {searchQuery || selectedStatus !== 'all' || selectedCategory !== 'all' 
+            ? 'Try changing your search keywords or filter criteria.' 
+            : 'Get started by creating your first product with color variants and images.'}
+        </p>
+      </div>
+      <div>
+        <a
+          href="/admin/products/new"
+          class="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-pink-500 hover:bg-pink-600 text-white font-bold text-xs shadow-lg transition-colors"
+        >
+          + Create Product Wizard
+        </a>
+      </div>
     </div>
   {:else}
-    <div class="rounded-2xl overflow-hidden bg-white/5 border border-white/10 shadow-xl">
+    <div class="bg-[#1a1b29] border border-white/10 rounded-2xl shadow-xl overflow-hidden">
       <div class="overflow-x-auto">
-        <table class="w-full text-left text-xs text-gray-300">
-          <thead class="bg-white/5 border-b border-white/10 text-gray-400 font-semibold uppercase tracking-wider">
-            <tr>
-              <th class="py-3.5 px-4">Product Info</th>
-              <th class="py-3.5 px-4">Category</th>
-              <th class="py-3.5 px-4">Price</th>
-              <th class="py-3.5 px-4">Sizes & Colors</th>
+        <table class="w-full text-left border-collapse">
+          <thead>
+            <tr class="border-b border-white/10 text-[11px] font-bold text-gray-400 uppercase tracking-wider bg-[#13141f]/60">
+              <th class="py-3.5 px-4">Product</th>
+              <th class="py-3.5 px-4">Category & Brand</th>
+              <th class="py-3.5 px-4">Color Variants</th>
+              <th class="py-3.5 px-4">Base Price</th>
               <th class="py-3.5 px-4">Stock</th>
               <th class="py-3.5 px-4">Status</th>
               <th class="py-3.5 px-4 text-right">Actions</th>
             </tr>
           </thead>
-          <tbody class="divide-y divide-white/5">
-            {#each filteredProducts as p (p.id)}
-              <tr class="hover:bg-white/5 transition-colors">
-                <!-- Product Details & Thumb -->
-                <td class="py-3 px-4">
+          <tbody class="divide-y divide-white/5 text-sm">
+            {#each filteredProducts as product (product.id)}
+              {@const thumbnail = getProductThumbnail(product)}
+              {@const totalStock = getTotalStock(product)}
+              <tr class="hover:bg-white/[0.02] transition-colors">
+                <!-- Product Image & Name -->
+                <td class="py-4 px-4">
                   <div class="flex items-center gap-3">
-                    <div class="w-12 h-12 rounded-xl bg-black/30 border border-white/10 overflow-hidden shrink-0 flex items-center justify-center">
-                      {#if p.thumbnail_url || (Array.isArray(p.images) && p.images[0])}
-                        <img
-                          src={p.thumbnail_url || (typeof p.images?.[0] === 'string' ? p.images[0] : p.images?.[0]?.url)}
-                          alt={p.name}
-                          class="w-full h-full object-cover"
-                          loading="lazy"
-                        />
+                    <div class="w-12 h-12 rounded-xl bg-[#13141f] border border-white/10 overflow-hidden shrink-0 flex items-center justify-center">
+                      {#if thumbnail}
+                        <img src={thumbnail} alt={product.name} class="w-full h-full object-cover" />
                       {:else}
-                        <span class="text-xs text-gray-500">No img</span>
+                        <svg width="20" height="20" class="text-gray-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>
                       {/if}
                     </div>
-                    <div class="min-w-0">
-                      <div class="flex items-center gap-1.5">
-                        <button class="font-bold text-white truncate text-xs hover:underline cursor-pointer text-left" onclick={() => startEdit(p)}>
-                          {p.name}
-                        </button>
-                        {#if p.is_featured}<span class="text-[9px] px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300 font-bold border border-amber-500/30">Featured</span>{/if}
-                        {#if p.is_best_seller}<span class="text-[9px] px-1.5 py-0.2 rounded bg-pink-500/20 text-pink-300 font-bold border border-pink-500/30">Hot</span>{/if}
+                    <div>
+                      <a href="/admin/products/{product.id}/edit" class="font-bold text-white hover:text-pink-400 transition-colors">
+                        {product.name}
+                      </a>
+                      <div class="flex items-center gap-2 mt-0.5">
+                        <span class="text-[11px] font-mono text-gray-400">/{product.slug}</span>
+                        <a
+                          href="/products/{product.slug}"
+                          target="_blank"
+                          title="Open storefront product page"
+                          class="text-gray-500 hover:text-pink-300 transition-colors"
+                        >
+                          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>
+                        </a>
                       </div>
-                      <p class="text-[11px] text-gray-400 font-mono mt-0.5">{p.sku || p.slug}</p>
                     </div>
                   </div>
                 </td>
 
-                <!-- Category -->
-                <td class="py-3 px-4 text-gray-300">
-                  {p.category?.name || '—'}
+                <!-- Category & Brand -->
+                <td class="py-4 px-4 text-xs">
+                  <p class="font-medium text-gray-200">{product.category || 'Footwear'}</p>
+                  <p class="text-gray-500">{product.brand || 'French Toes'}</p>
                 </td>
 
-                <!-- Price -->
-                <td class="py-3 px-4">
-                  <span class="font-bold text-emerald-400 font-mono text-sm">{fmt(p.price)}</span>
-                  {#if p.original_price}
-                    <span class="text-[10px] line-through text-gray-500 ml-1">{fmt(p.original_price)}</span>
+                <!-- Variants & Swatches -->
+                <td class="py-4 px-4">
+                  <div class="space-y-1">
+                    <div class="flex items-center gap-1.5 flex-wrap">
+                      {#each (product.variants || []).slice(0, 5) as v}
+                        <span
+                          class="w-4 h-4 rounded-full border border-white/20 inline-block shadow-sm"
+                          style="background-color: {v.color_hex || '#000'};"
+                          title="{v.color_name} ({v.images?.length || 0} images)"
+                        ></span>
+                      {/each}
+                      {#if (product.variants || []).length > 5}
+                        <span class="text-[10px] text-gray-400 font-bold">+{product.variants.length - 5}</span>
+                      {/if}
+                    </div>
+                    <span class="text-[11px] text-gray-400 block">
+                      {product.variants?.length || 0} {product.variants?.length === 1 ? 'color' : 'colors'}
+                    </span>
+                  </div>
+                </td>
+
+                <!-- Price Column -->
+                <td class="py-4 px-4 text-xs font-mono">
+                  <span class="font-bold text-white block">{formatCurrency(product.base_price)}</span>
+                  {#if product.compare_at_price && Number(product.compare_at_price) > Number(product.base_price)}
+                    <span class="text-[11px] text-gray-400 line-through block">{formatCurrency(product.compare_at_price)}</span>
                   {/if}
                 </td>
 
-                <!-- Sizes & Colors -->
-                <td class="py-3 px-4">
-                  <div class="flex flex-col gap-1">
-                    <div class="flex items-center gap-1 flex-wrap">
-                      {#each (p.colors || []) as c}
-                        <span class="w-2.5 h-2.5 rounded-full border border-white/30" style="background: {c.hex};" title={c.name}></span>
-                      {/each}
-                      <span class="text-[10px] text-gray-400 ml-1">{(p.colors || []).length} color(s)</span>
-                    </div>
-                    <p class="text-[10px] text-indigo-300 font-mono">
-                      Sizes: {(p.sizes || []).join(', ') || '—'}
-                    </p>
-                  </div>
-                </td>
-
-                <!-- Stock -->
-                <td class="py-3 px-4">
-                  <span class="font-mono font-semibold" style="color: {p.stock_status === 'out_of_stock' ? '#ef4444' : p.stock_status === 'low_stock' ? '#f59e0b' : '#22c55e'};">
-                    {p.stock_quantity ?? 0}
-                  </span>
-                  <span class="text-[10px] text-gray-500 block uppercase">
-                    {p.stock_status ? p.stock_status.replace('_', ' ') : 'in stock'}
+                <!-- Total Stock -->
+                <td class="py-4 px-4 text-xs">
+                  <span class="font-mono font-semibold {totalStock > 0 ? 'text-gray-200' : 'text-red-400'}">
+                    {totalStock} units
                   </span>
                 </td>
 
-                <!-- Status Button -->
-                <td class="py-3 px-4">
-                  <button
-                    onclick={() => toggleActive(p.id, p.is_active)}
-                    disabled={toggling === p.id}
-                    class="px-2.5 py-1 rounded-full text-[11px] font-bold cursor-pointer transition-all disabled:opacity-50"
-                    style="background: {p.is_active ? 'rgba(34,197,94,0.15)' : 'rgba(239,68,68,0.15)'}; color: {p.is_active ? '#22c55e' : '#ef4444'}; border: 1px solid {p.is_active ? 'rgba(34,197,94,0.3)' : 'rgba(239,68,68,0.3)'};"
-                  >
-                    {p.is_active ? '● Active' : '○ Inactive'}
-                  </button>
+                <!-- Status Pill -->
+                <td class="py-4 px-4">
+                  {#if product.status === 'published'}
+                    <span class="px-2.5 py-1 rounded-full text-[11px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 inline-flex items-center gap-1">
+                      <span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+                      Published
+                    </span>
+                  {:else if product.status === 'draft'}
+                    <span class="px-2.5 py-1 rounded-full text-[11px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30 inline-flex items-center gap-1">
+                      <span class="w-1.5 h-1.5 rounded-full bg-amber-400"></span>
+                      Draft
+                    </span>
+                  {:else}
+                    <span class="px-2.5 py-1 rounded-full text-[11px] font-bold bg-gray-500/20 text-gray-400 border border-gray-500/30 inline-flex items-center gap-1">
+                      Archived
+                    </span>
+                  {/if}
                 </td>
 
                 <!-- Actions -->
-                <td class="py-3 px-4 text-right">
+                <td class="py-4 px-4 text-right">
                   <div class="flex items-center justify-end gap-2">
-                    <button
-                      onclick={() => startEdit(p)}
-                      class="px-2.5 py-1 rounded-lg text-xs font-semibold text-indigo-300 bg-indigo-900/40 hover:bg-indigo-800/60 border border-indigo-700/50 cursor-pointer"
+                    <a
+                      href="/admin/products/{product.id}/edit"
+                      class="px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-gray-300 hover:text-white text-xs font-medium border border-white/10 transition-colors"
                     >
                       Edit
-                    </button>
+                    </a>
+
+                    {#if product.status === 'published'}
+                      <button
+                        type="button"
+                        onclick={() => updateProductStatus(product.id, 'archived')}
+                        class="px-2.5 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-gray-400 hover:text-amber-300 text-xs transition-colors border border-white/10"
+                        title="Archive Product"
+                      >
+                        Archive
+                      </button>
+                    {:else if product.status === 'archived'}
+                      <button
+                        type="button"
+                        onclick={() => updateProductStatus(product.id, 'published')}
+                        class="px-2.5 py-1.5 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 text-xs transition-colors border border-emerald-500/20"
+                        title="Publish Product"
+                      >
+                        Publish
+                      </button>
+                    {:else}
+                      <button
+                        type="button"
+                        onclick={() => updateProductStatus(product.id, 'published')}
+                        class="px-2.5 py-1.5 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 text-xs transition-colors border border-emerald-500/20"
+                        title="Publish Draft"
+                      >
+                        Publish
+                      </button>
+                    {/if}
+
                     <button
-                      onclick={() => cloneProduct(p)}
-                      disabled={duplicatingId === p.id}
-                      class="px-2 py-1 rounded-lg text-xs font-semibold text-gray-400 hover:text-white bg-white/5 hover:bg-white/10 border border-white/10 cursor-pointer"
-                      title="Duplicate / Clone Product"
-                    >
-                      📋
-                    </button>
-                    <button
-                      onclick={() => deleteProduct(p.id, p.name)}
-                      disabled={deletingId === p.id}
-                      class="px-2 py-1 rounded-lg text-xs font-semibold text-red-400 hover:text-red-300 bg-red-950/30 hover:bg-red-900/40 border border-red-800/40 cursor-pointer"
+                      type="button"
+                      disabled={deletingId === product.id}
+                      onclick={() => deleteProduct(product.id, product.name)}
+                      class="p-1.5 rounded-lg bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/20 transition-colors disabled:opacity-30"
                       title="Delete Product"
                     >
-                      🗑️
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
                     </button>
                   </div>
                 </td>

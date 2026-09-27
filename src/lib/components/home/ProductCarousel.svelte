@@ -38,26 +38,18 @@
     }
   });
 
+  import { fetchProducts } from '$lib/api/products';
+
   onMount(async () => {
-    console.log('[ProductCarousel] Component mounted. Starting fetch from Supabase...');
     try {
-      const { data, error } = await supabase
-        .from('products')
-        .select('*')
-        .eq('is_active', true);
-      if (error) {
-        console.error('[ProductCarousel] Supabase query error:', error);
-      } else {
-        console.log(`[ProductCarousel] Supabase query returned ${data?.length ?? 0} active products.`);
-        if (data) {
-          dbProducts = data;
-        }
+      const data = await fetchProducts();
+      if (data && data.length > 0) {
+        dbProducts = data;
       }
     } catch (err) {
       console.error('[ProductCarousel] Exception in onMount:', err);
     } finally {
       loading = false;
-      console.log('[ProductCarousel] Fetch complete. Loading state set to false.');
     }
   });
 

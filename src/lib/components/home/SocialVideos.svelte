@@ -28,11 +28,16 @@
     <!-- Gif Grid -->
     <div class="grid grid-cols-2 gap-4 md:gap-6 max-w-3xl mx-auto">
       {#each items as item}
-        <div class="relative w-full aspect-[9/16] rounded-3xl overflow-hidden shadow-md border border-pink-100/30 group bg-zinc-50 hover:shadow-xl hover:scale-[1.01] transition-all duration-300">
+        <a
+          href="https://www.instagram.com/frenchtoes.in/"
+          target="_blank"
+          rel="noopener noreferrer"
+          class="relative w-full aspect-[9/16] rounded-3xl overflow-hidden shadow-md border border-pink-100/30 group bg-zinc-50 hover:shadow-xl hover:scale-[1.01] transition-all duration-300 block"
+        >
           <img
             src={item.url}
             alt={item.caption}
-            class="w-full h-full object-cover"
+            class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
             loading="lazy"
           />
 
@@ -44,9 +49,11 @@
           <!-- Bottom Text Overlay -->
           <div class="absolute bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-black/80 via-black/40 to-transparent pt-12 flex flex-col justify-end">
             <span class="text-white text-xs font-semibold tracking-wide drop-shadow-sm">{item.caption}</span>
-            <span class="text-[9px] text-white/70 uppercase tracking-widest mt-1 font-medium">@frenchtoes.in</span>
+            <span class="text-[9px] text-white/70 uppercase tracking-widest mt-1 font-medium flex items-center gap-1">
+              📸 @frenchtoes.in
+            </span>
           </div>
-        </div>
+        </a>
       {/each}
     </div>
 

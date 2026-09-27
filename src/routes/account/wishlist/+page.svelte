@@ -12,6 +12,8 @@
   let loading = $state(true);
   let removing = $state<string | null>(null);
 
+  import { mapDBProductToFrontend } from '$lib/api/products';
+
   onMount(async () => {
     await authStore.init();
     if (authStore.user) await loadWishlist();
@@ -19,15 +21,23 @@
   });
 
   async function loadWishlist() {
-    // Also refresh the store so it stays in sync with DB
     await wishlistStore.reload();
     const { data, error } = await supabase
       .from('wishlist')
-      .select('*, product:product_id(*)')
+      .select(`
+        *,
+        product:product_id(
+          id, slug, name, base_price, description, brand, category,
+          variants:product_variants(*, images:product_images(*))
+        )
+      `)
       .eq('user_id', authStore.user!.id)
       .order('created_at', { ascending: false });
     if (error) { uiStore.addToast('Could not load wishlist: ' + error.message, 'error'); return; }
-    wishlist = (data ?? []) as any;
+    wishlist = (data ?? []).map((row: any) => ({
+      ...row,
+      product: row.product ? mapDBProductToFrontend(row.product) : null
+    })).filter(r => r.product) as any;
   }
 
   async function removeFromWishlist(id: string, productId: string) {

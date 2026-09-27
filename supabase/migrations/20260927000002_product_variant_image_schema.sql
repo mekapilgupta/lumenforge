@@ -1,0 +1,378 @@
+-- ============================================================================
+-- Migration: Product → Variant (color) → Images Schema
+-- Description: Creates clean schema for products, product_variants, product_images
+--              with RLS, indexes, constraints, and atomic RPC transaction function.
+-- ============================================================================
+
+-- Ensure uuid-ossp or pgcrypto is available
+create extension if not exists "pgcrypto";
+
+-- Drop old dependent views if any
+drop view if exists public.products_complete cascade;
+
+-- Drop old tables if re-structuring from scratch
+drop table if exists public.product_images cascade;
+drop table if exists public.product_variants cascade;
+drop table if exists public.products cascade;
+
+-- ---------------------------------------------------------------------------
+-- 1. products table
+-- ---------------------------------------------------------------------------
+create table public.products (
+  id uuid primary key default gen_random_uuid(),
+  slug text unique not null,
+  name text not null,
+  description text,
+  brand text,
+  category text,
+  base_price numeric(10,2) not null check (base_price >= 0),
+  status text not null default 'draft' check (status in ('draft', 'published', 'archived')),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index idx_products_slug on public.products(slug);
+create index idx_products_status on public.products(status);
+create index idx_products_category on public.products(category);
+create index idx_products_created_at on public.products(created_at desc);
+
+-- ---------------------------------------------------------------------------
+-- 2. product_variants table (Color-based variants)
+-- ---------------------------------------------------------------------------
+create table public.product_variants (
+  id uuid primary key default gen_random_uuid(),
+  product_id uuid not null references public.products(id) on delete cascade,
+  sku text unique not null,
+  color_name text not null,
+  color_slug text not null,
+  color_hex text,
+  attributes jsonb not null default '{}'::jsonb,
+  price_override numeric(10,2) check (price_override is null or price_override >= 0),
+  stock_quantity int not null default 0 check (stock_quantity >= 0),
+  is_default boolean not null default false,
+  position int not null default 0,
+  created_at timestamptz not null default now()
+);
+
+create index idx_product_variants_product_id on public.product_variants(product_id);
+create index idx_product_variants_sku on public.product_variants(sku);
+create index idx_product_variants_color_slug on public.product_variants(color_slug);
+create index idx_product_variants_position on public.product_variants(position asc);
+
+-- Partial unique index: only ONE variant per product can have is_default = true
+create unique index idx_unique_default_variant_per_product
+  on public.product_variants (product_id)
+  where is_default = true;
+
+-- ---------------------------------------------------------------------------
+-- 3. product_images table
+-- ---------------------------------------------------------------------------
+create table public.product_images (
+  id uuid primary key default gen_random_uuid(),
+  variant_id uuid not null references public.product_variants(id) on delete cascade,
+  imagekit_file_id text not null,
+  image_url text not null,
+  file_name text not null,
+  alt_text text,
+  position int not null default 0,
+  is_primary boolean not null default false,
+  created_at timestamptz not null default now()
+);
+
+create index idx_product_images_variant_id on public.product_images(variant_id);
+create index idx_product_images_position on public.product_images(position asc);
+create index idx_product_images_is_primary on public.product_images(variant_id, is_primary);
+
+-- ---------------------------------------------------------------------------
+-- 4. Triggers for updated_at
+-- ---------------------------------------------------------------------------
+create or replace function public.trigger_set_timestamp()
+returns trigger as $$
+begin
+  new.updated_at = now();
+  return new;
+end;
+$$ language plpgsql;
+
+drop trigger if exists trg_products_updated_at on public.products;
+create trigger trg_products_updated_at
+  before update on public.products
+  for each row execute function public.trigger_set_timestamp();
+
+-- ---------------------------------------------------------------------------
+-- 5. Row Level Security (RLS)
+-- ---------------------------------------------------------------------------
+alter table public.products enable row level security;
+alter table public.product_variants enable row level security;
+alter table public.product_images enable row level security;
+
+-- Products RLS
+drop policy if exists "Public read published products" on public.products;
+create policy "Public read published products" on public.products
+  for select using (
+    status = 'published'
+    or (auth.role() = 'authenticated' and is_admin())
+    or auth.role() = 'service_role'
+  );
+
+drop policy if exists "Admin insert products" on public.products;
+create policy "Admin insert products" on public.products
+  for insert with check (
+    (auth.role() = 'authenticated' and is_admin())
+    or auth.role() = 'service_role'
+  );
+
+drop policy if exists "Admin update products" on public.products;
+create policy "Admin update products" on public.products
+  for update using (
+    (auth.role() = 'authenticated' and is_admin())
+    or auth.role() = 'service_role'
+  );
+
+drop policy if exists "Admin delete products" on public.products;
+create policy "Admin delete products" on public.products
+  for delete using (
+    (auth.role() = 'authenticated' and is_admin())
+    or auth.role() = 'service_role'
+  );
+
+-- Product Variants RLS
+drop policy if exists "Public read published product_variants" on public.product_variants;
+create policy "Public read published product_variants" on public.product_variants
+  for select using (
+    exists (
+      select 1 from public.products p
+      where p.id = product_variants.product_id
+        and (p.status = 'published' or (auth.role() = 'authenticated' and is_admin()))
+    )
+    or auth.role() = 'service_role'
+  );
+
+drop policy if exists "Admin insert product_variants" on public.product_variants;
+create policy "Admin insert product_variants" on public.product_variants
+  for insert with check (
+    (auth.role() = 'authenticated' and is_admin())
+    or auth.role() = 'service_role'
+  );
+
+drop policy if exists "Admin update product_variants" on public.product_variants;
+create policy "Admin update product_variants" on public.product_variants
+  for update using (
+    (auth.role() = 'authenticated' and is_admin())
+    or auth.role() = 'service_role'
+  );
+
+drop policy if exists "Admin delete product_variants" on public.product_variants;
+create policy "Admin delete product_variants" on public.product_variants
+  for delete using (
+    (auth.role() = 'authenticated' and is_admin())
+    or auth.role() = 'service_role'
+  );
+
+-- Product Images RLS
+drop policy if exists "Public read published product_images" on public.product_images;
+create policy "Public read published product_images" on public.product_images
+  for select using (
+    exists (
+      select 1 from public.product_variants pv
+      join public.products p on p.id = pv.product_id
+      where pv.id = product_images.variant_id
+        and (p.status = 'published' or (auth.role() = 'authenticated' and is_admin()))
+    )
+    or auth.role() = 'service_role'
+  );
+
+drop policy if exists "Admin insert product_images" on public.product_images;
+create policy "Admin insert product_images" on public.product_images
+  for insert with check (
+    (auth.role() = 'authenticated' and is_admin())
+    or auth.role() = 'service_role'
+  );
+
+drop policy if exists "Admin update product_images" on public.product_images;
+create policy "Admin update product_images" on public.product_images
+  for update using (
+    (auth.role() = 'authenticated' and is_admin())
+    or auth.role() = 'service_role'
+  );
+
+drop policy if exists "Admin delete product_images" on public.product_images;
+create policy "Admin delete product_images" on public.product_images
+  for delete using (
+    (auth.role() = 'authenticated' and is_admin())
+    or auth.role() = 'service_role'
+  );
+
+-- ---------------------------------------------------------------------------
+-- 6. Helper RPC: save_complete_product (Atomic transaction)
+-- ---------------------------------------------------------------------------
+create or replace function public.save_complete_product(
+  p_product jsonb,
+  p_variants jsonb,
+  p_images jsonb default '[]'::jsonb
+)
+returns jsonb
+language plpgsql
+security definer
+as $$
+declare
+  v_product_id uuid;
+  v_variant_record jsonb;
+  v_variant_id uuid;
+  v_default_count int := 0;
+  v_variant_count int := 0;
+  v_result jsonb;
+  v_image_record jsonb;
+begin
+  -- Validate variants count
+  v_variant_count := jsonb_array_length(p_variants);
+  if v_variant_count = 0 then
+    raise exception 'Product must have at least one variant.';
+  end if;
+
+  -- Validate default variant count
+  for v_variant_record in select * from jsonb_array_elements(p_variants) loop
+    if (v_variant_record->>'is_default')::boolean = true then
+      v_default_count := v_default_count + 1;
+    end if;
+  end loop;
+
+  if v_default_count = 0 then
+    raise exception 'Product must have exactly one default variant.';
+  elsif v_default_count > 1 then
+    raise exception 'Product cannot have multiple default variants.';
+  end if;
+
+  -- Determine product ID (existing or new)
+  if (p_product->>'id') is not null and (p_product->>'id') != '' then
+    v_product_id := (p_product->>'id')::uuid;
+  else
+    v_product_id := gen_random_uuid();
+  end if;
+
+  -- Upsert Product
+  insert into public.products (
+    id,
+    slug,
+    name,
+    description,
+    brand,
+    category,
+    base_price,
+    status
+  ) values (
+    v_product_id,
+    p_product->>'slug',
+    p_product->>'name',
+    p_product->>'description',
+    p_product->>'brand',
+    p_product->>'category',
+    (p_product->>'base_price')::numeric,
+    coalesce(p_product->>'status', 'draft')
+  )
+  on conflict (id) do update set
+    slug = excluded.slug,
+    name = excluded.name,
+    description = excluded.description,
+    brand = excluded.brand,
+    category = excluded.category,
+    base_price = excluded.base_price,
+    status = excluded.status,
+    updated_at = now();
+
+  -- Process Variants
+  for v_variant_record in select * from jsonb_array_elements(p_variants) loop
+    if (v_variant_record->>'id') is not null and (v_variant_record->>'id') != '' then
+      v_variant_id := (v_variant_record->>'id')::uuid;
+    else
+      v_variant_id := gen_random_uuid();
+    end if;
+
+    insert into public.product_variants (
+      id,
+      product_id,
+      sku,
+      color_name,
+      color_slug,
+      color_hex,
+      attributes,
+      price_override,
+      stock_quantity,
+      is_default,
+      position
+    ) values (
+      v_variant_id,
+      v_product_id,
+      v_variant_record->>'sku',
+      v_variant_record->>'color_name',
+      v_variant_record->>'color_slug',
+      v_variant_record->>'color_hex',
+      coalesce(v_variant_record->'attributes', '{}'::jsonb),
+      (v_variant_record->>'price_override')::numeric,
+      coalesce((v_variant_record->>'stock_quantity')::int, 0),
+      coalesce((v_variant_record->>'is_default')::boolean, false),
+      coalesce((v_variant_record->>'position')::int, 0)
+    )
+    on conflict (id) do update set
+      sku = excluded.sku,
+      color_name = excluded.color_name,
+      color_slug = excluded.color_slug,
+      color_hex = excluded.color_hex,
+      attributes = excluded.attributes,
+      price_override = excluded.price_override,
+      stock_quantity = excluded.stock_quantity,
+      is_default = excluded.is_default,
+      position = excluded.position;
+  end loop;
+
+  -- Process Images if provided in RPC call
+  if p_images is not null and jsonb_array_length(p_images) > 0 then
+    for v_image_record in select * from jsonb_array_elements(p_images) loop
+      insert into public.product_images (
+        id,
+        variant_id,
+        imagekit_file_id,
+        image_url,
+        file_name,
+        alt_text,
+        position,
+        is_primary
+      ) values (
+        coalesce((v_image_record->>'id')::uuid, gen_random_uuid()),
+        (v_image_record->>'variant_id')::uuid,
+        v_image_record->>'imagekit_file_id',
+        v_image_record->>'image_url',
+        v_image_record->>'file_name',
+        v_image_record->>'alt_text',
+        coalesce((v_image_record->>'position')::int, 0),
+        coalesce((v_image_record->>'is_primary')::boolean, false)
+      )
+      on conflict (id) do update set
+        alt_text = excluded.alt_text,
+        position = excluded.position,
+        is_primary = excluded.is_primary;
+    end loop;
+  end if;
+
+  -- Build return payload
+  select jsonb_build_object(
+    'product', (select row_to_json(p) from public.products p where p.id = v_product_id),
+    'variants', (
+      select jsonb_agg(
+        row_to_json(v)::jsonb || jsonb_build_object(
+          'images', (
+            select coalesce(jsonb_agg(row_to_json(img) order by img.position asc, img.created_at asc), '[]'::jsonb)
+            from public.product_images img
+            where img.variant_id = v.id
+          )
+        )
+        order by v.position asc, v.created_at asc
+      )
+      from public.product_variants v
+      where v.product_id = v_product_id
+    )
+  ) into v_result;
+
+  return v_result;
+end;
+$$;

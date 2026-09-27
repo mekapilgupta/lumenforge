@@ -126,9 +126,6 @@
               🔒 Cash on Delivery · No advance payment needed
             </p>
 
-            <div class="mt-4 p-3.5 rounded-xl text-xs leading-relaxed border text-amber-800 bg-amber-50 border-amber-200 shadow-sm">
-              ⚠️ <strong>Sandbox Testing Mode:</strong> Please note that this store is in testing mode. Orders placed (including ₹10 items) are simulated and will not be shipped or fulfilled.
-            </div>
           </div>
         </div>
       </div>

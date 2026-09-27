@@ -1,23 +1,42 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { supabase } from '$lib/supabaseClient';
+  import { fetchProducts } from '$lib/api/products';
   import { cartStore } from '$lib/stores/cart.svelte';
   import { uiStore } from '$lib/stores/ui.svelte';
   import ProductModal from '$lib/components/product/ProductModal.svelte';
 
-  const vibes = [
-    { name: 'Black', emoji: '🖤', hex: '#1a1a1a', tagline: 'Midnight elegance & classic style' },
-    { name: 'Berry', emoji: '🫐', hex: '#b5416e', tagline: 'Juicy, bold pastels for statement looks' },
-    { name: 'Beige', emoji: '🤎', hex: '#f5e0c0', tagline: 'Warm sandy neutrals for daily comfort' },
-    { name: 'Peach', emoji: '🍑', hex: '#ffb38a', tagline: 'Soft, sun-kissed shades of summer' },
-    { name: 'Sea Green', emoji: '🌿', hex: '#3aafa9', tagline: 'Cool, monsoon-proof breeze tones' },
-    { name: 'Navy', emoji: '🌊', hex: '#000080', tagline: 'Deep oceanic rich styles' },
-  ];
-
-  let selectedVibe = $state('Black');
-
   let dbProducts = $state<any[]>([]);
   let loading = $state(true);
+  let selectedVibe = $state('');
+
+  // Dynamically derive vibes/colors from products in DB
+  const vibes = $derived.by(() => {
+    const map = new Map<string, { name: string; emoji: string; hex: string; tagline: string }>();
+    for (const p of dbProducts) {
+      for (const c of p.colors || []) {
+        const name = c.name?.trim();
+        if (name && !map.has(name.toLowerCase())) {
+          map.set(name.toLowerCase(), {
+            name: name,
+            emoji: '✨',
+            hex: c.hex || '#1a1a1a',
+            tagline: `${name} comfort for effortless style`
+          });
+        }
+      }
+    }
+    const list = Array.from(map.values());
+    return list.length > 0 ? list : [
+      { name: 'Black', emoji: '🖤', hex: '#1a1a1a', tagline: 'Midnight elegance & classic style' },
+      { name: 'Peach', emoji: '🍑', hex: '#ffb38a', tagline: 'Soft, sun-kissed shades of summer' }
+    ];
+  });
+
+  $effect(() => {
+    if (vibes.length > 0 && (!selectedVibe || !vibes.some(v => v.name.toLowerCase() === selectedVibe.toLowerCase()))) {
+      selectedVibe = vibes[0].name;
+    }
+  });
 
   // Lightbox modal states
   let isLightboxOpen = $state(false);
@@ -26,43 +45,26 @@
 
   // Computed catalog based on DB fetch
   const catalogList = $derived.by(() => {
-    console.log('[ShopByColor] Deriving catalogList. dbProducts length:', dbProducts.length);
     if (dbProducts.length > 0) {
-      const grouped = groupProductsFromDB(dbProducts);
-      console.log('[ShopByColor] Derived grouped products from DB. Length:', grouped.length);
-      return grouped;
+      return groupProductsFromDB(dbProducts);
     }
-    console.log('[ShopByColor] dbProducts is empty. Returning empty list.');
     return [];
   });
 
   // Filter products by vibe
   const filteredProducts = $derived.by(() => {
-    const filtered = catalogList.filter(p => p.color.toLowerCase() === selectedVibe.toLowerCase());
-    console.log(`[ShopByColor] Filtered products for vibe "${selectedVibe}". Count:`, filtered.length);
-    return filtered;
+    if (!selectedVibe) return catalogList;
+    return catalogList.filter(p => p.color.toLowerCase() === selectedVibe.toLowerCase());
   });
 
   onMount(async () => {
-    console.log('[ShopByColor] Component mounted. Starting fetch from Supabase...');
     try {
-      const { data, error } = await supabase
-        .from('products')
-        .select('*')
-        .eq('is_active', true);
-      if (error) {
-        console.error('[ShopByColor] Supabase query error fetching products:', error);
-      } else {
-        console.log(`[ShopByColor] Supabase query returned ${data?.length ?? 0} active products.`);
-        if (data && data.length > 0) {
-          dbProducts = data;
-        }
-      }
+      const data = await fetchProducts();
+      dbProducts = data;
     } catch (err) {
       console.error('[ShopByColor] Exception in onMount:', err);
     } finally {
       loading = false;
-      console.log('[ShopByColor] Fetch complete. Loading state set to false.');
     }
   });
 

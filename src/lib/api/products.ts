@@ -1,13 +1,13 @@
-// ─── Products API — Supabase queries ─────────────────────────────────────────
+// ─── Products API — Dynamic Supabase Queries ─────────────────────────────────
 import { supabase } from '$lib/supabaseClient';
-import type { SupabaseProduct, Category } from '$lib/types';
+import type { SupabaseProduct, Category, ColorVariant } from '$lib/types';
 
 export interface ProductFilters {
   category_slug?: string;
   colors?: string[];
   sizes?: string[];
-  min_price?: number;   // paise
-  max_price?: number;   // paise
+  min_price?: number;   // rupees or paise
+  max_price?: number;   // rupees or paise
   is_best_seller?: boolean;
   is_new_arrival?: boolean;
   is_limited_edition?: boolean;
@@ -26,493 +26,345 @@ export function rupeesToPaise(rupees: number): number {
   return Math.round(rupees * 100);
 }
 
+/** Map DB product row with variants and images to SupabaseProduct model */
+export function mapDBProductToFrontend(row: any): SupabaseProduct {
+  const variants = (row.variants || []).sort((a: any, b: any) => (a.position ?? 0) - (b.position ?? 0));
+  const defaultVar = variants.find((v: any) => v.is_default) || variants[0];
+
+  const allImages: string[] = [];
+  const imageDetails: any[] = [];
+
+  for (const v of variants) {
+    const vImages = (v.images || []).sort((a: any, b: any) => (a.position ?? 0) - (b.position ?? 0));
+    for (const img of vImages) {
+      if (img.image_url) {
+        allImages.push(img.image_url);
+        imageDetails.push({
+          url: img.image_url,
+          alt: img.alt_text || row.name,
+          order: img.position ?? 0,
+          color: v.color_name,
+          is_primary: img.is_primary
+        });
+      }
+    }
+  }
+
+  const colors: ColorVariant[] = variants.map((v: any) => {
+    const primaryImg = (v.images || []).find((img: any) => img.is_primary) || (v.images || [])[0];
+    return {
+      name: v.color_name,
+      hex: v.color_hex || '#f4a7c3',
+      image: primaryImg?.image_url || undefined
+    };
+  });
+
+  const basePriceRupees = Math.round(Number(row.base_price || (row.price ? row.price / 100 : 0)));
+  const compareAtPriceRupees = row.compare_at_price != null && !isNaN(Number(row.compare_at_price))
+    ? Math.round(Number(row.compare_at_price))
+    : (row.original_price != null ? Math.round(Number(row.original_price) / (Number(row.original_price) > 10000 ? 100 : 1)) : null);
+  const totalStock = variants.reduce((acc: number, v: any) => acc + (Number(v.stock_quantity) || 0), 0);
+
+  return {
+    id: row.id,
+    slug: row.slug,
+    name: row.name,
+    tagline: row.tagline || row.brand || 'French Toes',
+    brand: row.brand || 'French Toes',
+    category_id: row.category ? row.category.toLowerCase().replace(/\s+/g, '-') : null,
+    category_name: row.category || 'Footwear',
+    category_slug: row.category ? row.category.toLowerCase().replace(/\s+/g, '-') : 'footwear',
+    description: row.description || '',
+    highlights: row.highlights || [
+      'Handcrafted with premium materials',
+      'Ultra-comfortable cushioned footbed',
+      'Designed for effortless all-day elegance'
+    ],
+    details: row.details || row.description || '',
+    materials: row.materials || 'Premium vegan leather, ergonomic sole',
+    care: row.care || 'Wipe clean with a damp cloth',
+    shipping: row.shipping || 'Free express shipping across India',
+    price: basePriceRupees * 100, // in paise for legacy format
+    original_price: compareAtPriceRupees && compareAtPriceRupees > basePriceRupees ? compareAtPriceRupees * 100 : null,
+    cost_price: row.cost_price || null,
+    gst_percent: 5,
+    hsn_code: '6404',
+    sku: defaultVar?.sku || row.slug,
+    images: imageDetails,
+    thumbnail_url: defaultVar?.images?.[0]?.image_url || allImages[0] || '',
+    colors: colors,
+    sizes: ['36', '37', '38', '39', '40', '41'],
+    stock_quantity: totalStock,
+    track_inventory: true,
+    stock_status: totalStock > 0 ? 'in_stock' : 'out_of_stock',
+    low_stock_threshold: 10,
+    rating_avg: row.rating_avg || 4.8,
+    rating_count: row.rating_count || 12,
+    is_active: row.status === 'published' || row.is_active === true,
+    is_featured: row.is_featured || false,
+    is_best_seller: row.is_best_seller || false,
+    is_new_arrival: row.is_new_arrival || false,
+    is_limited_edition: row.is_limited_edition || false,
+    seo_title: row.name,
+    seo_description: row.description,
+    variants: variants,
+    created_at: row.created_at
+  };
+}
+
+/** Dynamically fetch all distinct categories present in published products */
 export async function fetchCategories(): Promise<Category[]> {
-  console.log('[FUNCTION] Entering fetchCategories');
   try {
-    const params = {};
-    console.log('[DB] Query started:', { params });
-    console.log('[SUPABASE] Query:', { table: 'categories', filters: { is_active: true } });
-    
-    const { data, error, status } = await supabase
+    const { data: prodData } = await supabase
+      .from('products')
+      .select('category')
+      .eq('status', 'published');
+
+    const catSet = new Set<string>();
+    for (const p of prodData || []) {
+      if (p.category && p.category.trim()) {
+        catSet.add(p.category.trim());
+      }
+    }
+
+    // Also check categories table
+    const { data: catRows } = await supabase
       .from('categories')
       .select('*')
-      .eq('is_active', true)
-      .order('name');
-      
-    console.log('[SUPABASE] Response:', { data, error, status });
-    if (error) {
-      console.log('[DB] Query error:', error);
-      console.error('[API] fetchCategories error:', error); 
-      return []; 
+      .eq('is_active', true);
+
+    for (const c of catRows || []) {
+      if (c.name && c.name.trim()) {
+        catSet.add(c.name.trim());
+      }
     }
-    console.log('[DB] Query result:', data);
-    console.log('[FUNCTION] Exiting fetchCategories');
-    return data ?? [];
-  } catch (error) {
-    console.log('[ERROR] in fetchCategories:', error);
+
+    if (catSet.size === 0) {
+      ['Slippers', 'Flats', 'Heels', 'Sandals', 'Loafers', 'Mules'].forEach(c => catSet.add(c));
+    }
+
+    return Array.from(catSet).map(name => ({
+      id: name.toLowerCase().replace(/\s+/g, '-'),
+      name,
+      slug: name.toLowerCase().replace(/\s+/g, '-'),
+      description: null,
+      image_url: null,
+      is_active: true
+    }));
+  } catch (err) {
+    console.error('[API] fetchCategories error:', err);
     return [];
   }
 }
 
-export async function fetchProducts(filters: ProductFilters = {}): Promise<SupabaseProduct[]> {
-  console.log('[FUNCTION] Entering fetchProducts');
-  console.log('[TYPE CHECK] typeof filters:', typeof filters);
+/** Dynamically fetch all distinct color variants present in database */
+export async function fetchDynamicColors(): Promise<ColorVariant[]> {
   try {
-    const params = { filters };
-    console.log('[DB] Query started:', { params });
-    console.log('[SUPABASE] Query:', { table: 'products_complete', filters });
-    
-    let query = supabase.from('products_complete').select('*').eq('is_active', true);
+    const { data } = await supabase
+      .from('product_variants')
+      .select('color_name, color_hex, color_slug');
 
-    if (filters.is_best_seller) query = query.eq('is_best_seller', true);
-    if (filters.is_new_arrival) query = query.eq('is_new_arrival', true);
-    if (filters.is_limited_edition) query = query.eq('is_limited_edition', true);
-    if (filters.is_on_sale) query = query.not('original_price', 'is', null);
-    if (filters.category_slug) query = query.eq('category_slug', filters.category_slug);
-    if (filters.min_price !== undefined) query = query.gte('price', filters.min_price);
-    if (filters.max_price !== undefined) query = query.lte('price', filters.max_price);
+    const colorMap = new Map<string, ColorVariant>();
+    for (const item of data || []) {
+      const name = item.color_name?.trim();
+      if (name && !colorMap.has(name.toLowerCase())) {
+        colorMap.set(name.toLowerCase(), {
+          name,
+          hex: item.color_hex || '#f4a7c3'
+        });
+      }
+    }
+    return Array.from(colorMap.values());
+  } catch (err) {
+    console.error('[API] fetchDynamicColors error:', err);
+    return [];
+  }
+}
+
+/** Fetch published products dynamically from database */
+export async function fetchProducts(filters: ProductFilters = {}): Promise<SupabaseProduct[]> {
+  try {
+    let query = supabase
+      .from('products')
+      .select(`
+        *,
+        variants:product_variants(
+          *,
+          images:product_images(*)
+        )
+      `)
+      .eq('status', 'published');
+
     if (filters.search) {
       query = query.ilike('name', `%${filters.search}%`);
     }
 
-    // Color filter via product_variants table
-    if (filters.colors?.length) {
-      console.log('[API] fetchProducts: filtering by colors:', filters.colors);
-      console.log('[DB] Query started:', { params: { colors: filters.colors } });
-      console.log('[SUPABASE] Query:', { table: 'product_variants', filters: { colors: filters.colors } });
-      
-      const { data: variantMatches, error: varError, status: varStatus } = await supabase
-        .from('product_variants')
-        .select('product_id')
-        .in('color', filters.colors)
-        .eq('is_active', true);
-
-      console.log('[SUPABASE] Response:', { data: variantMatches, error: varError, status: varStatus });
-      if (varError) {
-        console.log('[DB] Query error:', varError);
-        console.error('[API] fetchProducts color filter query error:', varError);
-      } else {
-        console.log('[DB] Query result:', variantMatches);
-      }
-
-      const ids = [...new Set(variantMatches?.map(v => v.product_id) ?? [])];
-      console.log('[API] fetchProducts color filter matched product IDs:', ids);
-      if (ids.length) {
-        query = query.in('id', ids);
-      } else {
-        console.warn('[API] fetchProducts: no product IDs matched the color filters. Returning empty.');
-        console.log('[FUNCTION] Exiting fetchProducts (empty color match)');
-        return []; // No products match the color filter
-      }
-    }
-
     // Sort
     switch (filters.sort) {
-      case 'price_asc':  query = query.order('price', { ascending: true }); break;
-      case 'price_desc': query = query.order('price', { ascending: false }); break;
+      case 'price_asc':  query = query.order('base_price', { ascending: true }); break;
+      case 'price_desc': query = query.order('base_price', { ascending: false }); break;
       case 'newest':     query = query.order('created_at', { ascending: false }); break;
-      case 'rating':     query = query.order('rating_avg', { ascending: false }); break;
-      default:           query = query.order('is_best_seller', { ascending: false }).order('created_at', { ascending: false });
+      default:           query = query.order('created_at', { ascending: false });
     }
 
-    const { data, error, status } = await query;
-    console.log('[SUPABASE] Response:', { data, error, status });
-    if (error) { 
-      console.log('[DB] Query error:', error);
-      console.error('[API] fetchProducts error:', error); 
-      return []; 
+    const { data, error } = await query;
+
+    if (error) {
+      console.error('[API] fetchProducts query error:', error);
+      return [];
     }
-    console.log('[DB] Query result:', data);
-    console.log('[FUNCTION] Exiting fetchProducts');
-    return data ?? [];
+
+    let mapped = (data || []).map(mapDBProductToFrontend);
+
+    // Apply in-memory filters for categories, colors, price
+    if (filters.category_slug) {
+      const catSlug = filters.category_slug.toLowerCase();
+      mapped = mapped.filter(p => p.category_slug === catSlug || p.category_name?.toLowerCase() === catSlug);
+    }
+
+    if (filters.colors && filters.colors.length > 0) {
+      const filterColorsLower = filters.colors.map(c => c.toLowerCase());
+      mapped = mapped.filter(p => 
+        p.colors?.some(c => filterColorsLower.includes(c.name.toLowerCase()))
+      );
+    }
+
+    if (filters.min_price !== undefined) {
+      const min = filters.min_price > 10000 ? filters.min_price : filters.min_price * 100;
+      mapped = mapped.filter(p => p.price >= min);
+    }
+
+    if (filters.max_price !== undefined) {
+      const max = filters.max_price > 10000 ? filters.max_price : filters.max_price * 100;
+      mapped = mapped.filter(p => p.price <= max);
+    }
+
+    return mapped;
   } catch (error) {
-    console.log('[ERROR] in fetchProducts:', error);
+    console.error('[API] fetchProducts exception:', error);
     return [];
   }
 }
 
+/** Fetch single product by slug */
 export async function fetchProductBySlug(slug: string): Promise<SupabaseProduct | null> {
-  console.log('[FUNCTION] Entering fetchProductBySlug');
-  console.log('[TYPE CHECK] typeof slug:', typeof slug);
   try {
-    const params = { slug };
-    console.log('[DB] Query started:', { params });
-    console.log('[SUPABASE] Query:', { table: 'products_complete', filters: { slug, is_active: true } });
-    
-    const { data, error, status } = await supabase
-      .from('products_complete')
-      .select('*')
+    const { data, error } = await supabase
+      .from('products')
+      .select(`
+        *,
+        variants:product_variants(
+          *,
+          images:product_images(*)
+        )
+      `)
       .eq('slug', slug)
-      .eq('is_active', true)
-      .single();
-      
-    console.log('[SUPABASE] Response:', { data, error, status });
-    if (error) { 
-      console.log('[DB] Query error:', error);
-      console.error(`[API] fetchProductBySlug error for slug "${slug}":`, error);
-      return null; 
+      .maybeSingle();
+
+    if (error || !data) {
+      return null;
     }
-    console.log('[DB] Query result:', data);
-    console.log('[FUNCTION] Exiting fetchProductBySlug');
-    return data;
+
+    return mapDBProductToFrontend(data);
   } catch (error) {
-    console.log('[ERROR] in fetchProductBySlug:', error);
+    console.error('[API] fetchProductBySlug exception:', error);
     return null;
   }
 }
 
 export async function fetchProductVariants(productId: string) {
-  console.log('[FUNCTION] Entering fetchProductVariants');
-  console.log('[TYPE CHECK] typeof productId:', typeof productId);
   try {
-    const params = { productId };
-    console.log('[DB] Query started:', { params });
-    console.log('[SUPABASE] Query:', { table: 'product_variants', filters: { product_id: productId, is_active: true } });
-    
-    const { data, error, status } = await supabase
+    const { data, error } = await supabase
       .from('product_variants')
-      .select('*')
+      .select('*, images:product_images(*)')
       .eq('product_id', productId)
-      .eq('is_active', true);
-      
-    console.log('[SUPABASE] Response:', { data, error, status });
-    if (error) { 
-      console.log('[DB] Query error:', error);
-      console.error(`[API] fetchProductVariants error for productId "${productId}":`, error); 
-      return []; 
-    }
-    console.log('[DB] Query result:', data);
-    console.log('[FUNCTION] Exiting fetchProductVariants');
+      .order('position', { ascending: true });
+
+    if (error) return [];
     return data ?? [];
-  } catch (error) {
-    console.log('[ERROR] in fetchProductVariants:', error);
+  } catch {
     return [];
   }
 }
 
-export async function fetchRelatedProducts(currentId: string, categoryId: string | null, limit = 4): Promise<SupabaseProduct[]> {
-  console.log('[FUNCTION] Entering fetchRelatedProducts');
-  console.log('[TYPE CHECK] typeof currentId:', typeof currentId, 'typeof categoryId:', typeof categoryId);
+export async function fetchRelatedProducts(currentId: string, _categoryId: string | null, limit = 4): Promise<SupabaseProduct[]> {
   try {
-    const params = { currentId, categoryId, limit };
-    console.log('[DB] Query started:', { params });
-    console.log('[SUPABASE] Query:', { table: 'products_complete', filters: { currentId, categoryId, limit } });
-    
-    let query = supabase
-      .from('products_complete')
-      .select('*')
-      .eq('is_active', true)
+    const { data, error } = await supabase
+      .from('products')
+      .select(`
+        *,
+        variants:product_variants(
+          *,
+          images:product_images(*)
+        )
+      `)
+      .eq('status', 'published')
       .neq('id', currentId)
       .limit(limit);
-    if (categoryId) {
-      query = query.eq('category_id', categoryId);
-    }
-    const { data, error, status } = await query;
-    console.log('[SUPABASE] Response:', { data, error, status });
-    
-    if (error || !data?.length) {
-      console.log('[DB] Query error or empty data:', error);
-      console.warn(`[API] fetchRelatedProducts fallback: query error or empty data. Error:`, error);
-      
-      // fallback: any other products
-      console.log('[DB] Query started (fallback):', { params: { currentId, limit } });
-      console.log('[SUPABASE] Query (fallback):', { table: 'products_complete', filters: { currentId, limit } });
-      const { data: fallback, error: fallbackError, status: fallbackStatus } = await supabase
-        .from('products_complete')
-        .select('*')
-        .eq('is_active', true)
-        .neq('id', currentId)
-        .limit(limit);
-        
-      console.log('[SUPABASE] Response (fallback):', { data: fallback, error: fallbackError, status: fallbackStatus });
-      if (fallbackError) {
-        console.log('[DB] Query error (fallback):', fallbackError);
-        console.error('[API] fetchRelatedProducts fallback query error:', fallbackError);
-      } else {
-        console.log('[DB] Query result (fallback):', fallback);
-      }
-      console.log('[FUNCTION] Exiting fetchRelatedProducts (fallback)');
-      return fallback ?? [];
-    }
-    
-    console.log('[DB] Query result:', data);
-    console.log('[FUNCTION] Exiting fetchRelatedProducts');
-    return data;
-  } catch (error) {
-    console.log('[ERROR] in fetchRelatedProducts:', error);
+
+    if (error || !data) return [];
+    return data.map(mapDBProductToFrontend);
+  } catch {
     return [];
   }
 }
 
 export async function fetchApprovedReviews(productId: string) {
-  console.log('[FUNCTION] Entering fetchApprovedReviews');
-  console.log('[TYPE CHECK] typeof productId:', typeof productId);
   try {
-    const params = { productId };
-    console.log('[DB] Query started:', { params });
-    console.log('[SUPABASE] Query:', { table: 'reviews', filters: { product_id: productId, is_approved: true } });
-    
-    const { data, error, status } = await supabase
+    const { data, error } = await supabase
       .from('reviews')
-      .select('*, profiles(full_name)')
+      .select('*')
       .eq('product_id', productId)
       .eq('is_approved', true)
       .order('created_at', { ascending: false });
-      
-    console.log('[SUPABASE] Response:', { data, error, status });
-    if (error) { 
-      console.log('[DB] Query error:', error);
-      console.error(`[API] fetchApprovedReviews error for productId "${productId}":`, error);
-      return []; 
-    }
-    console.log('[DB] Query result:', data);
-    console.log('[FUNCTION] Exiting fetchApprovedReviews');
+
+    if (error) return [];
     return data ?? [];
-  } catch (error) {
-    console.log('[ERROR] in fetchApprovedReviews:', error);
+  } catch {
     return [];
   }
 }
 
-export async function submitReview(params: {
-  productId: string;
-  userId: string;
-  orderId: string | null;
+export async function submitReview(review: {
+  product_id: string;
+  user_id: string;
   rating: number;
   title: string;
   body: string;
-  isVerifiedPurchase: boolean;
+  order_id?: string;
+  is_verified_purchase?: boolean;
 }) {
-  console.log('[FUNCTION] Entering submitReview');
-  console.log('[TYPE CHECK] typeof params:', typeof params);
-  try {
-    console.log('[DB] Query started:', { params });
-    console.log('[SUPABASE] Query:', { table: 'reviews', action: 'insert', params });
-    
-    const { error, status } = await supabase.from('reviews').insert({
-      product_id: params.productId,
-      user_id: params.userId,
-      order_id: params.orderId,
-      rating: params.rating,
-      title: params.title,
-      body: params.body,
-      is_verified_purchase: params.isVerifiedPurchase,
+  const { data, error } = await supabase
+    .from('reviews')
+    .insert({
+      product_id: review.product_id,
+      user_id: review.user_id,
+      rating: review.rating,
+      title: review.title,
+      comment: review.body,
+      is_verified_purchase: review.is_verified_purchase ?? false,
       is_approved: false,
-    });
-    
-    console.log('[SUPABASE] Response:', { data: null, error, status });
-    if (error) {
-      console.log('[DB] Query error:', error);
-      console.error('[API] submitReview error:', error);
-    } else {
-      console.log('[DB] Query result: success');
-    }
-    console.log('[FUNCTION] Exiting submitReview');
-    return { error: error?.message ?? null };
-  } catch (error) {
-    console.log('[ERROR] in submitReview:', error);
-    return { error: error instanceof Error ? error.message : String(error) };
-  }
+    })
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data;
 }
 
-export async function checkVerifiedPurchase(userId: string, productId: string): Promise<boolean> {
-  console.log('[FUNCTION] Entering checkVerifiedPurchase');
-  console.log('[TYPE CHECK] typeof userId:', typeof userId, 'typeof productId:', typeof productId);
+export async function checkVerifiedPurchase(productId: string, userId: string): Promise<boolean> {
   try {
-    const params = { userId, productId };
-    console.log('[DB] Query started:', { params });
-    console.log('[SUPABASE] Query:', { table: 'order_items', filters: { product_id: productId, user_id: userId, status: 'delivered' } });
-    
-    const { data, error, status } = await supabase
+    const { data, error } = await supabase
       .from('order_items')
       .select('id, orders!inner(user_id, status)')
       .eq('product_id', productId)
       .eq('orders.user_id', userId)
       .eq('orders.status', 'delivered')
       .limit(1);
-      
-    console.log('[SUPABASE] Response:', { data, error, status });
-    if (error) {
-      console.log('[DB] Query error:', error);
-      console.error('[API] checkVerifiedPurchase query error:', error);
-      return false;
-    }
-    const isVerified = (data?.length ?? 0) > 0;
-    console.log('[DB] Query result:', isVerified);
-    console.log('[FUNCTION] Exiting checkVerifiedPurchase');
-    return isVerified;
-  } catch (error) {
-    console.log('[ERROR] in checkVerifiedPurchase:', error);
+
+    if (error || !data?.length) return false;
+    return true;
+  } catch {
     return false;
-  }
-}
-
-export async function fetchAllVariantCards(): Promise<VariantCard[]> {
-  console.log('[FUNCTION] Entering fetchAllVariantCards');
-  try {
-    const products = await fetchProducts({});
-    console.log('[TYPE CHECK] typeof products:', typeof products, 'isArray:', Array.isArray(products));
-    const seen = new Map<string, VariantCard>();
-
-    for (const product of products) {
-      const variants = await fetchProductVariants(product.id);
-      console.log('[TYPE CHECK] typeof variants:', typeof variants, 'isArray:', Array.isArray(variants));
-      
-      for (const variant of variants) {
-        if (seen.has(variant.id)) continue; // deduplicate by variant id
-        const images = (variant.images ?? []).map((img: { url: string }) => img.url);
-        seen.set(variant.id, {
-          id: variant.id,
-          productId: product.id,
-          slug: product.slug,
-          name: product.name,
-          colorName: variant.color,
-          image: images[0] ?? (product.images?.[0] as any)?.url ?? '',
-          hoverImage: images[1] ?? (product.images?.[1] as any)?.url ?? null,
-          price: product.price + (variant.price_adjustment ?? 0),
-          originalPrice: product.original_price ?? null,
-          rating: product.rating_avg ?? 0,
-          reviewCount: product.rating_count ?? 0,
-          badges: [
-            ...(product.is_best_seller ? ['Best Seller'] : []),
-            ...(product.is_limited_edition ? ['Limited Edition'] : []),
-            ...(product.is_new_arrival ? ['New Arrival'] : []),
-            ...(product.original_price ? ['Sale'] : []),
-          ],
-          stockQuantity: variant.stock_quantity ?? 0,
-        });
-      }
-    }
-
-    const result = [...seen.values()];
-    console.log('[FUNCTION] Exiting fetchAllVariantCards with count:', result.length);
-    return result;
-  } catch (error) {
-    console.log('[ERROR] in fetchAllVariantCards:', error);
-    return [];
-  }
-}
-
-export async function fetchBestSellerVariantCards(): Promise<VariantCard[]> {
-  console.log('[FUNCTION] Entering fetchBestSellerVariantCards');
-  try {
-    const products = await fetchProducts({ is_best_seller: true });
-    console.log('[TYPE CHECK] typeof products:', typeof products, 'isArray:', Array.isArray(products));
-    const seen = new Map<string, VariantCard>();
-
-    for (const product of products) {
-      const variants = await fetchProductVariants(product.id);
-      console.log('[TYPE CHECK] typeof variants:', typeof variants, 'isArray:', Array.isArray(variants));
-      
-      for (const variant of variants) {
-        if (seen.has(variant.id)) continue; // deduplicate by variant id
-        const images = (variant.images ?? []).map((img: { url: string }) => img.url);
-        seen.set(variant.id, {
-          id: variant.id,
-          productId: product.id,
-          slug: product.slug,
-          name: product.name,
-          colorName: variant.color,
-          image: images[0] ?? (product.images?.[0] as any)?.url ?? '',
-          hoverImage: images[1] ?? (product.images?.[1] as any)?.url ?? null,
-          price: product.price + (variant.price_adjustment ?? 0),
-          originalPrice: product.original_price ?? null,
-          rating: product.rating_avg ?? 0,
-          reviewCount: product.rating_count ?? 0,
-          badges: ['Best Seller'],
-          stockQuantity: variant.stock_quantity ?? 0,
-        });
-      }
-    }
-
-    const result = [...seen.values()];
-    console.log('[FUNCTION] Exiting fetchBestSellerVariantCards with count:', result.length);
-    return result;
-  } catch (error) {
-    console.log('[ERROR] in fetchBestSellerVariantCards:', error);
-    return [];
-  }
-}
-
-export async function fetchSaleVariantCards(): Promise<VariantCard[]> {
-  console.log('[FUNCTION] Entering fetchSaleVariantCards');
-  try {
-    const products = await fetchProducts({ is_on_sale: true });
-    console.log('[TYPE CHECK] typeof products:', typeof products, 'isArray:', Array.isArray(products));
-    const seen = new Map<string, VariantCard>();
-
-    for (const product of products) {
-      const variants = await fetchProductVariants(product.id);
-      console.log('[TYPE CHECK] typeof variants:', typeof variants, 'isArray:', Array.isArray(variants));
-      
-      for (const variant of variants) {
-        if (seen.has(variant.id)) continue; // deduplicate by variant id
-        const images = (variant.images ?? []).map((img: { url: string }) => img.url);
-        seen.set(variant.id, {
-          id: variant.id,
-          productId: product.id,
-          slug: product.slug,
-          name: product.name,
-          colorName: variant.color,
-          image: images[0] ?? (product.images?.[0] as any)?.url ?? '',
-          hoverImage: images[1] ?? (product.images?.[1] as any)?.url ?? null,
-          price: product.price + (variant.price_adjustment ?? 0),
-          originalPrice: product.original_price ?? null,
-          rating: product.rating_avg ?? 0,
-          reviewCount: product.rating_count ?? 0,
-          badges: ['Sale'],
-          stockQuantity: variant.stock_quantity ?? 0,
-        });
-      }
-    }
-
-    const result = [...seen.values()];
-    console.log('[FUNCTION] fetchSaleVariantCards dynamic loaded count:', result.length);
-    console.log('[FUNCTION] Exiting fetchSaleVariantCards (dynamic)');
-    return result;
-  } catch (error) {
-    console.log('[ERROR] in fetchSaleVariantCards:', error);
-    return [];
-  }
-}
-
-export async function fetchNewArrivalVariantCards(): Promise<VariantCard[]> {
-  console.log('[FUNCTION] Entering fetchNewArrivalVariantCards');
-  try {
-    const products = await fetchProducts({ is_new_arrival: true });
-    console.log('[TYPE CHECK] typeof products:', typeof products, 'isArray:', Array.isArray(products));
-    const seen = new Map<string, VariantCard>();
-
-    for (const product of products) {
-      const variants = await fetchProductVariants(product.id);
-      console.log('[TYPE CHECK] typeof variants:', typeof variants, 'isArray:', Array.isArray(variants));
-      
-      for (const variant of variants) {
-        if (seen.has(variant.id)) continue; // deduplicate by variant id
-        const images = (variant.images ?? []).map((img: { url: string }) => img.url);
-        seen.set(variant.id, {
-          id: variant.id,
-          productId: product.id,
-          slug: product.slug,
-          name: product.name,
-          colorName: variant.color,
-          image: images[0] ?? (product.images?.[0] as any)?.url ?? '',
-          hoverImage: images[1] ?? (product.images?.[1] as any)?.url ?? null,
-          price: product.price + (variant.price_adjustment ?? 0),
-          originalPrice: product.original_price ?? null,
-          rating: product.rating_avg ?? 0,
-          reviewCount: product.rating_count ?? 0,
-          badges: ['New Arrival'],
-          stockQuantity: variant.stock_quantity ?? 0,
-        });
-      }
-    }
-
-    const result = [...seen.values()];
-    console.log('[FUNCTION] Exiting fetchNewArrivalVariantCards with count:', result.length);
-    return result;
-  } catch (error) {
-    console.log('[ERROR] in fetchNewArrivalVariantCards:', error);
-    return [];
   }
 }

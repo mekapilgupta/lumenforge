@@ -81,6 +81,6 @@ Manufacturer- Vertex International Pvt. Ltd.,
 32nd km stone, Kundli, Sonepat, Haryana
 
 Return and exchange:
-Easy return and exchange within 7 days of delivery.
-A ₹99 reverse shipping fee is deducted on returns to cover pickup and processing. Exchanges are free`
+5-day hassle-free doorstep size exchange guarantee.
+Free reverse pickup and replacement for size exchanges.`
 };

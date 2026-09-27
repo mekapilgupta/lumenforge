@@ -39,6 +39,30 @@
         </ul>
         <p class="text-sm opacity-60 mt-1">We typically respond within 24 hours during business days.</p>
       </div>
+
+      <div>
+        <h2 class="text-lg font-semibold mb-2" style="color: var(--color-text-dark);">🌸 Connect With Us</h2>
+        <div class="flex flex-col gap-2">
+          <a
+            href="https://www.instagram.com/frenchtoes.in/"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="text-sm font-medium hover:underline inline-flex items-center gap-2"
+            style="color: var(--color-blush-deep);"
+          >
+            <span>📸 Instagram:</span> <strong>@frenchtoes.in</strong>
+          </a>
+          <a
+            href="https://www.facebook.com/p/french-toes-61589116049975/"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="text-sm font-medium hover:underline inline-flex items-center gap-2"
+            style="color: var(--color-blush-deep);"
+          >
+            <span>📘 Facebook:</span> <strong>French Toes</strong>
+          </a>
+        </div>
+      </div>
     </div>
 
     <!-- Quick Links -->

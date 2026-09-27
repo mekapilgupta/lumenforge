@@ -991,10 +991,6 @@
           </div>
 
           <div class="space-y-4">
-            <div class="p-3.5 rounded-xl text-xs leading-relaxed border text-amber-800 bg-amber-50 border-amber-200 shadow-sm">
-              ⚠️ <strong>Testing Mode Notice:</strong> This website is currently in testing mode. All orders and products (including ₹10 items) are for verification and testing only. No real shipments or deliveries will be made.
-            </div>
-
             <div class="flex gap-3">
               <button onclick={() => step = 1} class="btn-outline px-6 py-3">← Back</button>
               <button onclick={placeOrder} disabled={razorpayLoading} class="btn-primary flex-1 justify-center py-3.5 text-base">

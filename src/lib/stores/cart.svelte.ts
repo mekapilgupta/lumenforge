@@ -123,9 +123,7 @@ function createCartStore() {
               .from('product_variants')
               .select('id')
               .eq('product_id', item.productId)
-              .eq('color', item.color.name)
-              .eq('size', String(item.size))
-              .eq('is_active', true)
+              .ilike('color_name', item.color.name)
               .limit(1);
             
             if (!variantError && variants && variants.length > 0) {
@@ -196,7 +194,11 @@ function createCartStore() {
       const data = await _runWithRetry(async () => {
         const { data, error } = await supabase
           .from('cart')
-          .select('*, product:product_id(id, slug, name, price, images, colors, sizes), variant:variant_id(*)')
+          .select(`
+            *,
+            product:product_id(id, slug, name, base_price, description, brand, category),
+            variant:variant_id(*, images:product_images(*))
+          `)
           .eq('user_id', userId);
         if (error) throw error;
         return data;
@@ -214,43 +216,40 @@ function createCartStore() {
       if (!p) return null;
 
       const v = row.variant;
-      const images = (v?.images && v.images.length > 0) 
-        ? v.images.map((img: any) => img.url ?? img) 
-        : (p.images ?? []).map((img: any) => img.url ?? img);
       
-      const colors = (p.colors ?? []) as ColorVariant[];
-      const colorName = v?.color;
+      // Determine variant image
+      let imgUrl = '';
+      if (v?.images && Array.isArray(v.images) && v.images.length > 0) {
+        const primary = v.images.find((img: any) => img.is_primary) || v.images[0];
+        imgUrl = primary?.image_url || primary?.url || '';
+      }
+
       const cached = localMeta[row.id] || localMeta[row.product_id];
 
-      const matchedColor = colors.find((c) => c.name.toLowerCase() === colorName?.toLowerCase()) 
-        || cached?.color
-        || colors[0] 
-        || { name: colorName || 'Default', hex: '#f4a7c3' };
+      const matchedColor: ColorVariant = {
+        name: v?.color_name || cached?.color?.name || 'Default',
+        hex: v?.color_hex || cached?.color?.hex || '#f4a7c3'
+      };
 
-      // Preserve exact chosen size from variant or cached metadata, never blindly default to first size
-      const size = v?.size 
-        ? parseInt(v.size) 
-        : (cached?.size 
-          ? cached.size 
-          : (parseInt((p.sizes ?? ['38'])[0]) || 38));
-      
-      // Calculate unit price in rupees: (product base price + variant adjustment) / 100
-      const basePricePaise = p.price ?? 0;
-      const adjustmentPaise = v?.price_adjustment ?? 0;
-      const priceRupees = Math.round((basePricePaise + adjustmentPaise) / 100);
-      const originalPriceRupees = p.original_price ? Math.round(p.original_price / 100) : undefined;
+      const size = cached?.size || 38;
+
+      // Price in rupees
+      const basePriceNum = Number(p.base_price || 0);
+      const variantPrice = v?.price_override !== null && v?.price_override !== undefined && v?.price_override !== ''
+        ? Number(v.price_override)
+        : basePriceNum;
 
       return {
         id: row.id,
         productId: p.id,
         slug: p.slug,
         name: p.name,
-        image: images[0] ?? '',
-        price: priceRupees,
-        originalPrice: originalPriceRupees,
+        image: imgUrl || '/placeholder.jpg',
+        price: variantPrice,
+        originalPrice: undefined,
         color: matchedColor,
         size: size,
-        quantity: Math.min(row.quantity, MAX_QTY_PER_ITEM),
+        quantity: Math.min(row.quantity || 1, MAX_QTY_PER_ITEM),
       };
     }).filter(Boolean) as CartItem[];
   }
@@ -331,9 +330,7 @@ function createCartStore() {
             .from('product_variants')
             .select('id')
             .eq('product_id', productId)
-            .eq('color', color.name)
-            .eq('size', String(size))
-            .eq('is_active', true)
+            .ilike('color_name', color.name)
             .limit(1);
           
           if (!variantError && variants && variants.length > 0) {
@@ -541,7 +538,7 @@ function createCartStore() {
         // Fetch the updated cart items from the database to ensure we have the most fresh state
         const { data: cartRows, error: cartError } = await supabase
           .from('cart')
-          .select('*, product:product_id(id, name, price), variant:variant_id(id, price_adjustment)')
+          .select('*, product:product_id(id, name, base_price), variant:variant_id(id, price_override)')
           .eq('user_id', _userId!);
 
         if (cartError || !cartRows) {

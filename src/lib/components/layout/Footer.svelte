@@ -82,13 +82,14 @@
         </p>
         <div class="flex gap-3">
           {#each [
-            { href: '#', label: 'Instagram', path: 'M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37zm1.5-4.87h.01M7.5 20.5h9a6 6 0 0 0 6-6v-9a6 6 0 0 0-6-6h-9a6 6 0 0 0-6 6v9a6 6 0 0 0 6 6z' },
-            { href: '#', label: 'Facebook', path: 'M18 2h-3a5 5 0 0 0-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 0 1 1-1h3z' },
-            { href: '#', label: 'Pinterest', path: 'M8 12a4 4 0 1 0 8 0 4 4 0 0 0-8 0zM12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2z' },
+            { href: 'https://www.instagram.com/frenchtoes.in/', label: 'Instagram', path: 'M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37zm1.5-4.87h.01M7.5 20.5h9a6 6 0 0 0 6-6v-9a6 6 0 0 0-6-6h-9a6 6 0 0 0-6 6v9a6 6 0 0 0 6 6z' },
+            { href: 'https://www.facebook.com/p/french-toes-61589116049975/', label: 'Facebook', path: 'M18 2h-3a5 5 0 0 0-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 0 1 1-1h3z' },
           ] as social}
             <a
               href={social.href}
-              class="w-8 h-8 rounded-full flex items-center justify-center transition-colors hover:opacity-80"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="w-8 h-8 rounded-full flex items-center justify-center transition-colors hover:opacity-80 hover:bg-white/20"
               style="background: rgba(255,255,255,0.1);"
               aria-label={social.label}
             >
