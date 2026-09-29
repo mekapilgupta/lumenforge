@@ -282,7 +282,10 @@
           recipientName: authStore.profile?.full_name ?? 'Customer',
           payloadData: {
             orderId: order.order_number,
-            amount: totalPaise / 100
+            amount: totalPaise / 100,
+            isCod: true,
+            advancePaid: codAdvancePaise / 100,
+            codBalance: codBalanceDuePaise / 100
           }
         })
       }).catch((err) => console.warn('Order confirmation email failed:', err));
@@ -298,6 +301,9 @@
             amount: capturedTotal,
             customerEmail: authStore.user?.email ?? '',
             customerName: authStore.profile?.full_name ?? 'Customer',
+            paymentMethod: 'COD (₹50 Advance via Razorpay)',
+            advancePaid: codAdvancePaise / 100,
+            codBalance: codBalanceDuePaise / 100,
             items: itemsSnapshot
           }
         })
