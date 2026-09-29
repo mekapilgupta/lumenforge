@@ -1,8 +1,7 @@
--- Migration: Create/refresh the orders_complete view
--- Includes advance_amount, cod_balance_due, payment_method, and customer info.
--- Safe to run multiple times (CREATE OR REPLACE).
+-- Drop existing view first to allow column redefinitions / additions / removals
+drop view if exists public.orders_complete cascade;
 
-create or replace view public.orders_complete as
+create view public.orders_complete as
 select
   o.id,
   o.order_number,
