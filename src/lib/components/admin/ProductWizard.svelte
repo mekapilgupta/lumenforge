@@ -147,6 +147,11 @@
     return 0;
   }
 
+  function getVariantTotalStock(v: LocalVariant): number {
+    if (!v.size_stock) return 0;
+    return productForm.sizes.reduce((acc, sz) => acc + (Number(v.size_stock[sz]) || 0), 0);
+  }
+
   function updateVariantSizeStock(variantIndex: number, size: string, qtyStr: string) {
     const qty = parseInt(qtyStr, 10);
     const cleanQty = isNaN(qty) ? 0 : Math.max(0, qty);
@@ -154,9 +159,9 @@
     if (!v.size_stock) v.size_stock = {};
     v.size_stock[size] = cleanQty;
 
-    // Recalculate total stock for this variant
-    const total = Object.values(v.size_stock).reduce((acc, n) => acc + (Number(n) || 0), 0);
-    v.stock_quantity = total;
+    // Recalculate total stock strictly for active sizes
+    v.stock_quantity = getVariantTotalStock(v);
+    variants = [...variants];
   }
 
   function fillVariantSizesWithQty(variantIndex: number, qty: number) {
@@ -166,6 +171,7 @@
       v.size_stock[sz] = qty;
     }
     v.stock_quantity = qty * productForm.sizes.length;
+    variants = [...variants];
     uiStore.addToast(`Set all sizes to ${qty} pcs for ${v.color_name}`, 'info');
   }
 
@@ -189,9 +195,14 @@
         if (v.size_stock[size] === undefined) {
           v.size_stock[size] = 10;
         }
-        v.stock_quantity = Object.values(v.size_stock).reduce((acc, n) => acc + (Number(n) || 0), 0);
       }
     }
+
+    // Recompute total stock for all variants based on active sizes
+    for (const v of variants) {
+      v.stock_quantity = getVariantTotalStock(v);
+    }
+    variants = [...variants];
   }
 
   function applySizePreset(preset: 'standard' | 'all') {
@@ -209,6 +220,7 @@
       }
       v.stock_quantity = targetSizes.reduce((acc, sz) => acc + (Number(v.size_stock[sz]) || 0), 0);
     }
+    variants = [...variants];
     uiStore.addToast(`Applied ${preset} size preset (${targetSizes.join(', ')})`, 'info');
   }
 
