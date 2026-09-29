@@ -48,13 +48,13 @@ select
           'product_id',  oi.product_id,
           'product_name',oi.product_name,
           'variant_info',oi.variant_info,
-          'sku',         oi.sku,
+          'sku',         oi.product_sku,
           'unit_price',  oi.unit_price,
           'quantity',    oi.quantity,
           'total',       oi.total_price,
           'image',       oi.product_image_url
         )
-        order by oi.created_at asc
+        order by oi.id asc
       )
       from public.order_items oi
       where oi.order_id = o.id
