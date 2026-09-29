@@ -135,8 +135,8 @@
             <div>
               <p class="font-semibold" style="color: var(--color-text-dark);">Payment Method</p>
               <div class="text-sm mt-0.5" style="color: var(--color-text-mid);">
-                {#if order.payment_method === 'cod'}
-                  {@const adv = order.advance_amount || 5000}
+                {#if order.payment_method === 'cod' || order.payment_status === 'partial_paid' || order.payment_status === 'paid_advance' || (order.advance_amount && order.advance_amount > 0 && order.advance_amount < order.total_amount)}
+                  {@const adv = order.advance_amount || 500}
                   {@const due = order.cod_balance_due != null ? order.cod_balance_due : Math.max(0, order.total_amount - adv)}
                   <span class="font-semibold text-pink-600 block">Cash on Delivery (COD)</span>
                   <span class="block text-xs text-pink-800 font-medium mt-1">

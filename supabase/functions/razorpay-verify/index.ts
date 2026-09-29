@@ -164,8 +164,8 @@ serve(async (req) => {
     const isCodOrder = existingOrder?.payment_method === "cod" || (existingOrder?.cod_balance_due && existingOrder.cod_balance_due > 0);
     const resolvedPaymentStatus = isCodOrder ? "partial_paid" : "paid";
     const resolvedPaymentMethod = isCodOrder ? "cod" : "razorpay";
-    const advanceAmount = isCodOrder ? (existingOrder?.advance_amount || 5000) : (existingOrder?.total_amount || 0);
-    const codBalanceDue = isCodOrder ? (existingOrder?.cod_balance_due || Math.max(0, (existingOrder?.total_amount || 0) - 5000)) : 0;
+    const advanceAmount = isCodOrder ? (existingOrder?.advance_amount || 500) : (existingOrder?.total_amount || 0);
+    const codBalanceDue = isCodOrder ? (existingOrder?.cod_balance_due || Math.max(0, (existingOrder?.total_amount || 0) - advanceAmount)) : 0;
 
     // Update the order row in Supabase
     console.log(`[4/5] Updating order in Supabase (method: ${resolvedPaymentMethod}, payment_status: ${resolvedPaymentStatus}, advance: ${advanceAmount}, codBalance: ${codBalanceDue})...`);

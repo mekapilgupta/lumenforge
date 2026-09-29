@@ -61,7 +61,7 @@
   ];
 
   // ─── Price calculations (all in paise) ────────────────────────────────────
-  const COD_ADVANCE_PAISE = 5000; // ₹50 anti-spam advance fee
+  const COD_ADVANCE_PAISE = 500; // ₹5 advance fee (configured for testing)
   const subtotalPaise = $derived(cartStore.subtotal * 100);
   const shippingPaise = 0;
   const codPaise = 0;
@@ -76,7 +76,7 @@
     Math.max(0, subtotalPaise - couponDiscount - prepaidDiscountPaise + shippingPaise + codPaise + gstPaise)
   );
 
-  // COD advance calculation (₹50 advance paid online, balance on delivery)
+  // COD advance calculation (₹5 advance paid online, balance on delivery)
   const codAdvancePaise = $derived(paymentMethod === 'cod' ? Math.min(COD_ADVANCE_PAISE, totalPaise) : totalPaise);
   const codBalanceDuePaise = $derived(paymentMethod === 'cod' ? Math.max(0, totalPaise - COD_ADVANCE_PAISE) : 0);
   const onlineAmountToChargePaise = $derived(paymentMethod === 'cod' ? codAdvancePaise : totalPaise);
@@ -387,7 +387,7 @@
         amount: createData.order.amount,
         currency: createData.order.currency,
         name: 'French Toes',
-        description: isCod ? `COD Advance Confirmation (₹50) — Balance ₹${(codBalanceDuePaise / 100).toFixed(0)} on Delivery` : `Order ${createData.order.receipt}`,
+        description: isCod ? `COD Advance Confirmation (${fmt(codAdvancePaise)}) — Balance ₹${(codBalanceDuePaise / 100).toFixed(0)} on Delivery` : `Order ${createData.order.receipt}`,
         order_id: createData.order.id,
         handler: async function (response: any) {
           console.log('[Razorpay] Payment completed:', response.razorpay_payment_id);
@@ -409,7 +409,7 @@
           const verifyData = await verifyRes.json();
           if (verifyData.success) {
             isNavigatingToSuccess = true;
-            uiStore.addToast(isCod ? '₹50 Advance Paid! COD Order confirmed 🌸' : 'Payment successful! Order confirmed 🌸', 'success');
+            uiStore.addToast(isCod ? `${fmt(codAdvancePaise)} Advance Paid! COD Order confirmed 🌸` : 'Payment successful! Order confirmed 🌸', 'success');
             
             // Navigate immediately to order success screen
             goto(`/checkout/success?order_id=${createData.dbOrderId}`);
@@ -466,7 +466,7 @@
                   amount: capturedTotal,
                   customerEmail: authStore.user?.email ?? '',
                   customerName: authStore.profile?.full_name ?? 'Customer',
-                  paymentMethod: isCod ? 'COD (₹50 Advance Paid)' : 'Prepaid (Razorpay)',
+                  paymentMethod: isCod ? `COD (${fmt(codAdvancePaise)} Advance Paid)` : 'Prepaid (Razorpay)',
                   advancePaid: isCod ? codAdvancePaise / 100 : capturedTotal,
                   codBalance: isCod ? codBalanceDuePaise / 100 : 0,
                   items: itemsSnapshot
@@ -946,7 +946,7 @@
                     <div class="flex items-center justify-between gap-2 flex-wrap mb-1">
                       <p class="font-semibold text-sm" style="color: var(--color-text-dark);">Cash on Delivery (COD)</p>
                       <span class="text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0 bg-pink-100 text-pink-700 border border-pink-200">
-                        🛡️ ₹50 Advance Deposit
+                        🛡️ {fmt(codAdvancePaise)} Advance Deposit
                       </span>
                     </div>
                     <p class="text-xs text-gray-600 leading-relaxed">

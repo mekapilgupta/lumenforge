@@ -769,8 +769,8 @@
                     >
                       {order.payment_status === 'partial_paid' || order.payment_status === 'paid_advance' ? 'Advance Paid' : order.payment_status}
                     </span>
-                    {#if order.payment_method === 'cod'}
-                      {@const adv = order.advance_amount || 5000}
+                    {#if order.payment_method === 'cod' || order.payment_status === 'partial_paid' || order.payment_status === 'paid_advance' || (order.advance_amount && order.advance_amount > 0 && order.advance_amount < order.total_amount)}
+                      {@const adv = order.advance_amount || 500}
                       {@const due = order.cod_balance_due != null ? order.cod_balance_due : Math.max(0, order.total_amount - adv)}
                       <span class="text-[9px] font-medium text-pink-300">
                         ₹{(adv/100).toFixed(0)} adv · Collect ₹{(due/100).toFixed(0)}
@@ -1098,11 +1098,11 @@
         <div>
           <p class="text-[9px] uppercase text-gray-500">Payment Status</p>
           <p class="text-white font-medium capitalize mt-0.5">
-            {selectedOrder.payment_status === 'partial_paid' || selectedOrder.payment_status === 'paid_advance' ? 'Advance Paid (₹50)' : selectedOrder.payment_status || "—"}
+            {selectedOrder.payment_status === 'partial_paid' || selectedOrder.payment_status === 'paid_advance' ? `Advance Paid (₹${(((selectedOrder.advance_amount || 500))/100).toFixed(0)})` : selectedOrder.payment_status || "—"}
           </p>
         </div>
-        {#if selectedOrder.payment_method === 'cod'}
-          {@const adv = selectedOrder.advance_amount || 5000}
+        {#if selectedOrder.payment_method === 'cod' || selectedOrder.payment_status === 'partial_paid' || selectedOrder.payment_status === 'paid_advance' || (selectedOrder.advance_amount && selectedOrder.advance_amount > 0 && selectedOrder.advance_amount < selectedOrder.total_amount)}
+          {@const adv = selectedOrder.advance_amount || 500}
           {@const due = selectedOrder.cod_balance_due != null ? selectedOrder.cod_balance_due : Math.max(0, selectedOrder.total_amount - adv)}
           <div class="col-span-2 p-2.5 rounded-lg bg-pink-950/30 border border-pink-500/20 text-xs flex justify-between items-center">
             <span class="text-pink-300">Advance Paid: <strong>₹{(adv/100).toFixed(0)}</strong></span>

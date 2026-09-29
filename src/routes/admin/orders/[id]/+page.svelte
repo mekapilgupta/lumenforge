@@ -1080,15 +1080,17 @@
               <span class="text-white">Total Order Value</span>
               <span class="text-white">{fmt(order.total_amount)}</span>
             </div>
-            {#if order.payment_method === 'cod' && order.advance_amount}
+            {#if order.payment_method === 'cod' || order.payment_status === 'partial_paid' || order.payment_status === 'paid_advance' || (order.advance_amount && order.advance_amount > 0 && order.advance_amount < order.total_amount)}
+              {@const adv = order.advance_amount || 500}
+              {@const due = order.cod_balance_due != null ? order.cod_balance_due : Math.max(0, order.total_amount - adv)}
               <div class="mt-2 pt-2 border-t border-white/10 space-y-1">
                 <div class="flex justify-between text-pink-300 font-medium">
                   <span>Advance Paid Online:</span>
-                  <span>{fmt(order.advance_amount)}</span>
+                  <span>{fmt(adv)}</span>
                 </div>
                 <div class="flex justify-between text-emerald-400 font-bold">
                   <span>Collect on Delivery:</span>
-                  <span>{fmt(order.cod_balance_due ?? (order.total_amount - order.advance_amount))}</span>
+                  <span>{fmt(due)}</span>
                 </div>
               </div>
             {/if}
@@ -1097,7 +1099,9 @@
             <div class="flex justify-between">
               <span>Payment Method:</span>
               <span class="text-gray-200 font-semibold">
-                {order.payment_method === 'cod' ? (order.advance_amount ? 'COD (₹50 Advance Paid)' : 'Cash on Delivery') : 'Online Prepaid (Razorpay)'}
+                {order.payment_method === 'cod' || order.payment_status === 'partial_paid' || order.payment_status === 'paid_advance'
+                  ? `COD (₹${(((order.advance_amount || 500))/100).toFixed(0)} Advance Paid)`
+                  : 'Online Prepaid (Razorpay)'}
               </span>
             </div>
             {#if order.razorpay_payment_id}

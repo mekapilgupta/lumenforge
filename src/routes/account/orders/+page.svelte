@@ -346,8 +346,8 @@
           <div class="flex items-center justify-between px-5 py-3 border-t flex-wrap gap-2" style="border-color: var(--color-blush);">
             <div class="text-sm">
               <span style="color: var(--color-text-soft);">Payment: </span>
-              {#if order.payment_method === 'cod'}
-                {@const adv = order.advance_amount || 5000}
+              {#if order.payment_method === 'cod' || order.payment_status === 'partial_paid' || order.payment_status === 'paid_advance' || (order.advance_amount && order.advance_amount > 0 && order.advance_amount < order.total_amount)}
+                {@const adv = order.advance_amount || 500}
                 {@const due = order.cod_balance_due != null ? order.cod_balance_due : Math.max(0, order.total_amount - adv)}
                 <span class="font-semibold text-pink-700">COD (₹{(adv/100).toFixed(0)} Advance Paid)</span>
                 <span class="block text-xs font-semibold text-emerald-700 mt-0.5">💵 Collect on Delivery: ₹{(due/100).toFixed(0)}</span>
