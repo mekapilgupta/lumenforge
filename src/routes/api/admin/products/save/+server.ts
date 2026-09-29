@@ -50,6 +50,10 @@ export async function POST({ request }) {
     }
 
     // Clean product payload
+    const sizesArray = Array.isArray(product.sizes) && product.sizes.length > 0 
+      ? product.sizes.map(String) 
+      : ['36', '37', '38', '39', '40', '41'];
+
     const productPayload = {
       id: product.id || undefined,
       name: product.name.trim(),
@@ -59,6 +63,7 @@ export async function POST({ request }) {
       category: product.category || 'Footwear',
       base_price: Number(product.base_price),
       compare_at_price: product.compare_at_price !== null && product.compare_at_price !== undefined && product.compare_at_price !== '' ? Number(product.compare_at_price) : null,
+      sizes: sizesArray,
       status: product.status || 'draft'
     };
 

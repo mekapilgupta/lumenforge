@@ -11,9 +11,15 @@ export interface DBProduct {
   category: string | null;
   base_price: number; // numeric (e.g. 999.00) discounted / selling price
   compare_at_price: number | null; // numeric (e.g. 1499.00) regular / original MRP
+  sizes?: string[]; // e.g. ['36', '37', '38', '39', '40', '41']
   status: ProductStatus;
   created_at: string;
   updated_at: string;
+}
+
+export interface VariantAttributes {
+  size_stock?: Record<string, number>; // e.g. { '36': 10, '37': 15, '38': 20, '39': 0 }
+  [key: string]: any;
 }
 
 export interface DBProductVariant {
@@ -23,7 +29,7 @@ export interface DBProductVariant {
   color_name: string;
   color_slug: string;
   color_hex: string | null;
-  attributes: Record<string, any>;
+  attributes: VariantAttributes;
   price_override: number | null;
   compare_at_price: number | null;
   stock_quantity: number;

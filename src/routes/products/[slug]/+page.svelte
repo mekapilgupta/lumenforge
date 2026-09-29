@@ -63,10 +63,38 @@
 
   const activeMainImage = $derived(activeImages[activeImageIndex] || activeImages[0] || null);
 
+  // Available Sizes dynamically from product record
+  const availableSizesList = $derived.by<string[]>(() => {
+    if (product.sizes && Array.isArray(product.sizes) && product.sizes.length > 0) {
+      return product.sizes.map(String);
+    }
+    return ['36', '37', '38', '39', '40', '41'];
+  });
+
+  function getSizeStockForActiveVariant(size: string | number): number {
+    if (!activeVariant) return 0;
+    const szKey = String(size);
+    const sizeStock = activeVariant.attributes?.size_stock;
+    if (sizeStock && sizeStock[szKey] !== undefined) {
+      return Number(sizeStock[szKey]) || 0;
+    }
+    return activeVariant.stock_quantity ?? 0;
+  }
+
   // Selected Size State (Indian Footwear Sizes)
-  const AVAILABLE_SIZES = [36, 37, 38, 39, 40, 41];
-  let selectedSize = $state<number | null>(38);
+  let selectedSize = $state<string | number | null>(null);
   let isSizeChartOpen = $state(false);
+
+  // Auto-select first in-stock size when variant or product loads/switches
+  $effect(() => {
+    if (availableSizesList.length > 0) {
+      const currentStock = selectedSize ? getSizeStockForActiveVariant(selectedSize) : 0;
+      if (!selectedSize || currentStock <= 0 || !availableSizesList.includes(String(selectedSize))) {
+        const firstInStock = availableSizesList.find(sz => getSizeStockForActiveVariant(sz) > 0);
+        selectedSize = firstInStock || availableSizesList[0] || 38;
+      }
+    }
+  });
 
   // Quantity State
   let quantity = $state(1);
@@ -135,10 +163,16 @@
 
   const isOutOfStock = $derived((activeVariant?.stock_quantity ?? 0) <= 0);
 
+  const isSelectedSizeOutOfStock = $derived.by(() => {
+    if (isOutOfStock) return true;
+    if (!selectedSize) return true;
+    return getSizeStockForActiveVariant(selectedSize) <= 0;
+  });
+
   // Add to Cart
   async function handleAddToCart() {
-    if (isOutOfStock) {
-      uiStore.addToast('This color variant is currently out of stock.', 'error');
+    if (isOutOfStock || isSelectedSizeOutOfStock) {
+      uiStore.addToast('The selected size / color variation is currently out of stock.', 'error');
       return;
     }
     if (!selectedSize) {
@@ -162,7 +196,7 @@
           name: activeVariant?.color_name || 'Default',
           hex: activeVariant?.color_hex || '#f4a7c3'
         },
-        size: selectedSize,
+        size: Number(selectedSize) || 38,
         quantity: quantity,
         variantId: activeVariant?.id
       });
@@ -359,17 +393,28 @@
           </div>
 
           <div class="grid grid-cols-6 gap-2">
-            {#each AVAILABLE_SIZES as sz}
+            {#each availableSizesList as sz}
+              {@const szStock = getSizeStockForActiveVariant(sz)}
+              {@const isSzInStock = szStock > 0 && !isOutOfStock}
+              {@const isSelected = String(selectedSize) === String(sz)}
               <button
                 type="button"
+                disabled={!isSzInStock}
                 onclick={() => selectedSize = sz}
-                class="py-3 rounded-xl text-sm font-mono font-bold transition-all border {
-                  selectedSize === sz
+                class="py-3 rounded-xl text-sm font-mono font-bold transition-all border relative {
+                  isSelected
                     ? 'bg-stone-900 text-white border-stone-900 shadow-md'
-                    : 'bg-white text-stone-700 border-stone-200 hover:border-stone-400'
+                    : isSzInStock
+                      ? 'bg-white text-stone-700 border-stone-200 hover:border-stone-400'
+                      : 'bg-stone-100 text-stone-300 border-stone-200 cursor-not-allowed opacity-50'
                 }"
               >
-                {sz}
+                <span>{sz}</span>
+                {#if !isSzInStock}
+                  <span class="absolute inset-0 flex items-center justify-center pointer-events-none">
+                    <span class="w-full h-0.5 bg-red-400 rotate-45 transform"></span>
+                  </span>
+                {/if}
               </button>
             {/each}
           </div>
@@ -382,7 +427,7 @@
             <div class="flex items-center border border-stone-300 rounded-xl bg-white p-1">
               <button
                 type="button"
-                disabled={quantity <= 1 || isOutOfStock}
+                disabled={quantity <= 1 || isOutOfStock || isSelectedSizeOutOfStock}
                 onclick={() => quantity = Math.max(1, quantity - 1)}
                 class="w-10 h-10 flex items-center justify-center text-stone-700 hover:bg-stone-100 rounded-lg disabled:opacity-30 transition-colors"
               >
@@ -391,7 +436,7 @@
               <span class="w-10 text-center font-mono font-bold text-sm text-stone-900">{quantity}</span>
               <button
                 type="button"
-                disabled={quantity >= 5 || isOutOfStock}
+                disabled={quantity >= 5 || isOutOfStock || isSelectedSizeOutOfStock}
                 onclick={() => quantity = Math.min(5, quantity + 1)}
                 class="w-10 h-10 flex items-center justify-center text-stone-700 hover:bg-stone-100 rounded-lg disabled:opacity-30 transition-colors"
               >
@@ -402,10 +447,10 @@
             <!-- Add to Cart Main Button -->
             <button
               type="button"
-              disabled={isOutOfStock || isAddingToCart}
+              disabled={isOutOfStock || isSelectedSizeOutOfStock || isAddingToCart}
               onclick={handleAddToCart}
               class="flex-1 py-4 px-6 rounded-2xl font-bold text-sm shadow-xl transition-all flex items-center justify-center gap-2 {
-                isOutOfStock
+                isOutOfStock || isSelectedSizeOutOfStock
                   ? 'bg-stone-300 text-stone-500 cursor-not-allowed'
                   : 'bg-stone-900 hover:bg-black text-white hover:scale-[1.01]'
               }"
@@ -414,7 +459,9 @@
                 <div class="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
                 <span>Adding to Cart...</span>
               {:else if isOutOfStock}
-                <span>Out of Stock in this Color</span>
+                <span>Color Out of Stock</span>
+              {:else if isSelectedSizeOutOfStock}
+                <span>Size {selectedSize} Out of Stock</span>
               {:else}
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"></path><line x1="3" y1="6" x2="21" y2="6"></line><path d="M16 10a4 4 0 0 1-8 0"></path></svg>
                 <span>Add to Cart — {formatCurrency(currentPriceNumber * quantity)}</span>

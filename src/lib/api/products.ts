@@ -93,7 +93,7 @@ export function mapDBProductToFrontend(row: any): SupabaseProduct {
     images: imageDetails,
     thumbnail_url: defaultVar?.images?.[0]?.image_url || allImages[0] || '',
     colors: colors,
-    sizes: ['36', '37', '38', '39', '40', '41'],
+    sizes: Array.isArray(row.sizes) && row.sizes.length > 0 ? row.sizes : ['36', '37', '38', '39', '40', '41'],
     stock_quantity: totalStock,
     track_inventory: true,
     stock_status: totalStock > 0 ? 'in_stock' : 'out_of_stock',

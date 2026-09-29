@@ -5,6 +5,7 @@
   import { supabase } from '$lib/supabaseClient';
   import { formatCurrency, getImageKitUrl } from '$lib/types/product';
   import type { CompleteProduct, DBProduct, DBProductVariant, DBProductImage } from '$lib/types/product';
+  import { STANDARD_SIZE_MAP, formatSizeDisplay, findSizeOption } from '$lib/sizes';
 
   interface Props {
     productId?: string | null;
@@ -68,6 +69,7 @@
     color_slug: string;
     color_hex: string;
     attributes: Record<string, any>;
+    size_stock: Record<string, number>;
     price_override: string | number | null;
     compare_at_price: string | number | null;
     stock_quantity: number;
@@ -84,6 +86,7 @@
     category: 'Slippers',
     base_price: '1499',
     compare_at_price: '1999',
+    sizes: ['36', '37', '38', '39', '40', '41'] as string[],
     description: '',
     status: 'published' as 'draft' | 'published' | 'archived'
   });
@@ -98,9 +101,10 @@
       color_slug: 'blush-pink',
       color_hex: '#f4a7c3',
       attributes: {},
+      size_stock: { '36': 10, '37': 10, '38': 10, '39': 10, '40': 10, '41': 10 },
       price_override: '',
       compare_at_price: '',
-      stock_quantity: 50,
+      stock_quantity: 60,
       is_default: true,
       position: 0,
       images: []
@@ -113,6 +117,7 @@
   // Step 4 Storefront Preview State
   let previewSelectedVariantIndex = $state(0);
   let previewActiveImageIndex = $state(0);
+  let previewSelectedSize = $state<string>('38');
 
   const previewVariant = $derived(variants[previewSelectedVariantIndex] || variants[0]);
   const previewPriceNumber = $derived(
@@ -127,9 +132,85 @@
   );
   const previewPrice = $derived(formatCurrency(previewPriceNumber));
   const previewOriginalPrice = $derived(previewOriginalPriceNumber ? formatCurrency(previewOriginalPriceNumber) : null);
+  const previewSelectedSizeStock = $derived(
+    previewSelectedSize ? getVariantSizeStock(previewVariant, previewSelectedSize) : 0
+  );
 
   // Drag and drop image reordering state
   let draggedImageIndex = $state<number | null>(null);
+
+  // ─── Size Stock Helper Functions ──────────────────────────────────────────
+  function getVariantSizeStock(v: LocalVariant, size: string): number {
+    if (v.size_stock && v.size_stock[size] !== undefined) {
+      return Number(v.size_stock[size]) || 0;
+    }
+    return 0;
+  }
+
+  function updateVariantSizeStock(variantIndex: number, size: string, qtyStr: string) {
+    const qty = parseInt(qtyStr, 10);
+    const cleanQty = isNaN(qty) ? 0 : Math.max(0, qty);
+    const v = variants[variantIndex];
+    if (!v.size_stock) v.size_stock = {};
+    v.size_stock[size] = cleanQty;
+
+    // Recalculate total stock for this variant
+    const total = Object.values(v.size_stock).reduce((acc, n) => acc + (Number(n) || 0), 0);
+    v.stock_quantity = total;
+  }
+
+  function fillVariantSizesWithQty(variantIndex: number, qty: number) {
+    const v = variants[variantIndex];
+    if (!v.size_stock) v.size_stock = {};
+    for (const sz of productForm.sizes) {
+      v.size_stock[sz] = qty;
+    }
+    v.stock_quantity = qty * productForm.sizes.length;
+    uiStore.addToast(`Set all sizes to ${qty} pcs for ${v.color_name}`, 'info');
+  }
+
+  function toggleProductSize(size: string) {
+    if (productForm.sizes.includes(size)) {
+      if (productForm.sizes.length <= 1) {
+        uiStore.addToast('At least one size must remain active for the product.', 'error');
+        return;
+      }
+      productForm.sizes = productForm.sizes.filter(s => s !== size);
+    } else {
+      const allKeys = STANDARD_SIZE_MAP.map(s => s.euro);
+      const nextSizes = [...productForm.sizes, size].sort((a, b) => {
+        return (allKeys.indexOf(a) !== -1 ? allKeys.indexOf(a) : 99) - (allKeys.indexOf(b) !== -1 ? allKeys.indexOf(b) : 99);
+      });
+      productForm.sizes = nextSizes;
+
+      // Ensure all variants have default stock initialized for newly activated size
+      for (const v of variants) {
+        if (!v.size_stock) v.size_stock = {};
+        if (v.size_stock[size] === undefined) {
+          v.size_stock[size] = 10;
+        }
+        v.stock_quantity = Object.values(v.size_stock).reduce((acc, n) => acc + (Number(n) || 0), 0);
+      }
+    }
+  }
+
+  function applySizePreset(preset: 'standard' | 'all') {
+    const targetSizes = preset === 'standard' 
+      ? ['36', '37', '38', '39', '40', '41']
+      : ['35', '36', '37', '38', '39', '40', '41', '42'];
+
+    productForm.sizes = targetSizes;
+    for (const v of variants) {
+      if (!v.size_stock) v.size_stock = {};
+      for (const sz of targetSizes) {
+        if (v.size_stock[sz] === undefined) {
+          v.size_stock[sz] = 10;
+        }
+      }
+      v.stock_quantity = targetSizes.reduce((acc, sz) => acc + (Number(v.size_stock[sz]) || 0), 0);
+    }
+    uiStore.addToast(`Applied ${preset} size preset (${targetSizes.join(', ')})`, 'info');
+  }
 
   onMount(async () => {
     if (initialData) {
@@ -143,6 +224,10 @@
   });
 
   function populateInitialData(data: CompleteProduct) {
+    const loadedSizes = Array.isArray(data.sizes) && data.sizes.length > 0 
+      ? data.sizes.map(String) 
+      : ['36', '37', '38', '39', '40', '41'];
+
     productForm = {
       id: data.id || '',
       name: data.name || '',
@@ -151,26 +236,41 @@
       category: data.category || 'Slippers',
       base_price: String(data.base_price || 0),
       compare_at_price: data.compare_at_price != null ? String(data.compare_at_price) : '',
+      sizes: loadedSizes,
       description: data.description || '',
       status: data.status || 'draft'
     };
     slugAutoGenerated = false;
 
     if (data.variants && data.variants.length > 0) {
-      variants = data.variants.map((v, index) => ({
-        id: v.id,
-        sku: v.sku,
-        color_name: v.color_name,
-        color_slug: v.color_slug || slugify(v.color_name),
-        color_hex: v.color_hex || '#000000',
-        attributes: v.attributes || {},
-        price_override: v.price_override !== null && v.price_override !== undefined ? String(v.price_override) : '',
-        compare_at_price: v.compare_at_price !== null && v.compare_at_price !== undefined ? String(v.compare_at_price) : '',
-        stock_quantity: v.stock_quantity ?? 0,
-        is_default: v.is_default ?? (index === 0),
-        position: v.position ?? index,
-        images: v.images || []
-      }));
+      variants = data.variants.map((v, index) => {
+        let sizeStock: Record<string, number> = {};
+        if (v.attributes && typeof v.attributes === 'object' && v.attributes.size_stock) {
+          sizeStock = { ...v.attributes.size_stock };
+        } else {
+          const totalStock = v.stock_quantity ?? 50;
+          const perSize = Math.max(1, Math.floor(totalStock / loadedSizes.length));
+          loadedSizes.forEach(sz => { sizeStock[sz] = perSize; });
+        }
+
+        const calculatedStock = Object.values(sizeStock).reduce((acc, n) => acc + (Number(n) || 0), 0);
+
+        return {
+          id: v.id,
+          sku: v.sku,
+          color_name: v.color_name,
+          color_slug: v.color_slug || slugify(v.color_name),
+          color_hex: v.color_hex || '#000000',
+          attributes: v.attributes || {},
+          size_stock: sizeStock,
+          price_override: v.price_override !== null && v.price_override !== undefined ? String(v.price_override) : '',
+          compare_at_price: v.compare_at_price !== null && v.compare_at_price !== undefined ? String(v.compare_at_price) : '',
+          stock_quantity: calculatedStock > 0 ? calculatedStock : (v.stock_quantity ?? 0),
+          is_default: v.is_default ?? (index === 0),
+          position: v.position ?? index,
+          images: v.images || []
+        };
+      });
       activeVariantTabId = variants[0].id || '0';
     }
   }
@@ -201,6 +301,7 @@
         color_slug: v.color_slug,
         color_hex: v.color_hex,
         attributes: v.attributes || {},
+        size_stock: v.attributes?.size_stock || {},
         price_override: v.price_override ? String(v.price_override) : '',
         compare_at_price: v.compare_at_price ? String(v.compare_at_price) : '',
         stock_quantity: v.stock_quantity || 0,
@@ -240,6 +341,9 @@
     const colorCode = slugify(defaultColor.name).toUpperCase().slice(0, 4);
     const newSku = `${slugCode}-${colorCode}-${variants.length + 1}`;
 
+    const sizeStock: Record<string, number> = {};
+    productForm.sizes.forEach(sz => { sizeStock[sz] = 10; });
+
     const newVariant: LocalVariant = {
       id: crypto.randomUUID(),
       sku: newSku,
@@ -247,9 +351,10 @@
       color_slug: slugify(defaultColor.name),
       color_hex: defaultColor.hex,
       attributes: {},
+      size_stock: sizeStock,
       price_override: '',
       compare_at_price: '',
-      stock_quantity: 50,
+      stock_quantity: productForm.sizes.length * 10,
       is_default: variants.length === 0,
       position: variants.length,
       images: []
@@ -273,6 +378,7 @@
       color_slug: slugify(nextColor.name),
       color_hex: nextColor.hex,
       attributes: JSON.parse(JSON.stringify(src.attributes || {})),
+      size_stock: JSON.parse(JSON.stringify(src.size_stock || {})),
       price_override: src.price_override,
       compare_at_price: src.compare_at_price,
       stock_quantity: src.stock_quantity,
@@ -335,6 +441,8 @@
           brand: productForm.brand,
           category: productForm.category,
           base_price: parseFloat(productForm.base_price) || 0,
+          compare_at_price: productForm.compare_at_price ? parseFloat(productForm.compare_at_price) : null,
+          sizes: productForm.sizes,
           description: productForm.description,
           status: 'draft' // ensure draft during image uploads
         },
@@ -344,8 +452,9 @@
           color_name: v.color_name,
           color_slug: v.color_slug || slugify(v.color_name),
           color_hex: v.color_hex,
-          attributes: v.attributes,
+          attributes: { ...v.attributes, size_stock: v.size_stock },
           price_override: v.price_override ? parseFloat(String(v.price_override)) : null,
+          compare_at_price: v.compare_at_price ? parseFloat(String(v.compare_at_price)) : null,
           stock_quantity: v.stock_quantity || 0,
           is_default: v.is_default,
           position: i
@@ -630,6 +739,15 @@
       errorText: !allHaveImages ? 'Some variants do not have any uploaded images.' : undefined
     });
 
+    // 6. Sizes defined
+    const hasSizes = Array.isArray(productForm.sizes) && productForm.sizes.length > 0;
+    list.push({
+      id: 'has-sizes',
+      label: 'At least one shoe size configured',
+      passed: hasSizes,
+      errorText: !hasSizes ? 'Please select at least one shoe size for this product.' : undefined
+    });
+
     return list;
   });
 
@@ -654,6 +772,7 @@
           category: productForm.category,
           base_price: parseFloat(productForm.base_price) || 0,
           compare_at_price: productForm.compare_at_price ? parseFloat(productForm.compare_at_price) : null,
+          sizes: productForm.sizes,
           description: productForm.description,
           status: targetStatus
         },
@@ -663,7 +782,7 @@
           color_name: v.color_name.trim(),
           color_slug: slugify(v.color_name),
           color_hex: v.color_hex,
-          attributes: v.attributes || {},
+          attributes: { ...v.attributes, size_stock: v.size_stock },
           price_override: v.price_override ? parseFloat(String(v.price_override)) : null,
           compare_at_price: v.compare_at_price ? parseFloat(String(v.compare_at_price)) : null,
           stock_quantity: Number(v.stock_quantity || 0),
@@ -905,6 +1024,55 @@
         ></textarea>
       </div>
 
+      <!-- Available Sizes Configuration -->
+      <div class="space-y-3 pt-4 border-t border-white/10">
+        <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+          <div>
+            <span class="block text-xs font-semibold text-gray-300 uppercase tracking-wider">
+              Available Shoe Sizes <span class="text-pink-400">*</span>
+            </span>
+            <p class="text-[11px] text-gray-400">Select which sizes are manufactured / offered for this product model.</p>
+          </div>
+          <!-- Quick size presets -->
+          <div class="flex items-center gap-2">
+            <button
+              type="button"
+              onclick={() => applySizePreset('standard')}
+              class="px-2.5 py-1 rounded-lg bg-white/5 hover:bg-white/10 text-[11px] font-medium text-gray-300 hover:text-white border border-white/10 transition-colors"
+            >
+              Standard 36–41
+            </button>
+            <button
+              type="button"
+              onclick={() => applySizePreset('all')}
+              class="px-2.5 py-1 rounded-lg bg-white/5 hover:bg-white/10 text-[11px] font-medium text-gray-300 hover:text-white border border-white/10 transition-colors"
+            >
+              All (35–42)
+            </button>
+          </div>
+        </div>
+
+        <!-- Size Selection Chips -->
+        <div class="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-8 gap-2.5 pt-1">
+          {#each STANDARD_SIZE_MAP as s}
+            {@const isSelected = productForm.sizes.includes(s.euro)}
+            <button
+              type="button"
+              onclick={() => toggleProductSize(s.euro)}
+              class="p-2.5 rounded-xl text-center border transition-all flex flex-col items-center justify-center gap-0.5 {
+                isSelected
+                  ? 'bg-pink-500/20 border-pink-500 text-white shadow-lg ring-1 ring-pink-500/40'
+                  : 'bg-[#13141f] border-white/10 text-gray-400 hover:border-white/20 hover:text-gray-200'
+              }"
+            >
+              <span class="text-sm font-bold font-mono">EU {s.euro}</span>
+              <span class="text-[10px] text-gray-400 font-medium">UK {s.ukIndia}</span>
+              <span class="text-[9px] text-gray-500">{s.cm} cm</span>
+            </button>
+          {/each}
+        </div>
+      </div>
+
       <!-- Step 1 Footer -->
       <div class="flex justify-end pt-4 border-t border-white/10">
         <button
@@ -1056,23 +1224,25 @@
                 />
               </div>
 
-              <!-- Stock Quantity -->
+              <!-- Total Variant Stock Badge -->
               <div class="space-y-1.5">
-                <label for="color_stock_{idx}" class="block text-[11px] font-semibold text-gray-400 uppercase tracking-wider">
-                  Stock Quantity
-                </label>
-                <input
-                  id="color_stock_{idx}"
-                  type="number"
-                  min="0"
-                  bind:value={variant.stock_quantity}
-                  placeholder="50"
-                  class="w-full bg-[#1a1b29] border border-white/15 rounded-xl px-3 py-2 text-sm text-white font-mono focus:outline-none focus:border-pink-500"
-                />
+                <span class="block text-[11px] font-semibold text-gray-400 uppercase tracking-wider">
+                  Total Units (All Sizes)
+                </span>
+                <div class="w-full bg-[#1a1b29] border border-white/15 rounded-xl px-3 py-2 text-sm font-mono font-bold flex items-center justify-between {
+                  variant.stock_quantity > 0 ? 'text-emerald-400' : 'text-red-400'
+                }">
+                  <span>{variant.stock_quantity} pcs</span>
+                  <span class="text-[10px] font-normal px-2 py-0.5 rounded-full {
+                    variant.stock_quantity > 0 ? 'bg-emerald-500/20 text-emerald-300' : 'bg-red-500/20 text-red-300'
+                  }">
+                    {variant.stock_quantity > 0 ? 'In Stock' : 'Out of Stock'}
+                  </span>
+                </div>
               </div>
             </div>
 
-            <!-- Price Overrides (Optional) -->
+            <!-- Price Overrides & Presets (Optional) -->
             <div class="flex flex-wrap items-center justify-between gap-4 pt-2">
               <div class="flex flex-wrap items-center gap-4">
                 <div class="flex items-center gap-2">
@@ -1125,6 +1295,73 @@
                     class="w-5 h-5 rounded-full border border-white/20 hover:scale-125 transition-transform"
                     style="background-color: {chip.hex};"
                   ></button>
+                {/each}
+              </div>
+            </div>
+
+            <!-- Size-Wise Stock Inventory Matrix -->
+            <div class="pt-3 border-t border-white/5 space-y-2">
+              <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                <div class="flex items-center gap-2">
+                  <span class="text-[11px] font-bold text-gray-300 uppercase tracking-wider">
+                    Size-Wise Inventory Matrix
+                  </span>
+                  <span class="text-[10px] text-gray-400">
+                    (Manage stock per size for {variant.color_name})
+                  </span>
+                </div>
+
+                <!-- Quick Batch Fill Buttons -->
+                <div class="flex items-center gap-1.5 flex-wrap">
+                  <span class="text-[10px] text-gray-500">Quick fill:</span>
+                  <button
+                    type="button"
+                    onclick={() => fillVariantSizesWithQty(idx, 10)}
+                    class="px-2 py-0.5 rounded bg-white/5 hover:bg-white/10 text-[10px] text-gray-300 font-mono border border-white/10 transition-colors"
+                  >
+                    10 pcs
+                  </button>
+                  <button
+                    type="button"
+                    onclick={() => fillVariantSizesWithQty(idx, 25)}
+                    class="px-2 py-0.5 rounded bg-white/5 hover:bg-white/10 text-[10px] text-gray-300 font-mono border border-white/10 transition-colors"
+                  >
+                    25 pcs
+                  </button>
+                  <button
+                    type="button"
+                    onclick={() => fillVariantSizesWithQty(idx, 0)}
+                    class="px-2 py-0.5 rounded bg-red-500/10 hover:bg-red-500/20 text-[10px] text-red-300 font-mono border border-red-500/20 transition-colors"
+                  >
+                    0 (Sold Out)
+                  </button>
+                </div>
+              </div>
+
+              <!-- Size Inventory Input Grid -->
+              <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 lg:grid-cols-8 gap-2">
+                {#each productForm.sizes as sz}
+                  {@const szOpt = findSizeOption(sz)}
+                  {@const currentQty = getVariantSizeStock(variant, sz)}
+                  <div class="bg-[#1a1b29] border {currentQty > 0 ? 'border-white/15' : 'border-red-500/30 bg-red-950/10'} rounded-xl p-2.5 space-y-1.5">
+                    <div class="flex items-center justify-between text-[11px]">
+                      <span class="font-bold text-white font-mono">EU {sz}</span>
+                      <span class="text-gray-400 text-[10px]">{szOpt ? `UK ${szOpt.ukIndia}` : ''}</span>
+                    </div>
+                    <input
+                      type="number"
+                      min="0"
+                      value={currentQty}
+                      oninput={(e) => updateVariantSizeStock(idx, sz, (e.target as HTMLInputElement).value)}
+                      placeholder="0"
+                      class="w-full bg-[#13141f] border border-white/10 rounded-lg px-2 py-1.5 text-xs text-white font-mono text-center font-bold focus:outline-none focus:border-pink-500"
+                    />
+                    <div class="text-center">
+                      <span class="text-[9px] font-semibold {currentQty > 0 ? 'text-emerald-400' : 'text-red-400'}">
+                        {currentQty > 0 ? `${currentQty} in stock` : 'Sold Out'}
+                      </span>
+                    </div>
+                  </div>
                 {/each}
               </div>
             </div>
@@ -1504,6 +1741,43 @@
                 </div>
               </div>
 
+              <!-- Size Selector Simulation -->
+              <div class="space-y-3 pt-4 border-t border-gray-100">
+                <div class="flex items-center justify-between">
+                  <span class="text-xs font-bold uppercase tracking-wider text-gray-700">
+                    Select Size (India / EU): <span class="text-pink-600 font-semibold">{previewSelectedSize ? `EU ${previewSelectedSize}` : 'None'}</span>
+                  </span>
+                  <span class="text-xs text-pink-600 font-semibold">Size Guide</span>
+                </div>
+
+                <div class="grid grid-cols-6 gap-2">
+                  {#each productForm.sizes as sz}
+                    {@const sizeStock = getVariantSizeStock(previewVariant, sz)}
+                    {@const isSizeInStock = sizeStock > 0}
+                    {@const isSelected = previewSelectedSize === sz}
+                    <button
+                      type="button"
+                      disabled={!isSizeInStock}
+                      onclick={() => previewSelectedSize = sz}
+                      class="py-2.5 rounded-xl text-xs font-mono font-bold transition-all border relative {
+                        isSelected
+                          ? 'bg-gray-900 text-white border-gray-900 shadow-md'
+                          : isSizeInStock
+                            ? 'bg-white text-gray-800 border-gray-200 hover:border-gray-400'
+                            : 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed opacity-60'
+                      }"
+                    >
+                      <span>{sz}</span>
+                      {#if !isSizeInStock}
+                        <span class="absolute inset-0 flex items-center justify-center pointer-events-none">
+                          <span class="w-full h-0.5 bg-red-400 rotate-45 transform"></span>
+                        </span>
+                      {/if}
+                    </button>
+                  {/each}
+                </div>
+              </div>
+
               <!-- Description -->
               <div class="space-y-2 pt-4 border-t border-gray-100">
                 <h4 class="text-xs font-bold uppercase tracking-wider text-gray-700">About this product</h4>
@@ -1516,10 +1790,16 @@
               <div class="pt-4">
                 <button
                   type="button"
-                  disabled={(previewVariant?.stock_quantity ?? 0) <= 0}
+                  disabled={(previewVariant?.stock_quantity ?? 0) <= 0 || (productForm.sizes.length > 0 && previewSelectedSizeStock <= 0)}
                   class="w-full py-4 rounded-xl bg-gray-900 hover:bg-black text-white font-bold text-sm transition-colors shadow-lg disabled:bg-gray-300 disabled:cursor-not-allowed"
                 >
-                  {(previewVariant?.stock_quantity ?? 0) > 0 ? 'Add to Cart — ' + previewPrice : 'Out of Stock'}
+                  {#if (previewVariant?.stock_quantity ?? 0) <= 0}
+                    Variant Out of Stock
+                  {:else if productForm.sizes.length > 0 && previewSelectedSizeStock <= 0}
+                    Size {previewSelectedSize} Out of Stock
+                  {:else}
+                    Add to Cart — {previewPrice}
+                  {/if}
                 </button>
               </div>
             </div>
