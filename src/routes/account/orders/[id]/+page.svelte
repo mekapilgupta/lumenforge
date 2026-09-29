@@ -652,15 +652,17 @@
               <span style="color: var(--color-text-dark);">Total Order Value</span>
               <span style="color: var(--color-text-dark);">{fmt(order.total_amount)}</span>
             </div>
-            {#if order.payment_method === 'cod' && order.advance_amount}
+            {#if order.payment_method === 'cod'}
+              {@const adv = order.advance_amount || 5000}
+              {@const due = order.cod_balance_due != null ? order.cod_balance_due : Math.max(0, order.total_amount - adv)}
               <div class="mt-2 pt-2 border-t text-xs space-y-1" style="border-color: var(--color-blush);">
                 <div class="flex justify-between text-pink-900 font-semibold">
                   <span>Advance Paid Online:</span>
-                  <span>{fmt(order.advance_amount)}</span>
+                  <span>{fmt(adv)}</span>
                 </div>
                 <div class="flex justify-between text-emerald-700 font-bold">
                   <span>Balance Payable on Delivery:</span>
-                  <span>{fmt(order.cod_balance_due ?? (order.total_amount - order.advance_amount))}</span>
+                  <span>{fmt(due)}</span>
                 </div>
               </div>
             {/if}
@@ -668,7 +670,7 @@
           <div class="mt-3 pt-2 border-t text-sm" style="border-color: var(--color-blush);">
             <span style="color: var(--color-text-soft);">Payment: </span>
             <span class="font-medium" style="color: var(--color-text-dark);">
-              {order.payment_method === 'cod' ? (order.advance_amount ? 'COD (₹50 Advance Paid)' : 'Cash on Delivery') : paymentLabel(order.payment_method)}
+              {order.payment_method === 'cod' ? `Cash on Delivery (₹${((order.advance_amount || 5000)/100).toFixed(0)} Advance Paid)` : paymentLabel(order.payment_method)}
             </span>
           </div>
         </div>

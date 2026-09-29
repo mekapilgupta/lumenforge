@@ -129,22 +129,27 @@
               <p class="font-mono text-sm font-bold text-pink-600">{order.order_number}</p>
             </div>
             <div>
+              <p class="font-semibold" style="color: var(--color-text-dark);">Total Amount</p>
+              <p class="font-bold text-base text-gray-900">{fmt(order.total_amount)}</p>
+            </div>
+            <div>
               <p class="font-semibold" style="color: var(--color-text-dark);">Payment Method</p>
-              <p style="color: var(--color-text-mid);">
+              <div class="text-sm mt-0.5" style="color: var(--color-text-mid);">
                 {#if order.payment_method === 'cod'}
-                  <span class="font-semibold text-pink-600">Cash on Delivery</span>
-                  {#if order.advance_amount}
-                    <span class="block text-xs text-gray-500 mt-0.5">
-                      ✓ {fmt(order.advance_amount)} Advance Paid Online
-                    </span>
-                    <span class="block text-xs font-semibold text-emerald-700 mt-0.5">
-                      💵 {fmt(order.cod_balance_due ?? (order.total_amount - order.advance_amount))} Due on Delivery
-                    </span>
-                  {/if}
+                  {@const adv = order.advance_amount || 5000}
+                  {@const due = order.cod_balance_due != null ? order.cod_balance_due : Math.max(0, order.total_amount - adv)}
+                  <span class="font-semibold text-pink-600 block">Cash on Delivery (COD)</span>
+                  <span class="block text-xs text-pink-800 font-medium mt-1">
+                    ✓ {fmt(adv)} Advance Paid Online
+                  </span>
+                  <span class="block text-xs font-bold text-emerald-700 mt-0.5">
+                    💵 {fmt(due)} Balance Payable on Delivery
+                  </span>
                 {:else}
                   <span class="font-semibold text-emerald-600">Online Paid (Razorpay)</span>
+                  <span class="block text-xs text-gray-500 mt-0.5">100% Paid in full</span>
                 {/if}
-              </p>
+              </div>
             </div>
             <div>
               <p class="font-semibold" style="color: var(--color-text-dark);">Delivering to</p>

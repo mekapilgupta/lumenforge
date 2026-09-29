@@ -403,10 +403,13 @@
           const verifyData = await verifyRes.json();
           if (verifyData.success) {
             isNavigatingToSuccess = true;
+            uiStore.addToast(isCod ? '₹50 Advance Paid! COD Order confirmed 🌸' : 'Payment successful! Order confirmed 🌸', 'success');
+            
+            // Navigate immediately to order success screen
+            goto(`/checkout/success?order_id=${createData.dbOrderId}`);
+
             // Clear cart and mark abandoned cart as recovered
             await cartStore.checkoutSuccess(createData.dbOrderId);
-            uiStore.addToast(isCod ? '₹50 Advance Paid! COD Order confirmed 🌸' : 'Payment successful! Order confirmed 🌸', 'success');
-            goto(`/checkout/success?order_id=${createData.dbOrderId}`);
 
             // Push to Shiprocket (with collectable balance if COD)
             console.log('[Checkout] Pushing order to Shiprocket...');
@@ -437,7 +440,7 @@
                 recipientEmail: authStore.user?.email ?? '',
                 recipientName: authStore.profile?.full_name ?? 'Customer',
                 payloadData: {
-                  orderId: createData.order.receipt,
+                  orderId: createData.orderNumber || createData.order?.receipt,
                   amount: totalPaise / 100,
                   isCod,
                   advancePaid: isCod ? codAdvancePaise / 100 : totalPaise / 100,
@@ -453,11 +456,13 @@
               body: JSON.stringify({
                 eventType: 'Checkout',
                 details: {
-                  orderNumber: createData.order.receipt,
+                  orderNumber: createData.orderNumber || createData.order?.receipt,
                   amount: capturedTotal,
                   customerEmail: authStore.user?.email ?? '',
                   customerName: authStore.profile?.full_name ?? 'Customer',
                   paymentMethod: isCod ? 'COD (₹50 Advance Paid)' : 'Prepaid (Razorpay)',
+                  advancePaid: isCod ? codAdvancePaise / 100 : capturedTotal,
+                  codBalance: isCod ? codBalanceDuePaise / 100 : 0,
                   items: itemsSnapshot
                 }
               })
@@ -476,6 +481,10 @@
         },
         modal: {
           ondismiss: async function () {
+            if (isNavigatingToSuccess) {
+              console.log('[Razorpay] Modal closed after payment completion');
+              return;
+            }
             console.log('[Razorpay] Checkout dismissed by user without completing payment');
             razorpayLoading = false;
             if (createData?.dbOrderId) {

@@ -343,12 +343,19 @@
             </div>
           {/if}
 
-          <div class="flex items-center justify-between px-5 py-3 border-t" style="border-color: var(--color-blush);">
+          <div class="flex items-center justify-between px-5 py-3 border-t flex-wrap gap-2" style="border-color: var(--color-blush);">
             <div class="text-sm">
               <span style="color: var(--color-text-soft);">Payment: </span>
-              <span class="font-medium" style="color: var(--color-text-dark);">{paymentLabel(order.payment_method)}</span>
-              {#if order.razorpay_payment_id}
-                <span class="text-xs ml-1" style="color: var(--color-text-soft);">({order.razorpay_payment_id})</span>
+              {#if order.payment_method === 'cod'}
+                {@const adv = order.advance_amount || 5000}
+                {@const due = order.cod_balance_due != null ? order.cod_balance_due : Math.max(0, order.total_amount - adv)}
+                <span class="font-semibold text-pink-700">COD (₹{(adv/100).toFixed(0)} Advance Paid)</span>
+                <span class="block text-xs font-semibold text-emerald-700 mt-0.5">💵 Collect on Delivery: ₹{(due/100).toFixed(0)}</span>
+              {:else}
+                <span class="font-medium" style="color: var(--color-text-dark);">{paymentLabel(order.payment_method)}</span>
+                {#if order.razorpay_payment_id}
+                  <span class="text-xs ml-1" style="color: var(--color-text-soft);">({order.razorpay_payment_id})</span>
+                {/if}
               {/if}
             </div>
             <div class="text-right">

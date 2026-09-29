@@ -35,12 +35,44 @@ export async function POST({ request }) {
             `;
         } else if (type === 'transactional') {
             console.log('[Email API] Processing transactional email for:', recipientEmail, 'orderId:', payloadData?.orderId);
-            subject = `Order Confirmation: ${payloadData?.orderId || 'Your FrenchToes Order'}`;
+            subject = `Order Confirmed: #${payloadData?.orderId || 'Your FrenchToes Order'}`;
+            const isCod = payloadData?.isCod;
+            const amount = Number(payloadData?.amount || 0);
+            const advancePaid = Number(payloadData?.advancePaid || 0);
+            const codBalance = Number(payloadData?.codBalance || 0);
+
             htmlContent = `
                 <div style="font-family: sans-serif; color: #333; max-width: 600px; margin: 0 auto; padding: 25px; border: 1px solid #f4a7c3; border-radius: 16px; background-color: #fffdf9;">
-                    <h2 style="color: #5c3d2e; font-family: Georgia, serif; border-bottom: 2px solid #f4a7c3; padding-bottom: 10px; margin-top: 0;">Thank you for your order, ${recipientName || 'Customer'}!</h2>
+                    <h2 style="color: #5c3d2e; font-family: Georgia, serif; border-bottom: 2px solid #f4a7c3; padding-bottom: 10px; margin-top: 0;">Thank you for your order, ${recipientName || 'Customer'}! 🌸</h2>
                     <p style="font-size: 15px; color: #5c3d2e; line-height: 1.5;">We have successfully received your order (<strong>#${payloadData?.orderId || 'N/A'}</strong>).</p>
-                    <p style="font-size: 15px; color: #5c3d2e; line-height: 1.5;">Your order is confirmed and is now being processed. We'll notify you once it ships! 🌸</p>
+                    <p style="font-size: 15px; color: #5c3d2e; line-height: 1.5;">Your order is confirmed and is now being prepared for shipping.</p>
+                    
+                    <div style="margin: 20px 0; padding: 16px; background-color: #faf5f0; border-radius: 12px; border: 1px solid #f4a7c3;">
+                        <h3 style="margin-top: 0; margin-bottom: 12px; font-size: 14px; color: #5c3d2e;">Payment Breakdown</h3>
+                        <table style="width: 100%; border-collapse: collapse; font-size: 13px;">
+                            <tr>
+                                <td style="padding: 6px 0; color: #666;">Total Order Value:</td>
+                                <td style="padding: 6px 0; text-align: right; font-weight: bold; color: #333;">₹${amount.toLocaleString('en-IN')}</td>
+                            </tr>
+                            ${isCod ? `
+                            <tr>
+                                <td style="padding: 6px 0; color: #d81b60;">Advance Paid (Online):</td>
+                                <td style="padding: 6px 0; text-align: right; font-weight: bold; color: #d81b60;">₹${advancePaid.toLocaleString('en-IN')}</td>
+                            </tr>
+                            <tr style="border-top: 1px dashed #e0d0c5;">
+                                <td style="padding: 6px 0; color: #059669; font-weight: bold;">Due on Cash on Delivery:</td>
+                                <td style="padding: 6px 0; text-align: right; font-weight: bold; color: #059669; font-size: 14px;">₹${codBalance.toLocaleString('en-IN')}</td>
+                            </tr>
+                            ` : `
+                            <tr>
+                                <td style="padding: 6px 0; color: #059669;">Payment Method:</td>
+                                <td style="padding: 6px 0; text-align: right; font-weight: bold; color: #059669;">Paid Online (Razorpay)</td>
+                            </tr>
+                            `}
+                        </table>
+                    </div>
+
+                    <p style="font-size: 13px; color: #8b6f5e; margin-top: 20px;">You can view and track your order status anytime by logging in to your <a href="https://frenchtoes.in/account/orders" style="color: #ff7f6e;">French Toes account</a>.</p>
                 </div>
             `;
         } else if (type === 'status_update') {

@@ -761,13 +761,22 @@
                   </div>
                 </td>
                 <td class="px-5 py-4">
-                  <span
-                    class="px-2 py-0.5 rounded border text-[10px] font-bold uppercase tracking-wider {PAYMENT_STATUS_COLOR[
-                      order.payment_status
-                    ] ?? 'bg-white/5 border-white/10 text-white'}"
-                  >
-                    {order.payment_status}
-                  </span>
+                  <div class="flex flex-col gap-1 items-start">
+                    <span
+                      class="px-2 py-0.5 rounded border text-[10px] font-bold uppercase tracking-wider {PAYMENT_STATUS_COLOR[
+                        order.payment_status
+                      ] ?? 'bg-white/5 border-white/10 text-white'}"
+                    >
+                      {order.payment_status === 'partial_paid' || order.payment_status === 'paid_advance' ? 'Advance Paid' : order.payment_status}
+                    </span>
+                    {#if order.payment_method === 'cod'}
+                      {@const adv = order.advance_amount || 5000}
+                      {@const due = order.cod_balance_due != null ? order.cod_balance_due : Math.max(0, order.total_amount - adv)}
+                      <span class="text-[9px] font-medium text-pink-300">
+                        ₹{(adv/100).toFixed(0)} adv · Collect ₹{(due/100).toFixed(0)}
+                      </span>
+                    {/if}
+                  </div>
                 </td>
               </tr>
             {/each}
@@ -1083,15 +1092,23 @@
         <div>
           <p class="text-[9px] uppercase text-gray-500">Payment Method</p>
           <p class="text-white font-medium capitalize mt-0.5">
-            {selectedOrder.payment_method || "—"}
+            {selectedOrder.payment_method === 'cod' ? 'Cash on Delivery (COD)' : selectedOrder.payment_method || "—"}
           </p>
         </div>
         <div>
           <p class="text-[9px] uppercase text-gray-500">Payment Status</p>
           <p class="text-white font-medium capitalize mt-0.5">
-            {selectedOrder.payment_status || "—"}
+            {selectedOrder.payment_status === 'partial_paid' || selectedOrder.payment_status === 'paid_advance' ? 'Advance Paid (₹50)' : selectedOrder.payment_status || "—"}
           </p>
         </div>
+        {#if selectedOrder.payment_method === 'cod'}
+          {@const adv = selectedOrder.advance_amount || 5000}
+          {@const due = selectedOrder.cod_balance_due != null ? selectedOrder.cod_balance_due : Math.max(0, selectedOrder.total_amount - adv)}
+          <div class="col-span-2 p-2.5 rounded-lg bg-pink-950/30 border border-pink-500/20 text-xs flex justify-between items-center">
+            <span class="text-pink-300">Advance Paid: <strong>₹{(adv/100).toFixed(0)}</strong></span>
+            <span class="text-emerald-400 font-bold">Collect on Delivery: ₹{(due/100).toFixed(0)}</span>
+          </div>
+        {/if}
         {#if selectedOrder.razorpay_order_id}<div class="col-span-2">
             <p class="text-[9px] uppercase text-gray-500">Razorpay Order ID</p>
             <p class="font-mono text-indigo-300 break-all select-all mt-0.5">

@@ -15,6 +15,43 @@ export async function POST({ request }) {
             return json({ error: 'eventType is required' }, { status: 400 });
         }
 
+        // 1. Persist notification to admin_notifications database table first
+        const notifType = eventType === 'Checkout' ? 'new_order' : eventType === 'Signup' ? 'system_alert' : 'system_alert';
+        const notifTitle = eventType === 'Checkout' 
+            ? `New Order #${details?.orderNumber || 'N/A'} (${details?.paymentMethod || 'Razorpay'})` 
+            : eventType === 'Signup' 
+                ? `New User Signup: ${details?.email || 'N/A'}`
+                : `Order Event: ${eventType}`;
+        
+        let notifMsg = '';
+        if (eventType === 'Checkout') {
+            const isCod = (details?.paymentMethod || '').toLowerCase().includes('cod');
+            if (isCod && details?.advancePaid) {
+                notifMsg = `Order #${details?.orderNumber} placed by ${details?.customerName || 'Customer'} (Total: ₹${details?.amount?.toLocaleString('en-IN')}). ₹${details?.advancePaid} Advance Paid online. Collect ₹${details?.codBalance ?? (details?.amount - details?.advancePaid)} on Delivery.`;
+            } else {
+                notifMsg = `Order #${details?.orderNumber} placed by ${details?.customerName || 'Customer'} for ₹${details?.amount?.toLocaleString('en-IN') || '0'} via ${details?.paymentMethod || 'Razorpay'}.`;
+            }
+        } else if (eventType === 'Signup') {
+            notifMsg = `User ${details?.email || 'N/A'} created an account.`;
+        } else {
+            notifMsg = `Event ${eventType} occurred for #${details?.orderNumber || 'N/A'}. Reason: ${details?.reason || 'None'}`;
+        }
+
+        const linkUrl = eventType === 'Checkout' ? `/admin/orders` : `/admin`;
+
+        try {
+            await createAdminNotification({
+                type: notifType,
+                title: notifTitle,
+                message: notifMsg,
+                link_url: linkUrl,
+                reference_id: details?.orderNumber || details?.userId || null,
+            });
+        } catch (dbErr) {
+            console.warn('[Admin Notify API] Could not write in-app notification:', dbErr);
+        }
+
+        // 2. Prepare HTML Email
         let subject = '';
         let htmlContent = '';
 
@@ -43,7 +80,6 @@ export async function POST({ request }) {
         } else if (eventType === 'Checkout') {
             subject = `[Admin Notification] New Order Placed: #${details?.orderNumber || 'N/A'}`;
 
-            // Format order items
             let itemsHtml = '';
             if (Array.isArray(details?.items)) {
                 itemsHtml = details.items.map((item: any) => `
@@ -71,9 +107,23 @@ export async function POST({ request }) {
                             <td style="padding: 8px; border-bottom: 1px solid #eee; font-size: 13px;">${details?.customerEmail || 'N/A'}</td>
                         </tr>
                         <tr>
-                            <td style="padding: 8px; border-bottom: 1px solid #eee; font-weight: bold; font-size: 13px;">Total Amount:</td>
+                            <td style="padding: 8px; border-bottom: 1px solid #eee; font-weight: bold; font-size: 13px;">Payment Method:</td>
+                            <td style="padding: 8px; border-bottom: 1px solid #eee; font-size: 13px; font-weight: bold;">${details?.paymentMethod || 'Razorpay'}</td>
+                        </tr>
+                        <tr>
+                            <td style="padding: 8px; border-bottom: 1px solid #eee; font-weight: bold; font-size: 13px;">Total Order Value:</td>
                             <td style="padding: 8px; border-bottom: 1px solid #eee; font-weight: bold; color: #7ecba1; font-size: 13px;">₹${details?.amount?.toLocaleString('en-IN') || '0'}</td>
                         </tr>
+                        ${details?.advancePaid ? `
+                        <tr>
+                            <td style="padding: 8px; border-bottom: 1px solid #eee; font-weight: bold; font-size: 13px;">Advance Paid (Online):</td>
+                            <td style="padding: 8px; border-bottom: 1px solid #eee; font-weight: bold; color: #ec4899; font-size: 13px;">₹${details?.advancePaid?.toLocaleString('en-IN')}</td>
+                        </tr>
+                        <tr>
+                            <td style="padding: 8px; border-bottom: 1px solid #eee; font-weight: bold; font-size: 13px;">To Collect on Delivery:</td>
+                            <td style="padding: 8px; border-bottom: 1px solid #eee; font-weight: bold; color: #059669; font-size: 13px;">₹${details?.codBalance?.toLocaleString('en-IN') || (details?.amount - details?.advancePaid)}</td>
+                        </tr>
+                        ` : ''}
                     </table>
 
                     <h3 style="color: #6b4c6e; margin-top: 20px; margin-bottom: 10px; font-size: 15px;">Items Ordered</h3>
@@ -113,72 +163,51 @@ export async function POST({ request }) {
                     </table>
                 </div>
             `;
-        } else {
-            return json({ error: 'Invalid eventType' }, { status: 400 });
         }
 
-        // Send emails to each admin in the list
+        // 3. Send emails via Brevo (safe fire-and-forget fallback)
+        const brevoApiKey = env.BREVO_API_KEY || (typeof process !== 'undefined' ? process.env.BREVO_API_KEY : undefined) || '';
         const results = [];
-        for (const email of ADMIN_EMAILS) {
-            console.log(`[Admin Notify API] Sending ${eventType} email to ${email}`);
-            const brevoPayload = {
-                sender: {
-                    name: 'FrenchToes Alerts',
-                    email: 'alerts@frenchtoes.in'
-                },
-                to: [
-                    {
-                        email: email,
-                        name: 'Admin'
+
+        if (brevoApiKey && subject && htmlContent) {
+            for (const email of ADMIN_EMAILS) {
+                try {
+                    const brevoPayload = {
+                        sender: {
+                            name: 'FrenchToes Alerts',
+                            email: 'alerts@frenchtoes.in'
+                        },
+                        to: [{ email, name: 'Admin' }],
+                        subject: subject,
+                        htmlContent: htmlContent
+                    };
+
+                    const response = await fetch('https://api.brevo.com/v3/smtp/email', {
+                        method: 'POST',
+                        headers: {
+                            'Accept': 'application/json',
+                            'Content-Type': 'application/json',
+                            'api-key': brevoApiKey
+                        },
+                        body: JSON.stringify(brevoPayload)
+                    });
+
+                    if (response.ok) {
+                        const data = await response.json();
+                        results.push({ email, success: true, messageId: data.messageId });
+                    } else {
+                        const err = await response.json();
+                        console.warn(`[Admin Notify API] Brevo warning for ${email}:`, err);
+                        results.push({ email, success: false, details: err });
                     }
-                ],
-                subject: subject,
-                htmlContent: htmlContent
-            };
-
-            const brevoApiKey = env.BREVO_API_KEY || (typeof process !== 'undefined' ? process.env.BREVO_API_KEY : undefined) || '';
-            const response = await fetch('https://api.brevo.com/v3/smtp/email', {
-                method: 'POST',
-                headers: {
-                    'Accept': 'application/json',
-                    'Content-Type': 'application/json',
-                    'api-key': brevoApiKey
-                },
-                body: JSON.stringify(brevoPayload)
-            });
-
-            if (!response.ok) {
-                const errorData = await response.json();
-                console.error(`[Admin Notify API] Brevo Error for ${email}:`, JSON.stringify(errorData, null, 2));
-                results.push({ email, success: false, details: errorData });
-            } else {
-                const data = await response.json();
-                results.push({ email, success: true, messageId: data.messageId });
+                } catch (e: any) {
+                    console.warn(`[Admin Notify API] Brevo fetch error for ${email}:`, e.message);
+                    results.push({ email, success: false, error: e.message });
+                }
             }
         }
 
-        // Persist notification to admin_notifications table
-        const notifType = eventType === 'Checkout' ? 'new_order' : eventType === 'Signup' ? 'system_alert' : 'system_alert';
-        const notifTitle = eventType === 'Checkout' ? `New Order #${details?.orderNumber || 'N/A'}` : `New User Signup: ${details?.email || 'N/A'}`;
-        const notifMsg = eventType === 'Checkout' 
-            ? `Order #${details?.orderNumber} placed by ${details?.customerName || 'Customer'} for ₹${details?.amount?.toLocaleString('en-IN') || '0'} via ${details?.paymentMethod || 'Razorpay'}.`
-            : `User ${details?.email || 'N/A'} created an account.`;
-        const linkUrl = eventType === 'Checkout' ? `/admin/orders` : `/admin`;
-
-        await createAdminNotification({
-            type: notifType,
-            title: notifTitle,
-            message: notifMsg,
-            link_url: linkUrl,
-            reference_id: details?.orderNumber || details?.userId || null,
-        });
-
-        const successCount = results.filter(r => r.success).length;
-        if (successCount === 0 && results.length > 0) {
-            return json({ error: 'Failed to send notification to any admin', results }, { status: 500 });
-        }
-
-        return json({ success: true, results }, { status: 200 });
+        return json({ success: true, notificationCreated: true, emailResults: results }, { status: 200 });
 
     } catch (error: any) {
         console.error('[Admin Notify API] Unexpected error:', error);
