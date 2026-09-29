@@ -37,17 +37,34 @@
   });
 
   const currentColor = $derived(normalizedColors[activeColorIndex] || normalizedColors[0] || { name: 'Default', hex: '#f4a7c3' });
-  const currentDisplayImage = $derived.by(() => {
-    if (currentColor?.image) return currentColor.image;
+
+  // Filter images belonging to the active color variant
+  const currentColorImages = $derived.by<string[]>(() => {
+    const list: string[] = [];
+    const colName = (currentColor?.name || '').toLowerCase().trim();
+
     if (product.imageDetails && Array.isArray(product.imageDetails)) {
-      const colName = (currentColor?.name || '').toLowerCase().trim();
-      const match = product.imageDetails.find(
-        (img: any) => img && typeof img === 'object' && img.color && colName && String(img.color).toLowerCase().trim() === colName
-      );
-      if (match?.url) return match.url;
+      const matched = product.imageDetails
+        .filter((img: any) => img && typeof img === 'object' && img.color && String(img.color).toLowerCase().trim() === colName)
+        .map((img: any) => img.url)
+        .filter(Boolean);
+      list.push(...matched);
     }
-    return (Array.isArray(product.images) && product.images[0]) || '/placeholder.jpg';
+
+    if (list.length === 0 && currentColor?.image) {
+      list.push(currentColor.image);
+    }
+
+    if (list.length === 0 && Array.isArray(product.images) && product.images.length > 0) {
+      list.push(...product.images.map((img: any) => (typeof img === 'string' ? img : img?.url)).filter(Boolean));
+    }
+
+    return list.length > 0 ? list : ['/placeholder.jpg'];
   });
+
+  const currentDisplayImage = $derived(currentColorImages[0] || '/placeholder.jpg');
+  const secondaryImage = $derived(currentColorImages.length > 1 ? currentColorImages[1] : null);
+  const hasSecondaryImage = $derived(currentColorImages.length > 1 && Boolean(secondaryImage));
 
   const isWishlisted = $derived.by(() => {
     try {
@@ -65,25 +82,6 @@
         : null;
     } catch (err) {
       console.log('[ERROR] in derived salePercent:', err);
-      return null;
-    }
-  });
-
-  // Check if product has a secondary image
-  const hasSecondaryImage = $derived.by(() => {
-    try {
-      return product.images.length > 1;
-    } catch (err) {
-      console.log('[ERROR] in derived hasSecondaryImage:', err);
-      return false;
-    }
-  });
-  
-  const secondaryImage = $derived.by(() => {
-    try {
-      return product.images[1] || null;
-    } catch (err) {
-      console.log('[ERROR] in derived secondaryImage:', err);
       return null;
     }
   });
@@ -356,8 +354,8 @@
         loading="lazy"
       />
       
-      <!-- Secondary image (shown on hover if available and on default image) -->
-      {#if hasSecondaryImage && secondaryImage && activeColorIndex === 0}
+      <!-- Secondary image (shown on hover if available for active color) -->
+      {#if hasSecondaryImage && secondaryImage}
         <img
           src={secondaryImage}
           alt="{product.name} alternate view"
@@ -375,8 +373,8 @@
         {/each}
       </div>
 
-      <!-- Quick Add button (hover) - only show if no secondary image swap -->
-      {#if !hasSecondaryImage || activeColorIndex > 0}
+      <!-- Quick Add button (hover) -->
+      {#if !hasSecondaryImage}
         <div
           class="absolute bottom-0 left-0 right-0 p-3 transition-all duration-300"
           style="
