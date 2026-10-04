@@ -75,9 +75,13 @@
         const colorsList = Array.isArray(rawColors) && rawColors.length > 0 ? rawColors : [{ name: 'Default', hex: '#888' }];
         const rawImages = Array.isArray(p.images) ? p.images : [];
 
+        const seenColors = new Set<string>();
         for (const rawCol of colorsList) {
           const colorObj = typeof rawCol === 'string' ? { name: rawCol, hex: '#888' } : { name: rawCol?.name || 'Default', hex: rawCol?.hex || '#888', image: rawCol?.image };
           const colorName = (colorObj.name || '').toLowerCase().trim();
+          if (seenColors.has(colorName)) continue;
+          seenColors.add(colorName);
+
           const colorImg = colorObj.image 
             || rawImages.find((img: any) => typeof img === 'object' && img?.color && String(img.color).toLowerCase().trim() === colorName)?.url
             || (typeof rawImages[0] === 'string' ? rawImages[0] : rawImages[0]?.url)
@@ -85,7 +89,7 @@
             || '/placeholder.jpg';
 
           const colorItem: ColorItem = {
-            id: `${p.id}_${colorObj.name}`,
+            id: `${p.id}_${colorName}`,
             productId: p.id,
             name: colorObj.name,
             hex: colorObj.hex,

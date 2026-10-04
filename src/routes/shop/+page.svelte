@@ -122,27 +122,36 @@
     if (!Array.isArray(arr) || arr.length === 0) {
       return [{ name: 'Default', hex: '#f4a7c3' }];
     }
-    return arr.map((c: any) => {
+    const seen = new Set<string>();
+    const res: { name: string; hex: string; image?: string }[] = [];
+    for (const c of arr) {
+      let name = 'Default';
+      let hex = '#f4a7c3';
+      let image: string | undefined = undefined;
+
       if (typeof c === 'string') {
-        const name = c.trim();
+        name = c.trim();
         const pastel = (PASTEL_COLORS as any)[name.toLowerCase().replace(/\s+/g, '')] || (PASTEL_COLORS as any)[name.toLowerCase()];
-        return { name, hex: pastel?.hex || '#f4a7c3' };
+        hex = pastel?.hex || '#f4a7c3';
+      } else if (typeof c === 'object' && c !== null) {
+        name = (c.name || 'Default').trim();
+        hex = c.hex || (PASTEL_COLORS as any)[name.toLowerCase().replace(/\s+/g, '')]?.hex || '#f4a7c3';
+        image = c.image || undefined;
       }
-      if (typeof c === 'object' && c !== null) {
-        const name = (c.name || 'Default').trim();
-        return {
-          name,
-          hex: c.hex || (PASTEL_COLORS as any)[name.toLowerCase().replace(/\s+/g, '')]?.hex || '#f4a7c3',
-          image: c.image || undefined
-        };
+
+      const key = name.toLowerCase();
+      if (!seen.has(key)) {
+        seen.add(key);
+        res.push({ name, hex, image });
       }
-      return { name: 'Default', hex: '#f4a7c3' };
-    });
+    }
+    return res.length > 0 ? res : [{ name: 'Default', hex: '#f4a7c3' }];
   }
 
   // ─── Client-side color/size filter & per-color variant expansion ──────────────
   const filteredProducts = $derived.by(() => {
     let list: any[] = [];
+    const seenVariantKeys = new Set<string>();
 
     for (const p of dbProducts) {
       const colors = getNormalizedColors(p.colors);
@@ -163,7 +172,11 @@
 
       // Generate a distinct card for each matching color variant
       for (const color of matchingColors) {
-        const colorName = (color.name || '').toLowerCase().trim();
+        const colorName = (color.name || 'default').toLowerCase().trim();
+        const vKey = `${p.id}_${colorName}`;
+        if (seenVariantKeys.has(vKey)) continue;
+        seenVariantKeys.add(vKey);
+
         const colorSpecificImg = color.image 
           || rawImages.find((img: any) => typeof img === 'object' && img?.color && String(img.color).toLowerCase().trim() === colorName)?.url
           || (typeof rawImages[0] === 'string' ? rawImages[0] : rawImages[0]?.url)
@@ -171,11 +184,11 @@
           || '/placeholder.jpg';
 
         // Reorder colors so this specific color is first on this card
-        const cardColors = [color, ...colors.filter(c => c.name.toLowerCase().trim() !== color.name.toLowerCase().trim())];
+        const cardColors = [color, ...colors.filter(c => c.name.toLowerCase().trim() !== colorName)];
 
         list.push({
           ...p,
-          _variantKey: `${p.id}_${color.name}`,
+          _variantKey: vKey,
           _activeColor: color,
           _primaryImage: colorSpecificImg,
           colors: cardColors
