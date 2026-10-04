@@ -7,19 +7,20 @@
     selected,
     onSelect,
   }: {
-    sizes: number[];
-    available: number[];
-    selected: number | null;
-    onSelect: (s: number) => void;
+    sizes: (number | string)[];       // raw sizes as defined by admin (e.g. '4', '37', 'UK 6', 'S')
+    available: (number | string)[];
+    selected: number | string | null;
+    onSelect: (s: number | string) => void;
   } = $props();
 
-  function isAvailable(s: number): boolean {
-    return available.some(x => {
-      const optA = findSizeOption(x);
-      const optB = findSizeOption(s);
-      if (optA && optB) return optA.euro === optB.euro;
-      return Number(x) === Number(s);
-    });
+  /** Normalize any size to a comparable canonical key (euro size where known, else trimmed string) */
+  function norm(s: number | string): string {
+    const opt = findSizeOption(s);
+    return opt ? opt.euro : String(s).trim().toLowerCase();
+  }
+
+  function isAvailable(s: number | string): boolean {
+    return available.some(x => norm(x) === norm(s));
   }
 </script>
 
@@ -27,7 +28,7 @@
   {#each sizes as size}
     {@const opt = findSizeOption(size)}
     {@const avail = isAvailable(size)}
-    {@const isSelected = selected !== null && (selected === size || (opt && findSizeOption(selected)?.euro === opt.euro))}
+    {@const isSelected = selected !== null && norm(selected) === norm(size)}
     <button
       type="button"
       role="radio"
@@ -58,16 +59,11 @@
           aria-hidden="true"
         >
           <span
-            class="absolute w-full h-0.5 bg-red-400/40 rotate-45"
-            style="top: 50%; left: 0;"
+            class="block w-full h-px rotate-[-20deg]"
+            style="background: rgba(0,0,0,0.25);"
           ></span>
         </span>
       {/if}
     </button>
   {/each}
 </div>
-
-<p class="text-xs mt-2.5 flex items-center gap-1.5" style="color: var(--color-text-soft);">
-  <span>💡</span>
-  <span>Fit Guide: Standard UK/India sizing. <strong>UK 4 = EU 37</strong> (22.5 cm).</span>
-</p>

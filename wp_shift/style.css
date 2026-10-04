@@ -1,0 +1,436 @@
+/*
+Theme Name: Woodmart Child (French Toes)
+Theme URI: https://frenchtoes.in/
+Description: Custom styles and design system migrated from French Toes SvelteKit application for Woodmart + Elementor.
+Author: French Toes
+Version: 1.0.0
+Template: woodmart
+*/
+
+/* ─── Google Fonts Import ─────────────────────────────────────── */
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=Playfair+Display:ital,wght@0,400;0,600;0,700;1,400&family=Inter:wght@400;500;600&display=swap');
+
+/* ─── French Toes Design Tokens / CSS Variables ──────────────── */
+:root {
+  /* Brand Colors */
+  --color-brand-magenta: #D81B60;
+  --color-brand-magenta-hover: #b8144f;
+  --color-brand-magenta-light: #fff0f5;
+  --color-blush: #f9d5e5;
+  --color-blush-deep: #f4a7c3;
+  --color-peach: #ffdab9;
+  --color-peach-deep: #ffb347;
+  --color-lavender: #e8d5f5;
+  --color-lavender-deep: #c9a0dc;
+  --color-mint: #d5f0e8;
+  --color-mint-deep: #7ecba1;
+  --color-coral: #ffb5a7;
+  --color-coral-deep: #ff7f6e;
+  --color-gold: #d4a853;
+  --color-gold-light: #f5e6c8;
+  --color-cream: #fdf8f3;
+  --color-warm-white: #FAFAFA;
+  
+  /* Text Colors */
+  --color-text-dark: #2d1b2e;
+  --color-text-mid: #6b4c6e;
+  --color-text-soft: #9e7ca0;
+
+  /* Status Colors */
+  --bg-danger: #ef4444;
+  --text-danger: #ffffff;
+  --color-success: #10b981;
+
+  /* Typography */
+  --font-display: 'Playfair Display', Georgia, 'Times New Roman', serif;
+  --font-body: 'Outfit', 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+
+  /* Border Radius */
+  --radius-card: 16px;
+  --radius-pill: 9999px;
+  --radius-button: 9999px;
+  --radius-input: 12px;
+
+  /* Shadows */
+  --shadow-soft: 0 4px 20px rgba(216, 27, 96, 0.08);
+  --shadow-hover: 0 12px 30px rgba(216, 27, 96, 0.16);
+  --shadow-card: 0 2px 14px rgba(45, 27, 46, 0.06);
+
+  /* Woodmart Variable Bridges */
+  --wd-primary-color: var(--color-brand-magenta);
+  --wd-alternative-color: var(--color-blush-deep);
+}
+
+/* ─── Global Base Overrides ──────────────────────────────────── */
+body {
+  font-family: var(--font-body) !important;
+  color: var(--color-text-dark);
+  background-color: var(--color-warm-white);
+  -webkit-font-smoothing: antialiased;
+}
+
+h1, h2, h3, .font-display,
+.woodmart-title-container,
+.title-wrapper .title,
+.elementor-heading-title {
+  font-family: var(--font-display) !important;
+  letter-spacing: -0.01em;
+}
+
+h4, h5, h6 {
+  font-family: var(--font-body);
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+  transition: color 0.2s ease;
+}
+
+/* ─── Gradient Utilities ─────────────────────────────────────── */
+.gradient-blush-peach {
+  background: linear-gradient(135deg, var(--color-blush) 0%, var(--color-peach) 100%) !important;
+}
+
+.gradient-lavender-mint {
+  background: linear-gradient(135deg, var(--color-lavender) 0%, var(--color-mint) 100%) !important;
+}
+
+.gradient-hero {
+  background: linear-gradient(135deg, #fde8f0 0%, #fdf0e8 50%, #f0e8fd 100%) !important;
+}
+
+.gradient-brand {
+  background: linear-gradient(135deg, var(--color-brand-magenta) 0%, #ff5c93 100%) !important;
+}
+
+/* ─── Button Styles ─────────────────────────────────────────── */
+.btn-primary,
+.button.button-primary,
+.woocommerce-Button.button,
+.elementor-button.btn-french-primary {
+  display: inline-flex !important;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0.75rem 2rem !important;
+  background: linear-gradient(135deg, var(--color-brand-magenta) 0%, #ff5c93 100%) !important;
+  color: #ffffff !important;
+  font-family: var(--font-body) !important;
+  font-weight: 600 !important;
+  font-size: 0.95rem !important;
+  border-radius: var(--radius-pill) !important;
+  border: none !important;
+  cursor: pointer;
+  letter-spacing: 0.02em;
+  transition: opacity 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease !important;
+  text-transform: none !important;
+  text-decoration: none !important;
+}
+
+.btn-primary:hover,
+.woocommerce-Button.button:hover,
+.elementor-button.btn-french-primary:hover {
+  opacity: 0.94 !important;
+  transform: translateY(-2px) !important;
+  box-shadow: 0 8px 24px rgba(216, 27, 96, 0.35) !important;
+  color: #ffffff !important;
+}
+
+.btn-primary:active {
+  transform: scale(0.98) !important;
+}
+
+.btn-outline,
+.elementor-button.btn-french-outline {
+  display: inline-flex !important;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0.7rem 1.75rem !important;
+  background: transparent !important;
+  color: var(--color-text-dark) !important;
+  font-family: var(--font-body) !important;
+  font-weight: 600 !important;
+  border: 2px solid var(--color-brand-magenta) !important;
+  border-radius: var(--radius-pill) !important;
+  transition: all 0.2s ease !important;
+  text-decoration: none !important;
+  cursor: pointer;
+}
+
+.btn-outline:hover,
+.elementor-button.btn-french-outline:hover {
+  background: var(--color-brand-magenta-light) !important;
+  color: var(--color-brand-magenta) !important;
+  transform: translateY(-2px);
+}
+
+/* ─── Shimmer Sweep Effect for Buttons & Banners ────────────── */
+@keyframes shimmerSweep {
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+
+.btn-shimmer {
+  position: relative !important;
+  overflow: hidden !important;
+}
+
+.btn-shimmer::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255,255,255,0.3) 50%,
+    transparent 100%
+  );
+  animation: shimmerSweep 2.5s ease-in-out infinite;
+  pointer-events: none;
+}
+
+/* ─── Top Marquee Announcement Bar ──────────────────────────── */
+@keyframes marqueeScroll {
+  0%   { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+
+.ft-marquee-bar {
+  background-color: var(--color-brand-magenta);
+  color: #ffffff;
+  overflow: hidden;
+  white-space: nowrap;
+  padding: 8px 0;
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  display: flex;
+  align-items: center;
+}
+
+.ft-marquee-bar .marquee-track {
+  display: flex;
+  align-items: center;
+  gap: 3rem;
+  width: max-content;
+  animation: marqueeScroll 28s linear infinite;
+}
+
+.ft-marquee-bar:hover .marquee-track {
+  animation-play-state: paused;
+}
+
+/* ─── Category Marquee Strip ────────────────────────────────── */
+.ft-marquee-strip {
+  overflow: hidden;
+  background: #fff5f8;
+  padding: 12px 0;
+  border-top: 1px solid #f0d0db;
+  border-bottom: 1px solid #f0d0db;
+}
+
+.ft-marquee-strip .ft-marquee-track {
+  display: flex;
+  gap: 32px;
+  width: max-content;
+  animation: marqueeScroll 30s linear infinite;
+  white-space: nowrap;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #c0556a;
+  letter-spacing: 0.03em;
+}
+
+.ft-marquee-strip:hover .ft-marquee-track {
+  animation-play-state: paused;
+}
+
+/* ─── Product Card & Hover Effects ──────────────────────────── */
+.card-lift,
+.product-grid-item {
+  transition: transform 0.25s ease, box-shadow 0.25s ease !important;
+  border-radius: var(--radius-card);
+}
+
+.card-lift:hover,
+.product-grid-item:hover {
+  transform: translateY(-6px);
+  box-shadow: 0 16px 36px rgba(216, 27, 96, 0.12) !important;
+}
+
+/* Product Badges */
+.ft-badge {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  border-radius: 6px;
+  padding: 4px 10px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  z-index: 2;
+}
+.ft-badge--sale       { background: #e8647a; color: #fff; }
+.ft-badge--new        { background: #6b9e78; color: #fff; }
+.ft-badge--bestseller { background: #f0a500; color: #fff; }
+.ft-badge--limited    { background: #9b59b6; color: #fff; }
+
+/* ─── Shop By Color Pills ───────────────────────────────────── */
+.ft-color-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: center;
+  margin: 1.5rem 0;
+}
+
+.ft-cpill {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 9px 20px;
+  border-radius: 999px;
+  border: 2px solid var(--c, #D81B60);
+  color: var(--c, #D81B60);
+  font-weight: 600;
+  font-size: 0.85rem;
+  text-decoration: none !important;
+  transition: all 0.25s ease;
+  background: #ffffff;
+}
+
+.ft-cpill:hover {
+  background: var(--c, #D81B60);
+  color: #ffffff !important;
+  transform: scale(1.06) translateY(-2px);
+  box-shadow: 0 6px 16px rgba(0,0,0,0.12);
+}
+
+/* ─── Lush Premium Card Shine Hover ─────────────────────────── */
+.lush-card {
+  position: relative;
+  overflow: hidden;
+  border-radius: var(--radius-card);
+}
+
+.lush-card::after {
+  content: "";
+  position: absolute;
+  top: -50%;
+  left: -80%;
+  width: 40%;
+  height: 200%;
+  background: linear-gradient(
+    to right,
+    rgba(255, 255, 255, 0) 0%,
+    rgba(255, 255, 255, 0.35) 30%,
+    rgba(255, 255, 255, 0.6) 50%,
+    rgba(255, 255, 255, 0.35) 70%,
+    rgba(255, 255, 255, 0) 100%
+  );
+  transform: rotate(30deg);
+  opacity: 0;
+  transition: opacity 0.2s ease;
+  pointer-events: none;
+}
+
+.lush-card:hover::after {
+  opacity: 1;
+  animation: shine-sweep 1.4s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
+}
+
+@keyframes shine-sweep {
+  0% { left: -80%; }
+  100% { left: 150%; }
+}
+
+/* ─── Trust Badges (Footer / Product Single) ────────────────── */
+.ft-trust-badge {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 12px;
+  transition: transform 0.2s ease, background 0.2s ease;
+}
+
+.ft-trust-badge:hover {
+  transform: translateY(-3px);
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.ft-trust-badge .badge-icon {
+  font-size: 1.5rem;
+  line-height: 1;
+}
+
+.ft-trust-badge .badge-title {
+  font-size: 0.88rem;
+  font-weight: 600;
+  margin: 0;
+  color: inherit;
+}
+
+.ft-trust-badge .badge-sub {
+  font-size: 0.75rem;
+  opacity: 0.65;
+  margin: 0;
+}
+
+/* ─── Woodmart & Elementor Specific Overrides ────────────────── */
+/* Header Search & Icons */
+.whb-header .wd-tools-element > a {
+  color: var(--color-text-dark);
+  transition: color 0.2s ease;
+}
+.whb-header .wd-tools-element > a:hover {
+  color: var(--color-brand-magenta);
+}
+
+/* Cart Badge Count */
+.wd-cart-number,
+.wd-wishlist-number {
+  background-color: var(--color-brand-magenta) !important;
+  color: #fff !important;
+}
+
+/* WooCommerce Price Styling */
+.price ins .woocommerce-Price-amount,
+.price > .woocommerce-Price-amount {
+  color: var(--color-brand-magenta) !important;
+  font-weight: 700;
+}
+
+.price del .woocommerce-Price-amount {
+  opacity: 0.5;
+  font-weight: normal;
+}
+
+/* Woodmart Product Badges */
+.product-labels .product-label.onsale {
+  background-color: var(--color-brand-magenta) !important;
+}
+
+.product-labels .product-label.new {
+  background-color: var(--color-mint-deep) !important;
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-blush-deep);
+  border-radius: 3px;
+}

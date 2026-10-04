@@ -343,8 +343,10 @@ export interface CartItem {
   price: number;
   originalPrice?: number;
   color: ColorVariant;
-  size: number;
+  size: number;        // display size (admin-defined; canonical euro where known)
   quantity: number;
+  variantId?: string | null; // DB product_variants.id
+  sku?: string | null;       // GLOBAL IDENTITY — admin-defined, unique per color+size combo
 }
 
 export interface WishlistItem {

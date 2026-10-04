@@ -140,7 +140,7 @@
         price: card.price,
         originalPrice: card.originalPrice,
         color: { name: card.color, hex: card.hex },
-        size: selectedSize,
+        size: Number(selectedSize) || 38,
         quantity: 1
       });
       uiStore.addToast(`${card.name} (Size ${selectedSize}) added to cart! 🛍️`, 'success');

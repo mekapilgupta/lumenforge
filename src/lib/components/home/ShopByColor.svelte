@@ -84,9 +84,13 @@
         const colorsList = Array.isArray(rawColors) && rawColors.length > 0 ? rawColors : [{ name: 'Default', hex: '#888' }];
         const rawImages = Array.isArray(p.images) ? p.images : [];
 
+        const seenColors = new Set<string>();
         for (const rawCol of colorsList) {
           const colorObj = typeof rawCol === 'string' ? { name: rawCol, hex: '#888' } : { name: rawCol?.name || 'Default', hex: rawCol?.hex || '#888', image: rawCol?.image };
-          const colorName = (colorObj.name || '').toLowerCase().trim();
+          const colorName = (colorObj.name || 'default').toLowerCase().trim();
+          if (seenColors.has(colorName)) continue;
+          seenColors.add(colorName);
+
           const colorImg = colorObj.image 
             || rawImages.find((img: any) => typeof img === 'object' && img?.color && String(img.color).toLowerCase().trim() === colorName)?.url 
             || (typeof rawImages[0] === 'string' ? rawImages[0] : rawImages[0]?.url)
@@ -94,7 +98,7 @@
             || '/placeholder.jpg';
 
           result.push({
-            id: `${p.id}_${colorObj.name}`,
+            id: `${p.id}_${colorName}`,
             productId: p.id,
             series: series.startsWith('Miami') ? 'Miami' : series,
             name: p.name,
@@ -142,7 +146,7 @@
         price: card.price,
         originalPrice: card.originalPrice,
         color: { name: card.color, hex: card.hex },
-        size: selectedSize,
+        size: Number(selectedSize) || 38,
         quantity: 1
       });
       uiStore.addToast(`${card.name} (${card.color} - Size ${selectedSize}) added to cart! 🛍️`, 'success');

@@ -80,6 +80,34 @@
     completed: "#6b7280",
   };
 
+  function isCodOrder(o: any): boolean {
+    if (!o) return false;
+    if (o.payment_method === 'cod') return true;
+    if (o.payment_status === 'partial_paid' || o.payment_status === 'paid_advance') return true;
+    if (o.advance_amount && o.advance_amount > 0 && o.advance_amount < o.total_amount) return true;
+    if (o.cod_balance_due && o.cod_balance_due > 0) return true;
+    const gwAmount = (o.payment_gateway_response as any)?.amount;
+    if (typeof gwAmount === 'number' && gwAmount > 0 && gwAmount < (o.total_amount || 0)) return true;
+    const desc = (o.payment_gateway_response as any)?.description;
+    if (typeof desc === 'string' && (desc.toLowerCase().includes('cod advance') || desc.toLowerCase().includes('advance confirmation'))) return true;
+    return false;
+  }
+
+  function getAdvAmount(o: any): number {
+    if (!o) return 0;
+    if (o.advance_amount && o.advance_amount > 0 && o.advance_amount < o.total_amount) return o.advance_amount;
+    const gwAmount = (o.payment_gateway_response as any)?.amount;
+    if (typeof gwAmount === 'number' && gwAmount > 0 && gwAmount < (o.total_amount || 0)) return gwAmount;
+    return 500;
+  }
+
+  function getCodDue(o: any): number {
+    if (!o) return 0;
+    if (o.cod_balance_due != null && o.cod_balance_due > 0) return o.cod_balance_due;
+    const adv = getAdvAmount(o);
+    return Math.max(0, (o.total_amount || 0) - adv);
+  }
+
   onMount(async () => {
     await authStore.init();
     if (!authStore.user || !authStore.isAdmin) return;
@@ -767,13 +795,13 @@
                         order.payment_status
                       ] ?? 'bg-white/5 border-white/10 text-white'}"
                     >
-                      {order.payment_status === 'partial_paid' || order.payment_status === 'paid_advance' ? 'Advance Paid' : order.payment_status}
+                      {isCodOrder(order) && getCodDue(order) > 0 && order.payment_status !== 'paid' ? 'Advance Paid' : order.payment_status}
                     </span>
-                    {#if order.payment_method === 'cod' || order.payment_status === 'partial_paid' || order.payment_status === 'paid_advance' || (order.advance_amount && order.advance_amount > 0 && order.advance_amount < order.total_amount)}
-                      {@const adv = order.advance_amount || 500}
-                      {@const due = order.cod_balance_due != null ? order.cod_balance_due : Math.max(0, order.total_amount - adv)}
+                    {#if isCodOrder(order)}
+                      {@const adv = getAdvAmount(order)}
+                      {@const due = getCodDue(order)}
                       <span class="text-[9px] font-medium text-pink-300">
-                        ₹{(adv/100).toFixed(0)} adv · Collect ₹{(due/100).toFixed(0)}
+                        ₹{(adv/100).toFixed(0)} adv · {due > 0 && order.payment_status !== 'paid' ? `Collect ₹${(due/100).toFixed(0)}` : 'Fully Paid'}
                       </span>
                     {/if}
                   </div>
@@ -1092,21 +1120,21 @@
         <div>
           <p class="text-[9px] uppercase text-gray-500">Payment Method</p>
           <p class="text-white font-medium capitalize mt-0.5">
-            {selectedOrder.payment_method === 'cod' ? 'Cash on Delivery (COD)' : selectedOrder.payment_method || "—"}
+            {isCodOrder(selectedOrder) ? `Cash on Delivery (₹${((getAdvAmount(selectedOrder))/100).toFixed(0)} Adv)` : selectedOrder.payment_method || "—"}
           </p>
         </div>
         <div>
           <p class="text-[9px] uppercase text-gray-500">Payment Status</p>
           <p class="text-white font-medium capitalize mt-0.5">
-            {selectedOrder.payment_status === 'partial_paid' || selectedOrder.payment_status === 'paid_advance' ? `Advance Paid (₹${(((selectedOrder.advance_amount || 500))/100).toFixed(0)})` : selectedOrder.payment_status || "—"}
+            {isCodOrder(selectedOrder) && getCodDue(selectedOrder) > 0 && selectedOrder.payment_status !== 'paid' ? `Advance Paid (₹${(((getAdvAmount(selectedOrder)))/100).toFixed(0)})` : selectedOrder.payment_status || "—"}
           </p>
         </div>
-        {#if selectedOrder.payment_method === 'cod' || selectedOrder.payment_status === 'partial_paid' || selectedOrder.payment_status === 'paid_advance' || (selectedOrder.advance_amount && selectedOrder.advance_amount > 0 && selectedOrder.advance_amount < selectedOrder.total_amount)}
-          {@const adv = selectedOrder.advance_amount || 500}
-          {@const due = selectedOrder.cod_balance_due != null ? selectedOrder.cod_balance_due : Math.max(0, selectedOrder.total_amount - adv)}
+        {#if isCodOrder(selectedOrder)}
+          {@const adv = getAdvAmount(selectedOrder)}
+          {@const due = getCodDue(selectedOrder)}
           <div class="col-span-2 p-2.5 rounded-lg bg-pink-950/30 border border-pink-500/20 text-xs flex justify-between items-center">
             <span class="text-pink-300">Advance Paid: <strong>₹{(adv/100).toFixed(0)}</strong></span>
-            <span class="text-emerald-400 font-bold">Collect on Delivery: ₹{(due/100).toFixed(0)}</span>
+            <span class="text-emerald-400 font-bold">Collect on Delivery: {due > 0 && selectedOrder.payment_status !== 'paid' ? `₹${(due/100).toFixed(0)}` : '₹0 (Paid in Full)'}</span>
           </div>
         {/if}
         {#if selectedOrder.razorpay_order_id}<div class="col-span-2">

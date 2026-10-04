@@ -54,7 +54,7 @@
 
   // UI state
   let selectedColor = $state<ColorVariant | null>(null);
-  let selectedSize = $state<number | null>(null);
+  let selectedSize = $state<number | string | null>(null);
   let quantity = $state(1);
   let activeImage = $state(0);
   let activeTab = $state<'details' | 'materials' | 'care' | 'shipping'>('details');
@@ -254,22 +254,34 @@
     activeImage = 0;
   }
 
+  // Sizes shown/available are RAW admin-defined values (deduped canonically, order preserved)
   const availableSizes = $derived.by(() => {
     if (!product) return [];
     const prodVariants = (product as any).variants || [];
+    const dedupe = (list: (number | string)[]) => {
+      const seen = new Set<string>();
+      return list.filter(s => {
+        const k = String(canonicalizeSize(s)).toLowerCase();
+        if (seen.has(k)) return false;
+        seen.add(k);
+        return true;
+      });
+    };
     if (!prodVariants || prodVariants.length === 0) {
-      return (product.sizes ?? []).map(Number);
+      return dedupe((product.sizes ?? []) as (number | string)[]);
     }
     const colorName = selectedColor?.name?.toLowerCase() || '';
     const relevantVariants = prodVariants.filter(
       (v: any) => !colorName || String(v.color).toLowerCase() === colorName
     );
     if (relevantVariants.length === 0) {
-      return (product.sizes ?? []).map(Number);
+      return dedupe((product.sizes ?? []) as (number | string)[]);
     }
-    return relevantVariants
-      .filter((v: any) => (v.stock_quantity ?? 0) > 0 && v.is_active !== false)
-      .map((v: any) => Number(canonicalizeSize(v.size)));
+    return dedupe(
+      relevantVariants
+        .filter((v: any) => (v.stock_quantity ?? 0) > 0 && v.is_active !== false)
+        .map((v: any) => v.size)
+    );
   });
 
   function formatPrice(n: number) {
@@ -302,9 +314,10 @@
       price: product.price,
       originalPrice: product.originalPrice,
       color: selectedColor,
-      size: selectedSize,
+      size: Number(selectedSize) || 38,
       quantity,
-      variantId
+      variantId,
+      sku: matchedVariant?.sku || null
     });
     uiStore.addToast(`${product.name} (${selectedColor.name}) added to cart 🛍️`, 'success');
     setTimeout(() => { adding = false; }, 1000);
@@ -327,24 +340,24 @@
   async function handleReviewSubmit(e: SubmitEvent) {
     e.preventDefault();
     if (!authStore.user || !dbProduct) return;
-    reviewSubmitting = true;
-    const { error } = await submitReview({
-      productId: dbProduct._dbId,
-      userId: authStore.user.id,
-      orderId: null,
-      rating: reviewRating,
-      title: reviewTitle,
-      body: reviewBody,
-      isVerifiedPurchase,
-    });
-    reviewSubmitting = false;
-    if (error) {
-      uiStore.addToast('Failed to submit review: ' + error, 'error');
-    } else {
+    try {
+      await submitReview({
+        product_id: dbProduct._dbId,
+        user_id: authStore.user.id,
+        order_id: undefined,
+        rating: reviewRating,
+        title: reviewTitle,
+        body: reviewBody,
+        is_verified_purchase: isVerifiedPurchase,
+      });
       uiStore.addToast('Review submitted! It will appear after approval.', 'success');
       showReviewForm = false;
       reviewTitle = '';
       reviewBody = '';
+    } catch (err: any) {
+      uiStore.addToast('Failed to submit review: ' + (err?.message || 'Unknown error'), 'error');
+    } finally {
+      reviewSubmitting = false;
     }
   }
 </script>

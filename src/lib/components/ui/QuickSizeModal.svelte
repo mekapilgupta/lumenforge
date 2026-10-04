@@ -1,17 +1,23 @@
 <script lang="ts">
   import { fade, fly } from 'svelte/transition';
   import { uiStore } from '$lib/stores/ui.svelte';
-  import { findSizeOption, canonicalizeSize } from '$lib/sizes';
+  import { findSizeOption } from '$lib/sizes';
 
   const product = $derived(uiStore.quickSizeProduct);
 
-  let selectedSize = $state<number | null>(null);
+  let selectedSize = $state<number | string | null>(null);
 
-  // Compute available sizes
+  /** Normalize any size to a comparable canonical key (euro where known, else trimmed string) */
+  function norm(s: number | string): string {
+    const opt = findSizeOption(s);
+    return opt ? opt.euro : String(s).trim().toLowerCase();
+  }
+
+  // Compute available sizes — raw admin-defined values, passthrough (no forced Number())
   const sizes = $derived.by(() => {
     if (!product) return [];
     if (product.sizes && Array.isArray(product.sizes) && product.sizes.length > 0) {
-      return product.sizes.map(Number);
+      return product.sizes;
     }
     // Default standard sizes
     return [36, 37, 38, 39, 40, 41, 42];
@@ -20,26 +26,21 @@
   const availableSizes = $derived.by(() => {
     if (!product) return [];
     if (product.availableSizes && Array.isArray(product.availableSizes) && product.availableSizes.length > 0) {
-      return product.availableSizes.map(Number);
+      return product.availableSizes;
     }
     return sizes;
   });
 
-  function isSizeInStock(size: number): boolean {
-    const opt = findSizeOption(size);
-    return availableSizes.some(x => {
-      const optX = findSizeOption(x);
-      if (opt && optX) return opt.euro === optX.euro;
-      return Number(x) === Number(size);
-    });
+  function isSizeInStock(size: number | string): boolean {
+    return availableSizes.some((x: number | string) => norm(x) === norm(size));
   }
 
-  function handleSelect(size: number) {
+  function handleSelect(size: number | string) {
     selectedSize = size;
   }
 
   function handleConfirm() {
-    if (selectedSize === null) {
+    if (selectedSize === null || selectedSize === undefined) {
       uiStore.addToast('Please select a size', 'error');
       return;
     }
@@ -110,7 +111,7 @@
             {#each sizes as size}
               {@const opt = findSizeOption(size)}
               {@const inStock = isSizeInStock(size)}
-              {@const isSelected = selectedSize !== null && (selectedSize === size || (opt && findSizeOption(selectedSize)?.euro === opt.euro))}
+              {@const isSelected = selectedSize !== null && selectedSize !== undefined && norm(selectedSize) === norm(size)}
               <button
                 onclick={() => inStock && handleSelect(size)}
                 disabled={!inStock}

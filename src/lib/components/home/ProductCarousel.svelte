@@ -6,7 +6,8 @@
   import CarouselProductCard from '$lib/components/product/CarouselProductCard.svelte';
 
   interface ColorItem {
-    id: string;
+    id: string;          // composite display id (productId_colorName) — NOT a product uuid
+    productId: string;   // real products.id uuid used for cart/DB operations
     name: string;
     hex: string;
     image: string;
@@ -85,6 +86,7 @@
 
           const colorItem: ColorItem = {
             id: `${p.id}_${colorObj.name}`,
+            productId: p.id,
             name: colorObj.name,
             hex: colorObj.hex,
             image: colorImg,
@@ -145,14 +147,14 @@
     uiStore.openQuickSize(productShape, (selectedSize) => {
       addingId = colorItem.id;
       cartStore.addItem({
-        productId: colorItem.id,
+        productId: colorItem.productId,
         slug: colorItem.slug,
         name: `${modelName} (${colorItem.name})`,
         image: colorItem.image,
         price: colorItem.price,
         originalPrice: colorItem.originalPrice,
         color: { name: colorItem.name, hex: colorItem.hex },
-        size: selectedSize,
+        size: Number(selectedSize) || 38,
         quantity: 1
       });
       uiStore.addToast(`${modelName} (${colorItem.name} - Size ${selectedSize}) added to bag! 🛍️`, 'success');

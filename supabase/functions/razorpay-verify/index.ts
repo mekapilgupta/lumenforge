@@ -161,11 +161,13 @@ serve(async (req) => {
       .eq("razorpay_order_id", razorpay_order_id)
       .maybeSingle();
 
-    const isCodOrder = existingOrder?.payment_method === "cod" || (existingOrder?.cod_balance_due && existingOrder.cod_balance_due > 0);
+    const amountCharged = (typeof paymentDetails.amount === "number" ? paymentDetails.amount : null) ?? existingOrder?.advance_amount ?? 0;
+    const isPartialPayment = Boolean(existingOrder?.total_amount && amountCharged > 0 && amountCharged < existingOrder.total_amount);
+    const isCodOrder = existingOrder?.payment_method === "cod" || (existingOrder?.cod_balance_due && existingOrder.cod_balance_due > 0) || isPartialPayment;
     const resolvedPaymentStatus = isCodOrder ? "partial_paid" : "paid";
     const resolvedPaymentMethod = isCodOrder ? "cod" : "razorpay";
-    const advanceAmount = isCodOrder ? (existingOrder?.advance_amount || 500) : (existingOrder?.total_amount || 0);
-    const codBalanceDue = isCodOrder ? (existingOrder?.cod_balance_due || Math.max(0, (existingOrder?.total_amount || 0) - advanceAmount)) : 0;
+    const advanceAmount = isCodOrder ? (amountCharged || existingOrder?.advance_amount || 500) : (existingOrder?.total_amount || amountCharged);
+    const codBalanceDue = isCodOrder ? (existingOrder?.cod_balance_due != null ? existingOrder.cod_balance_due : Math.max(0, (existingOrder?.total_amount || 0) - advanceAmount)) : 0;
 
     // Update the order row in Supabase
     console.log(`[4/5] Updating order in Supabase (method: ${resolvedPaymentMethod}, payment_status: ${resolvedPaymentStatus}, advance: ${advanceAmount}, codBalance: ${codBalanceDue})...`);

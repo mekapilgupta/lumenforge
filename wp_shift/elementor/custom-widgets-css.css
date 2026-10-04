@@ -1,0 +1,102 @@
+/* ========================================================================= */
+/* FRENCH TOES - ELEMENTOR CUSTOM CLASSES & WIDGET EXTENSIONS                */
+/* Add these class names into Elementor -> Advanced -> CSS Classes           */
+/* ========================================================================= */
+
+/* 1. Shop by Color Pill Container & Links */
+.ft-color-pills {
+  display: flex !important;
+  flex-wrap: wrap !important;
+  gap: 10px !important;
+  justify-content: center !important;
+  list-style: none !important;
+  padding: 0 !important;
+  margin: 1.5rem 0 !important;
+}
+
+.ft-cpill {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 7px !important;
+  padding: 8px 18px !important;
+  border-radius: 999px !important;
+  border: 2px solid var(--c, #D81B60) !important;
+  color: var(--c, #D81B60) !important;
+  font-weight: 600 !important;
+  font-size: 0.85rem !important;
+  text-decoration: none !important;
+  background: #ffffff !important;
+  transition: all 0.25s ease !important;
+}
+
+.ft-cpill:hover {
+  background: var(--c, #D81B60) !important;
+  color: #ffffff !important;
+  transform: scale(1.05) translateY(-2px) !important;
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.12) !important;
+}
+
+/* 2. Lush Card Hover Shine (Add 'lush-card' to Elementor Column or Container) */
+.lush-card {
+  position: relative !important;
+  overflow: hidden !important;
+}
+
+.lush-card::after {
+  content: "";
+  position: absolute;
+  top: -50%;
+  left: -80%;
+  width: 40%;
+  height: 200%;
+  background: linear-gradient(
+    to right,
+    rgba(255, 255, 255, 0) 0%,
+    rgba(255, 255, 255, 0.35) 30%,
+    rgba(255, 255, 255, 0.6) 50%,
+    rgba(255, 255, 255, 0.35) 70%,
+    rgba(255, 255, 255, 0) 100%
+  );
+  transform: rotate(30deg);
+  opacity: 0;
+  transition: opacity 0.2s ease;
+  pointer-events: none;
+}
+
+.lush-card:hover::after {
+  opacity: 1;
+  animation: shine-sweep 1.4s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
+}
+
+/* 3. Hero Soft Gradient Background (Add 'gradient-hero' to Elementor Section/Container) */
+.gradient-hero {
+  background: linear-gradient(135deg, #fde8f0 0%, #fdf0e8 50%, #f0e8fd 100%) !important;
+}
+
+/* 4. Brand Gradient Background (Add 'gradient-brand' to Elementor Section/Container) */
+.gradient-brand {
+  background: linear-gradient(135deg, #D81B60 0%, #ff5c93 100%) !important;
+}
+
+/* 5. Shimmer Button (Add 'btn-shimmer' to Elementor Button Widget) */
+.btn-shimmer {
+  position: relative !important;
+  overflow: hidden !important;
+}
+
+.btn-shimmer::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255,255,255,0.3) 50%,
+    transparent 100%
+  );
+  animation: shimmerSweep 2.5s ease-in-out infinite;
+  pointer-events: none;
+}

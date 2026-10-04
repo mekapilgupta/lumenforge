@@ -47,7 +47,20 @@
     'Defective / Damaged pair received',
   ];
 
+  let razorpayScriptLoaded = $state(false);
+  let payingBalance = $state(false);
+
   onMount(async () => {
+    // Load Razorpay checkout script dynamically
+    if (typeof window !== 'undefined' && !(window as any).Razorpay) {
+      const script = document.createElement('script');
+      script.src = 'https://checkout.razorpay.com/v1/checkout.js';
+      script.onload = () => { razorpayScriptLoaded = true; };
+      document.body.appendChild(script);
+    } else {
+      razorpayScriptLoaded = true;
+    }
+
     await authStore.init();
     if (authStore.user) {
       await loadOrder();
@@ -55,6 +68,119 @@
     }
     loading = false;
   });
+
+  async function payRemainingBalance() {
+    if (!order || payingBalance) return;
+    payingBalance = true;
+
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData?.session?.access_token || '';
+
+      const res = await fetch('/api/payments/balance', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+        },
+        body: JSON.stringify({ action: 'create', orderId: order.id, sessionToken: token })
+      });
+      const data = await res.json();
+      if (!data.success) {
+        throw new Error(data.error || 'Failed to initiate balance payment');
+      }
+
+      const options = {
+        key: data.keyId,
+        amount: data.amount,
+        currency: data.currency || 'INR',
+        name: 'French Toes',
+        description: `Remaining Balance for Order #${order.order_number}`,
+        order_id: data.razorpayOrderId,
+        prefill: {
+          name: authStore.profile?.full_name || '',
+          email: authStore.user?.email || '',
+          contact: authStore.profile?.phone || ''
+        },
+        theme: {
+          color: '#ec4899'
+        },
+        handler: async function (response: any) {
+          try {
+            const verifyRes = await fetch('/api/payments/balance', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+              },
+              body: JSON.stringify({
+                action: 'verify',
+                orderId: order.id,
+                sessionToken: token,
+                razorpay_order_id: response.razorpay_order_id,
+                razorpay_payment_id: response.razorpay_payment_id,
+                razorpay_signature: response.razorpay_signature
+              })
+            });
+            const verifyData = await verifyRes.json();
+            if (verifyData.success) {
+              uiStore.addToast(verifyData.message || 'Remaining balance paid successfully! 🌸', 'success');
+              await loadOrder();
+            } else {
+              throw new Error(verifyData.error || 'Payment verification failed');
+            }
+          } catch (e: any) {
+            uiStore.addToast(e?.message || 'Payment verification failed', 'error');
+          } finally {
+            payingBalance = false;
+          }
+        },
+        modal: {
+          ondismiss: function () {
+            payingBalance = false;
+          }
+        }
+      };
+
+      const rzp = new (window as any).Razorpay(options);
+      rzp.on('payment.failed', function (resp: any) {
+        uiStore.addToast(resp?.error?.description || 'Payment failed. Please try again.', 'error');
+        payingBalance = false;
+      });
+      rzp.open();
+    } catch (err: any) {
+      uiStore.addToast(err?.message || 'Failed to start payment', 'error');
+      payingBalance = false;
+    }
+  }
+
+  function isCodOrder(o: any): boolean {
+    if (!o) return false;
+    if (o.payment_method === 'cod') return true;
+    if (o.payment_status === 'partial_paid' || o.payment_status === 'paid_advance') return true;
+    if (o.advance_amount && o.advance_amount > 0 && o.advance_amount < o.total_amount) return true;
+    if (o.cod_balance_due && o.cod_balance_due > 0) return true;
+    const gwAmount = (o.payment_gateway_response as any)?.amount;
+    if (typeof gwAmount === 'number' && gwAmount > 0 && gwAmount < (o.total_amount || 0)) return true;
+    const desc = (o.payment_gateway_response as any)?.description;
+    if (typeof desc === 'string' && (desc.toLowerCase().includes('cod advance') || desc.toLowerCase().includes('advance confirmation'))) return true;
+    return false;
+  }
+
+  function getAdvAmount(o: any): number {
+    if (!o) return 0;
+    if (o.advance_amount && o.advance_amount > 0 && o.advance_amount < o.total_amount) return o.advance_amount;
+    const gwAmount = (o.payment_gateway_response as any)?.amount;
+    if (typeof gwAmount === 'number' && gwAmount > 0 && gwAmount < (o.total_amount || 0)) return gwAmount;
+    return 500;
+  }
+
+  function getCodDue(o: any): number {
+    if (!o) return 0;
+    if (o.cod_balance_due != null && o.cod_balance_due > 0) return o.cod_balance_due;
+    const adv = getAdvAmount(o);
+    return Math.max(0, (o.total_amount || 0) - adv);
+  }
 
   onDestroy(() => {
     if (realtimeSub) supabase.removeChannel(realtimeSub);
@@ -69,6 +195,25 @@
       .eq('user_id', authStore.user!.id)
       .single();
     if (error || !data) { uiStore.addToast('Order not found', 'error'); return; }
+
+    if (data) {
+      if (isCodOrder(data) && (data.payment_method !== 'cod' || data.payment_status === 'paid')) {
+        const adv = getAdvAmount(data);
+        const due = getCodDue(data);
+        data.payment_method = 'cod';
+        data.payment_status = 'partial_paid';
+        data.advance_amount = adv;
+        data.cod_balance_due = due;
+        // Background update
+        supabase.from('orders').update({
+          payment_method: 'cod',
+          payment_status: 'partial_paid',
+          advance_amount: adv,
+          cod_balance_due: due
+        }).eq('id', orderId).then(() => {});
+      }
+    }
+
     order = data as Order;
 
     // Load active return/exchange request if exists
@@ -114,8 +259,12 @@
 
   function subscribeRealtime() {
     const orderId = ($page.params as Record<string, string>)['id'];
+    if (realtimeSub) {
+      supabase.removeChannel(realtimeSub);
+      realtimeSub = null;
+    }
     realtimeSub = supabase
-      .channel(`order-${orderId}`)
+      .channel(`cust-order-${orderId}-${Date.now()}`)
       .on('postgres_changes', {
         event: 'UPDATE',
         schema: 'public',
@@ -637,6 +786,58 @@
           </div>
         {/if}
 
+        <!-- COD Advance Notice & Pay Balance Online Action Card -->
+        {#if isCodOrder(order)}
+          {@const adv = getAdvAmount(order)}
+          {@const due = getCodDue(order)}
+          <div class="rounded-2xl p-5 border shadow-sm" style="border-color: #fbcfe8; background: linear-gradient(135deg, #fff5f7 0%, #ffffff 100%);">
+            <div class="flex items-center justify-between gap-2 mb-2 flex-wrap">
+              <span class="text-xs font-bold uppercase tracking-wider text-pink-700 bg-pink-100/90 px-2.5 py-0.5 rounded-full border border-pink-200">
+                🛡️ Cash on Delivery (Advance Deposit)
+              </span>
+              {#if due > 0 && order.payment_status !== 'paid'}
+                <span class="text-xs font-bold text-emerald-800 bg-emerald-50 border border-emerald-200 px-2.5 py-0.5 rounded-full">
+                  ₹{(due/100).toFixed(0)} Due on Delivery
+                </span>
+              {:else}
+                <span class="text-xs font-bold text-green-700 bg-green-50 border border-green-200 px-2.5 py-0.5 rounded-full">
+                  ✓ 100% Paid
+                </span>
+              {/if}
+            </div>
+
+            <p class="text-xs text-gray-700 leading-relaxed">
+              Advance deposit paid: <strong class="text-pink-900">{fmt(adv)}</strong>.
+              {#if due > 0 && order.payment_status !== 'paid'}
+                Remaining collectable amount: <strong class="text-emerald-800">{fmt(due)}</strong> (payable to courier upon delivery).
+              {:else}
+                Your order is fully paid. No cash will be collected on delivery!
+              {/if}
+            </p>
+
+            {#if due > 0 && order.payment_status !== 'paid' && order.status !== 'cancelled' && order.status !== 'delivered'}
+              <div class="mt-4 pt-3 border-t border-pink-100">
+                <button
+                  onclick={payRemainingBalance}
+                  disabled={payingBalance}
+                  class="w-full py-3 px-4 rounded-xl text-xs font-bold text-white shadow-md flex items-center justify-center gap-2 cursor-pointer transition-all active:scale-95 disabled:opacity-50"
+                  style="background: linear-gradient(135deg, #ec4899 0%, #db2777 100%);"
+                >
+                  {#if payingBalance}
+                    <span class="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
+                    <span>Opening Payment...</span>
+                  {:else}
+                    <span>⚡ Pay Remaining {fmt(due)} Online Now</span>
+                  {/if}
+                </button>
+                <p class="text-[10px] text-gray-500 text-center mt-1.5 font-medium">
+                  Instant confirmation · Switch to 100% contactless prepaid delivery
+                </p>
+              </div>
+            {/if}
+          </div>
+        {/if}
+
         <!-- Price breakdown -->
         <div class="rounded-2xl p-4 border" style="border-color: var(--color-blush); background: white;">
           <h3 class="font-semibold text-sm mb-3" style="color: var(--color-text-dark);">Price Details</h3>
@@ -652,9 +853,9 @@
               <span style="color: var(--color-text-dark);">Total Order Value</span>
               <span style="color: var(--color-text-dark);">{fmt(order.total_amount)}</span>
             </div>
-            {#if order.payment_method === 'cod' || order.payment_status === 'partial_paid' || order.payment_status === 'paid_advance' || (order.advance_amount && order.advance_amount > 0 && order.advance_amount < order.total_amount)}
-              {@const adv = order.advance_amount || 500}
-              {@const due = order.cod_balance_due != null ? order.cod_balance_due : Math.max(0, order.total_amount - adv)}
+            {#if isCodOrder(order)}
+              {@const adv = getAdvAmount(order)}
+              {@const due = getCodDue(order)}
               <div class="mt-2 pt-2 border-t text-xs space-y-1" style="border-color: var(--color-blush);">
                 <div class="flex justify-between text-pink-900 font-semibold">
                   <span>Advance Paid Online:</span>
@@ -662,21 +863,21 @@
                 </div>
                 <div class="flex justify-between text-emerald-700 font-bold">
                   <span>Balance Payable on Delivery:</span>
-                  <span>{fmt(due)}</span>
+                  <span>{due > 0 && order.payment_status !== 'paid' ? fmt(due) : '₹0 (Paid in Full)'}</span>
                 </div>
               </div>
             {/if}
           </div>
-          <div class="mt-3 pt-2 border-t text-sm" style="border-color: var(--color-blush);">
-            <span style="color: var(--color-text-soft);">Payment: </span>
+          <div class="mt-3 pt-2 border-t text-sm flex justify-between items-center" style="border-color: var(--color-blush);">
+            <span style="color: var(--color-text-soft);">Payment Method: </span>
             <span class="font-medium" style="color: var(--color-text-dark);">
-              {order.payment_method === 'cod' || order.payment_status === 'partial_paid' || order.payment_status === 'paid_advance' ? `Cash on Delivery (₹${(((order.advance_amount || 500))/100).toFixed(0)} Advance Paid)` : paymentLabel(order.payment_method)}
+              {isCodOrder(order) ? `Cash on Delivery (₹${((getAdvAmount(order))/100).toFixed(0)} Adv)` : paymentLabel(order.payment_method)}
             </span>
           </div>
         </div>
 
         <!-- Razorpay payment details -->
-        {#if order.payment_method === 'razorpay' || order.razorpay_payment_id}
+        {#if order.payment_method === 'razorpay' || order.razorpay_payment_id || order.advance_amount || isCodOrder(order)}
           <div class="rounded-2xl p-4 border" style="border-color: var(--color-blush); background: white;">
             <h3 class="font-semibold text-sm mb-3" style="color: var(--color-text-dark);">Payment Details</h3>
             <div class="space-y-2 text-sm">
@@ -688,7 +889,7 @@
               {/if}
               {#if order.razorpay_payment_id}
                 <div>
-                  <p class="text-xs" style="color: var(--color-text-soft);">Payment ID</p>
+                  <p class="text-xs" style="color: var(--color-text-soft);">Online Payment ID</p>
                   <p class="font-mono text-xs" style="color: var(--color-text-dark);">{order.razorpay_payment_id}</p>
                 </div>
               {/if}
@@ -696,7 +897,7 @@
                 {@const gateway = order.payment_gateway_response as any}
                 {#if gateway.method}
                   <div>
-                    <p class="text-xs" style="color: var(--color-text-soft);">Payment Method</p>
+                    <p class="text-xs" style="color: var(--color-text-soft);">Gateway Method</p>
                     <p class="font-medium text-xs" style="color: var(--color-text-dark);">
                       {gateway.method === 'upi' ? 'UPI' :
                        gateway.method === 'card' ? 'Credit/Debit Card' :
@@ -731,14 +932,22 @@
                   <p class="text-xs" style="color: var(--color-text-dark);">{formatPaymentDate(order.payment_completed_at)}</p>
                 </div>
               {/if}
-              {#if order.payment_status}
-                <div>
-                  <p class="text-xs" style="color: var(--color-text-soft);">Payment Status</p>
-                  <span class="inline-block px-2 py-0.5 rounded-full text-xs font-semibold" style="background: {order.payment_status === 'paid' ? 'var(--color-mint)' : 'var(--color-blush)'}; color: {order.payment_status === 'paid' ? 'var(--color-mint-deep)' : 'var(--color-text-mid)'};">
-                    {order.payment_status === 'paid' ? '✓ Paid' : order.payment_status}
+              <div>
+                <p class="text-xs" style="color: var(--color-text-soft);">Payment Status</p>
+                {#if order.payment_status === 'paid' && !isCodOrder(order)}
+                  <span class="inline-block px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800">
+                    ✓ Paid in Full
                   </span>
-                </div>
-              {/if}
+                {:else if isCodOrder(order) && getCodDue(order) > 0 && order.payment_status !== 'paid'}
+                  <span class="inline-block px-2.5 py-0.5 rounded-full text-xs font-semibold bg-pink-100 text-pink-800">
+                    🛡️ Advance Paid (₹{(getCodDue(order)/100).toFixed(0)} Due)
+                  </span>
+                {:else}
+                  <span class="inline-block px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800">
+                    ✓ Paid in Full
+                  </span>
+                {/if}
+              </div>
             </div>
           </div>
         {/if}

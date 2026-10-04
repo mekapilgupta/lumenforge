@@ -1,0 +1,266 @@
+/* ========================================================================= */
+/* FRENCH TOES - FOOTER SPECIFIC STYLES                                      */
+/* ========================================================================= */
+
+.ft-site-footer {
+  background-color: #2d1b2e;
+  color: #ffffff;
+  font-family: 'Outfit', sans-serif;
+}
+
+.ft-footer-container {
+  max-width: 1240px;
+  margin: 0 auto;
+  padding: 0 1.5rem;
+}
+
+/* Trust Strip */
+.ft-trust-strip {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  padding: 1.75rem 0;
+}
+
+.ft-trust-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 1.5rem;
+}
+
+.ft-trust-item {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  padding: 0.5rem;
+  border-radius: 12px;
+  transition: transform 0.25s ease;
+}
+
+.ft-trust-item:hover {
+  transform: translateY(-3px);
+}
+
+.ft-t-icon {
+  font-size: 1.6rem;
+  line-height: 1;
+}
+
+.ft-t-title {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #ffffff;
+  margin: 0 0 2px 0;
+}
+
+.ft-t-desc {
+  font-size: 0.75rem;
+  color: rgba(255, 255, 255, 0.6);
+  margin: 0;
+}
+
+/* Main Footer */
+.ft-footer-main {
+  padding: 4rem 0 3rem;
+}
+
+.ft-footer-grid {
+  display: grid;
+  grid-template-columns: 1.4fr 0.8fr 0.8fr 1.2fr;
+  gap: 2.5rem;
+}
+
+.ft-footer-brand-logo {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin-bottom: 1rem;
+}
+
+.ft-f-logo {
+  width: 32px;
+  height: 32px;
+  background: #ffffff;
+  border-radius: 50%;
+  padding: 4px;
+}
+
+.ft-f-brand-name {
+  font-family: 'Playfair Display', Georgia, serif;
+  font-size: 1.35rem;
+  font-weight: 700;
+  color: #ffffff;
+}
+
+.ft-f-about {
+  font-size: 0.88rem;
+  line-height: 1.6;
+  color: rgba(255, 255, 255, 0.7);
+  margin-bottom: 0.75rem;
+}
+
+.ft-f-address {
+  font-size: 0.8rem;
+  line-height: 1.5;
+  color: rgba(255, 255, 255, 0.5);
+  margin-bottom: 1.25rem;
+}
+
+.ft-social-links {
+  display: flex;
+  gap: 0.75rem;
+}
+
+.ft-social-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.1);
+  color: #ffffff;
+  transition: all 0.2s ease;
+  text-decoration: none;
+}
+
+.ft-social-btn:hover {
+  background: #D81B60;
+  color: #ffffff;
+  transform: translateY(-2px);
+}
+
+/* Headings & Menus */
+.ft-f-heading {
+  font-size: 0.85rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: rgba(255, 255, 255, 0.85);
+  margin: 0 0 1.25rem 0;
+}
+
+.ft-f-heading-display {
+  font-family: 'Playfair Display', Georgia, serif;
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: #ffffff;
+  margin: 0 0 0.5rem 0;
+}
+
+.ft-f-news-desc {
+  font-size: 0.85rem;
+  color: rgba(255, 255, 255, 0.7);
+  margin-bottom: 1rem;
+}
+
+.ft-f-menu {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.ft-f-menu li {
+  margin-bottom: 0.65rem;
+}
+
+.ft-f-menu a {
+  font-size: 0.88rem;
+  color: rgba(255, 255, 255, 0.65);
+  text-decoration: none;
+  transition: color 0.2s ease, transform 0.2s ease;
+  display: inline-block;
+}
+
+.ft-f-menu a:hover {
+  color: #f4a7c3;
+  transform: translateX(3px);
+}
+
+/* Newsletter */
+.ft-input-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.ft-news-input {
+  width: 100%;
+  padding: 0.75rem 1rem;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  color: #ffffff;
+  font-size: 0.88rem;
+  outline: none;
+  transition: all 0.25s ease;
+}
+
+.ft-news-input:focus {
+  border-color: #D81B60;
+  box-shadow: 0 0 0 3px rgba(216, 27, 96, 0.25);
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.ft-news-submit {
+  width: 100%;
+  padding: 0.75rem !important;
+  font-size: 0.88rem !important;
+}
+
+/* Bottom Bar */
+.ft-footer-bottom {
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  padding: 1.25rem 0;
+}
+
+.ft-bottom-flex {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+.ft-copy-text {
+  font-size: 0.75rem;
+  color: rgba(255, 255, 255, 0.5);
+  margin: 0;
+}
+
+.ft-payment-badges {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.ft-pay-pill {
+  padding: 3px 8px;
+  font-size: 10px;
+  font-weight: 700;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 4px;
+  color: rgba(255, 255, 255, 0.75);
+}
+
+/* Responsive */
+@media (max-width: 960px) {
+  .ft-trust-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 1rem;
+  }
+  .ft-footer-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 2rem;
+  }
+}
+
+@media (max-width: 600px) {
+  .ft-trust-grid {
+    grid-template-columns: 1fr;
+  }
+  .ft-footer-grid {
+    grid-template-columns: 1fr;
+  }
+  .ft-bottom-flex {
+    flex-direction: column;
+    text-align: center;
+  }
+}

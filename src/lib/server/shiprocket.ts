@@ -179,7 +179,13 @@ export async function pushOrderToShiprocket(orderId: string): Promise<{ success:
   const state = order.address?.state || 'State Missing';
   const email = order.profile?.email || order.payment_gateway_response?.email || 'customer@frenchtoes.in';
   const phone = order.address?.phone || order.profile?.phone || order.payment_gateway_response?.contact || '9999999999';
-  const isCod = order.payment_method?.toLowerCase() === 'cod';
+  
+  const gwAmount = (order.payment_gateway_response as any)?.amount;
+  const isPartialGateway = typeof gwAmount === 'number' && gwAmount > 0 && gwAmount < (order.total_amount || 0);
+  const isCod = order.payment_method?.toLowerCase() === 'cod' || order.payment_status === 'partial_paid' || isPartialGateway;
+  const advAmount = order.advance_amount || (isPartialGateway ? gwAmount : 500);
+  const codDue = order.cod_balance_due != null ? order.cod_balance_due : Math.max(0, (order.total_amount || 0) - advAmount);
+  const codAmountToCollect = isCod && order.payment_status !== 'paid' ? (codDue / 100) : 0;
 
   const payload = {
     order_id: order.id,
@@ -210,11 +216,11 @@ export async function pushOrderToShiprocket(orderId: string): Promise<{ success:
         discount: (item.discount_amount || 0) / 100,
       };
     }),
-    payment_method: isCod ? 'COD' : 'Prepaid',
+    payment_method: codAmountToCollect > 0 ? 'COD' : 'Prepaid',
     sub_total: (order.subtotal || order.total_amount || 0) / 100,
     shipping_charges: (order.shipping_charges || 0) / 100,
     discount: (order.discount_amount || 0) / 100,
-    cod_amount: isCod ? (((order.cod_balance_due !== null && order.cod_balance_due !== undefined) ? order.cod_balance_due : (order.total_amount - (order.advance_amount || 0))) || 0) / 100 : 0,
+    cod_amount: codAmountToCollect,
     length: 30,
     breadth: 20,
     height: 10,

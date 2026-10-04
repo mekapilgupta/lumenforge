@@ -132,6 +132,25 @@
       .select('*, profile:user_id(full_name, email, phone), items:order_items(*), shipping_address:addresses!shipping_address_id(*)')
       .eq('id', orderId)
       .single();
+
+    if (data) {
+      if (isCodOrder(data) && (data.payment_method !== 'cod' || data.payment_status === 'paid')) {
+        const adv = getAdvAmount(data);
+        const due = getCodDue(data);
+        data.payment_method = 'cod';
+        data.payment_status = 'partial_paid';
+        data.advance_amount = adv;
+        data.cod_balance_due = due;
+        // Reconcile DB in background
+        supabase.from('orders').update({
+          payment_method: 'cod',
+          payment_status: 'partial_paid',
+          advance_amount: adv,
+          cod_balance_due: due
+        }).eq('id', orderId).then(() => {});
+      }
+    }
+
     order = data;
     adminNote = data?.admin_notes ?? '';
 
@@ -189,6 +208,10 @@
     const updateData: any = { status: targetStatus, updated_at: new Date().toISOString() };
     if (targetStatus === 'delivered' && !order.delivered_at) {
       updateData.delivered_at = new Date().toISOString();
+      if (order.payment_method === 'cod') {
+        updateData.payment_status = 'paid';
+        updateData.cod_balance_due = 0;
+      }
     }
     if (targetStatus === 'shipped' && !order.shipped_at) {
       updateData.shipped_at = new Date().toISOString();
@@ -583,6 +606,100 @@
     } finally {
       pushingShiprocket = false;
     }
+  }
+
+  let markingCodPaid = $state(false);
+  async function markCodPaid() {
+    if (!order || markingCodPaid) return;
+    const due = order.cod_balance_due != null ? order.cod_balance_due : Math.max(0, order.total_amount - (order.advance_amount || 0));
+    if (!confirm(`Mark COD balance of ₹${(due/100).toFixed(0)} as collected & paid?`)) return;
+
+    markingCodPaid = true;
+    try {
+      const res = await fetch('/api/admin/orders/mark-paid', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ orderId: order.id })
+      });
+      const data = await res.json();
+      if (data.success) {
+        uiStore.addToast(data.message, 'success');
+        await loadOrder();
+      } else {
+        uiStore.addToast(data.error || 'Failed to update order', 'error');
+      }
+    } catch (e: any) {
+      uiStore.addToast(e?.message || 'Failed to update', 'error');
+    } finally {
+      markingCodPaid = false;
+    }
+  }
+
+  let togglingPayment = $state(false);
+  async function togglePaymentType(target: 'cod' | 'prepaid') {
+    if (!order || togglingPayment) return;
+    togglingPayment = true;
+    try {
+      const adv = target === 'cod' ? 500 : order.total_amount;
+      const due = target === 'cod' ? Math.max(0, order.total_amount - 500) : 0;
+      const newMethod = target === 'cod' ? 'cod' : 'razorpay';
+      const newStatus = target === 'cod' ? 'partial_paid' : 'paid';
+
+      const { error } = await supabase.from('orders').update({
+        payment_method: newMethod,
+        payment_status: newStatus,
+        advance_amount: adv,
+        cod_balance_due: due,
+        updated_at: new Date().toISOString()
+      }).eq('id', order.id);
+
+      if (error) throw error;
+
+      await supabase.from('order_logs').insert({
+        order_id: order.id,
+        status: order.status,
+        message: target === 'cod'
+          ? `Admin updated payment mode to Partial COD (Advance: ₹5, Balance Due: ₹${(due/100).toFixed(0)})`
+          : `Admin updated payment mode to 100% Prepaid (₹${(order.total_amount/100).toFixed(0)})`,
+        created_by: 'admin',
+        created_at: new Date().toISOString()
+      });
+
+      uiStore.addToast(`Order payment mode set to: ${target === 'cod' ? 'Partial COD' : '100% Prepaid'}`, 'success');
+      await loadOrder();
+    } catch (e: any) {
+      uiStore.addToast(e?.message || 'Failed to change payment mode', 'error');
+    } finally {
+      togglingPayment = false;
+    }
+  }
+
+  function isCodOrder(o: any): boolean {
+    if (!o) return false;
+    if (o.payment_method === 'cod') return true;
+    if (o.payment_status === 'partial_paid' || o.payment_status === 'paid_advance') return true;
+    if (o.advance_amount && o.advance_amount > 0 && o.advance_amount < o.total_amount) return true;
+    if (o.cod_balance_due && o.cod_balance_due > 0) return true;
+    const gwAmount = (o.payment_gateway_response as any)?.amount;
+    if (typeof gwAmount === 'number' && gwAmount > 0 && gwAmount < (o.total_amount || 0)) return true;
+    const desc = (o.payment_gateway_response as any)?.description;
+    if (typeof desc === 'string' && (desc.toLowerCase().includes('cod advance') || desc.toLowerCase().includes('advance confirmation'))) return true;
+    return false;
+  }
+
+  function getAdvAmount(o: any): number {
+    if (!o) return 0;
+    if (o.advance_amount && o.advance_amount > 0 && o.advance_amount < o.total_amount) return o.advance_amount;
+    const gwAmount = (o.payment_gateway_response as any)?.amount;
+    if (typeof gwAmount === 'number' && gwAmount > 0 && gwAmount < (o.total_amount || 0)) return gwAmount;
+    return 500;
+  }
+
+  function getCodDue(o: any): number {
+    if (!o) return 0;
+    if (o.cod_balance_due != null && o.cod_balance_due > 0) return o.cod_balance_due;
+    const adv = getAdvAmount(o);
+    return Math.max(0, (o.total_amount || 0) - adv);
   }
 
   function fmt(paise: number) {
@@ -985,6 +1102,24 @@
             </div>
 
             <div class="flex justify-between items-center py-1 border-b border-white/5">
+              <span class="text-gray-400">Courier Payment Type:</span>
+              <span class="font-bold text-[11px] {isCodOrder(order) ? 'text-pink-300' : 'text-emerald-400'}">
+                {isCodOrder(order) ? 'COD (Cash on Delivery)' : 'Prepaid (₹0 COD)'}
+              </span>
+            </div>
+
+            {#if isCodOrder(order)}
+              {@const adv = getAdvAmount(order)}
+              {@const due = getCodDue(order)}
+              <div class="flex justify-between items-center py-1 border-b border-white/5">
+                <span class="text-gray-400">Collectable COD Balance:</span>
+                <span class="font-bold font-mono text-emerald-400 text-xs">
+                  {due > 0 && order.payment_status !== 'paid' ? fmt(due) : '₹0 (Fully Paid)'}
+                </span>
+              </div>
+            {/if}
+
+            <div class="flex justify-between items-center py-1 border-b border-white/5">
               <span class="text-gray-400">Courier Partner:</span>
               <span class="text-white font-medium">{order.courier_name || '—'}</span>
             </div>
@@ -1080,18 +1215,28 @@
               <span class="text-white">Total Order Value</span>
               <span class="text-white">{fmt(order.total_amount)}</span>
             </div>
-            {#if order.payment_method === 'cod' || order.payment_status === 'partial_paid' || order.payment_status === 'paid_advance' || (order.advance_amount && order.advance_amount > 0 && order.advance_amount < order.total_amount)}
-              {@const adv = order.advance_amount || 500}
-              {@const due = order.cod_balance_due != null ? order.cod_balance_due : Math.max(0, order.total_amount - adv)}
-              <div class="mt-2 pt-2 border-t border-white/10 space-y-1">
+            {#if isCodOrder(order)}
+              {@const adv = getAdvAmount(order)}
+              {@const due = getCodDue(order)}
+              <div class="mt-2 pt-2 border-t border-white/10 space-y-1.5">
                 <div class="flex justify-between text-pink-300 font-medium">
                   <span>Advance Paid Online:</span>
                   <span>{fmt(adv)}</span>
                 </div>
                 <div class="flex justify-between text-emerald-400 font-bold">
                   <span>Collect on Delivery:</span>
-                  <span>{fmt(due)}</span>
+                  <span>{due > 0 && order.payment_status !== 'paid' ? fmt(due) : '₹0 (Paid in Full)'}</span>
                 </div>
+                {#if due > 0 && order.payment_status !== 'paid'}
+                  <button
+                    onclick={markCodPaid}
+                    disabled={markingCodPaid}
+                    class="w-full mt-2 py-2 px-3 rounded-lg text-xs font-bold text-white bg-emerald-700 hover:bg-emerald-600 transition-all flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+                  >
+                    <span>✓</span>
+                    <span>{markingCodPaid ? "Updating..." : `Mark COD Balance Collected (${fmt(due)})`}</span>
+                  </button>
+                {/if}
               </div>
             {/if}
           </div>
@@ -1099,8 +1244,8 @@
             <div class="flex justify-between">
               <span>Payment Method:</span>
               <span class="text-gray-200 font-semibold">
-                {order.payment_method === 'cod' || order.payment_status === 'partial_paid' || order.payment_status === 'paid_advance'
-                  ? `COD (₹${(((order.advance_amount || 500))/100).toFixed(0)} Advance Paid)`
+                {isCodOrder(order)
+                  ? `COD (₹${((getAdvAmount(order))/100).toFixed(0)} Advance Paid)`
                   : 'Online Prepaid (Razorpay)'}
               </span>
             </div>
@@ -1110,14 +1255,36 @@
                 <span class="text-indigo-300 font-mono">{order.razorpay_payment_id}</span>
               </div>
             {/if}
-            {#if order.payment_status}
-              <div class="flex justify-between">
-                <span>Payment Status:</span>
-                <span class="font-bold text-xs uppercase" style="color: {order.payment_status === 'paid' ? '#22c55e' : order.payment_status === 'partial_paid' || order.payment_status === 'paid_advance' ? '#f59e0b' : '#9ca3af'};">
-                  {order.payment_status === 'partial_paid' || order.payment_status === 'paid_advance' ? 'Advance Paid' : order.payment_status}
-                </span>
-              </div>
-            {/if}
+            <div class="flex justify-between">
+              <span>Payment Status:</span>
+              <span class="font-bold text-xs uppercase" style="color: {order.payment_status === 'paid' && !isCodOrder(order) ? '#22c55e' : isCodOrder(order) && getCodDue(order) > 0 && order.payment_status !== 'paid' ? '#f59e0b' : '#22c55e'};">
+                {isCodOrder(order) && getCodDue(order) > 0 && order.payment_status !== 'paid' ? 'Advance Paid (Balance Due)' : 'Paid in Full'}
+              </span>
+            </div>
+
+            <!-- Admin Mode Toggles -->
+            <div class="pt-2 mt-2 border-t border-white/10 flex flex-col gap-1.5">
+              {#if !isCodOrder(order) || order.payment_status === 'paid'}
+                <button
+                  onclick={() => togglePaymentType('cod')}
+                  disabled={togglingPayment}
+                  class="w-full py-1.5 px-2 rounded-lg text-[11px] font-medium text-pink-300 bg-pink-950/40 hover:bg-pink-900/60 border border-pink-500/30 transition-all flex items-center justify-center gap-1 cursor-pointer disabled:opacity-50"
+                >
+                  <span>⚙️</span>
+                  <span>{togglingPayment ? 'Updating...' : `Set as Partial COD (₹5 Adv · Due ₹${(((order.total_amount || 0) - 500)/100).toFixed(0)})`}</span>
+                </button>
+              {/if}
+              {#if isCodOrder(order) && order.payment_status !== 'paid'}
+                <button
+                  onclick={() => togglePaymentType('prepaid')}
+                  disabled={togglingPayment}
+                  class="w-full py-1.5 px-2 rounded-lg text-[11px] font-medium text-emerald-300 bg-emerald-950/40 hover:bg-emerald-900/60 border border-emerald-500/30 transition-all flex items-center justify-center gap-1 cursor-pointer disabled:opacity-50"
+                >
+                  <span>✓</span>
+                  <span>{togglingPayment ? 'Updating...' : `Set as 100% Prepaid (${fmt(order.total_amount)})`}</span>
+                </button>
+              {/if}
+            </div>
           </div>
         </div>
 

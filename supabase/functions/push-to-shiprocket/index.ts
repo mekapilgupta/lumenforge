@@ -160,9 +160,11 @@ serve(async (req) => {
         const color = item.variant_info?.color || item.color || '';
         const variantSuffix = [color, size ? `Size ${size}` : ''].filter(Boolean).join(' - ');
         const itemName = variantSuffix ? `${item.product_name} (${variantSuffix})` : (item.product_name || "Slipper Item");
+        // SKU is the global identity — prefer the stored variant SKU verbatim
+        const itemSku = item.product_sku || item.variant_info?.sku || (item.variant_id ? `FT-VAR-${item.variant_id.substring(0, 8)}` : "FT-DEFAULT-SKU");
         return {
           "name": itemName,
-          "sku": item.product_sku || (item.product_id ? `FT-${item.product_id.substring(0, 8)}-${size || 'STD'}` : "FT-DEFAULT-SKU"),
+          "sku": itemSku,
           "units": item.quantity || 1,
           "selling_price": (item.unit_price || 0) / 100,
           "discount": (item.discount_amount || 0) / 100,

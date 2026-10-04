@@ -6,7 +6,7 @@ function createUIStore() {
   let mobileMenuOpen = $state(false);
   let searchOpen = $state(false);
   let quickSizeProduct = $state<any>(null);
-  let quickSizeCallback = $state<((size: number) => void) | null>(null);
+  let quickSizeCallback = $state<((size: number | string) => void) | null>(null);
 
   function addToast(message: string, type: ToastType = 'success', duration = 3000) {
     const id = crypto.randomUUID();
@@ -30,7 +30,7 @@ function createUIStore() {
     searchOpen = !searchOpen;
   }
 
-  function openQuickSize(product: any, callback: (size: number) => void) {
+  function openQuickSize(product: any, callback: (size: number | string) => void) {
     quickSizeProduct = product;
     quickSizeCallback = callback;
   }
@@ -85,6 +85,6 @@ export const uiStore = {
   toggleMobileMenu() { return getInstance().toggleMobileMenu(); },
   closeMobileMenu() { return getInstance().closeMobileMenu(); },
   toggleSearch() { return getInstance().toggleSearch(); },
-  openQuickSize(product: any, callback: (size: number) => void) { return getInstance().openQuickSize(product, callback); },
+  openQuickSize(product: any, callback: (size: number | string) => void) { return getInstance().openQuickSize(product, callback); },
   closeQuickSize() { return getInstance().closeQuickSize(); }
 };

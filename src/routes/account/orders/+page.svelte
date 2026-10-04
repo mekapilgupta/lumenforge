@@ -49,6 +49,34 @@
     { id: 'cancelled', label: 'Cancelled' },
   ];
 
+  function isCodOrder(o: any): boolean {
+    if (!o) return false;
+    if (o.payment_method === 'cod') return true;
+    if (o.payment_status === 'partial_paid' || o.payment_status === 'paid_advance') return true;
+    if (o.advance_amount && o.advance_amount > 0 && o.advance_amount < o.total_amount) return true;
+    if (o.cod_balance_due && o.cod_balance_due > 0) return true;
+    const gwAmount = (o.payment_gateway_response as any)?.amount;
+    if (typeof gwAmount === 'number' && gwAmount > 0 && gwAmount < (o.total_amount || 0)) return true;
+    const desc = (o.payment_gateway_response as any)?.description;
+    if (typeof desc === 'string' && (desc.toLowerCase().includes('cod advance') || desc.toLowerCase().includes('advance confirmation'))) return true;
+    return false;
+  }
+
+  function getAdvAmount(o: any): number {
+    if (!o) return 0;
+    if (o.advance_amount && o.advance_amount > 0 && o.advance_amount < o.total_amount) return o.advance_amount;
+    const gwAmount = (o.payment_gateway_response as any)?.amount;
+    if (typeof gwAmount === 'number' && gwAmount > 0 && gwAmount < (o.total_amount || 0)) return gwAmount;
+    return 500;
+  }
+
+  function getCodDue(o: any): number {
+    if (!o) return 0;
+    if (o.cod_balance_due != null && o.cod_balance_due > 0) return o.cod_balance_due;
+    const adv = getAdvAmount(o);
+    return Math.max(0, (o.total_amount || 0) - adv);
+  }
+
   onMount(async () => {
     await authStore.init();
     if (authStore.user) {
@@ -346,11 +374,22 @@
           <div class="flex items-center justify-between px-5 py-3 border-t flex-wrap gap-2" style="border-color: var(--color-blush);">
             <div class="text-sm">
               <span style="color: var(--color-text-soft);">Payment: </span>
-              {#if order.payment_method === 'cod' || order.payment_status === 'partial_paid' || order.payment_status === 'paid_advance' || (order.advance_amount && order.advance_amount > 0 && order.advance_amount < order.total_amount)}
-                {@const adv = order.advance_amount || 500}
-                {@const due = order.cod_balance_due != null ? order.cod_balance_due : Math.max(0, order.total_amount - adv)}
+              {#if isCodOrder(order)}
+                {@const adv = getAdvAmount(order)}
+                {@const due = getCodDue(order)}
                 <span class="font-semibold text-pink-700">COD (₹{(adv/100).toFixed(0)} Advance Paid)</span>
-                <span class="block text-xs font-semibold text-emerald-700 mt-0.5">💵 Collect on Delivery: ₹{(due/100).toFixed(0)}</span>
+                {#if due > 0 && order.payment_status !== 'paid'}
+                  <div class="flex items-center gap-2 mt-1">
+                    <span class="text-xs font-semibold text-emerald-700">💵 Due on Delivery: ₹{(due/100).toFixed(0)}</span>
+                    {#if order.status !== 'cancelled' && order.status !== 'delivered'}
+                      <a href={`/account/orders/${order.id}`} class="text-[11px] font-bold text-pink-700 underline hover:text-pink-900">
+                        ⚡ Pay Online
+                      </a>
+                    {/if}
+                  </div>
+                {:else}
+                  <span class="block text-xs font-semibold text-emerald-700 mt-0.5">✓ 100% Paid</span>
+                {/if}
               {:else}
                 <span class="font-medium" style="color: var(--color-text-dark);">{paymentLabel(order.payment_method)}</span>
                 {#if order.razorpay_payment_id}

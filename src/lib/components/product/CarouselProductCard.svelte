@@ -3,6 +3,7 @@
 
   interface ColorItem {
     id: string;
+    productId: string; // real products.id uuid used for cart/DB operations
     name: string;
     hex: string;
     image: string;

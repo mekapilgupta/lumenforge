@@ -34,9 +34,31 @@
     }
   });
 
+  // Distinct Color Variations for the color picker
+  const distinctColorVariants = $derived.by<any[]>(() => {
+    const map = new Map<string, any>();
+    for (const v of variants) {
+      const cName = (v.color_name || v.color || 'Default').toLowerCase();
+      if (!map.has(cName)) {
+        map.set(cName, v);
+      }
+    }
+    return Array.from(map.values());
+  });
+
   const activeVariant = $derived(
-    variants.find((v: any) => v.id === selectedVariantId) || variants[0] || null
+    variants.find((v: any) => v.id === selectedVariantId) || distinctColorVariants[0] || variants[0] || null
   );
+
+  function getSizeVariant(size: string | number | null): any {
+    if (!activeVariant || !size) return null;
+    const activeColorName = (activeVariant.color_name || activeVariant.color || '').toLowerCase();
+    const szKey = String(size);
+    return variants.find((v: any) =>
+      (v.color_name || v.color || '').toLowerCase() === activeColorName &&
+      String(v.size) === szKey
+    ) || null;
+  }
 
   // Gallery Active Image Index
   let activeImageIndex = $state(0);
@@ -53,12 +75,24 @@
     goto(newUrl, { replaceState: true, keepFocus: true, noScroll: true });
   }
 
-  // Active Gallery Images for selected variant
+  // Active Gallery Images for selected variant (with color-group fallback)
   const activeImages = $derived.by<DBProductImage[]>(() => {
-    if (!activeVariant || !activeVariant.images || activeVariant.images.length === 0) {
-      return [];
+    if (!activeVariant) return [];
+    if (activeVariant.images && activeVariant.images.length > 0) {
+      return activeVariant.images;
     }
-    return activeVariant.images;
+    // Fallback: look for sibling size variant of the same color that has images
+    const activeColor = (activeVariant.color_name || activeVariant.color || '').toLowerCase().trim();
+    const colorSibling = variants.find((v: any) =>
+      (v.color_name || v.color || '').toLowerCase().trim() === activeColor &&
+      v.images && v.images.length > 0
+    );
+    if (colorSibling && colorSibling.images?.length > 0) {
+      return colorSibling.images;
+    }
+    // Fallback: any variant with images
+    const anySibling = variants.find((v: any) => v.images && v.images.length > 0);
+    return anySibling?.images || [];
   });
 
   const activeMainImage = $derived(activeImages[activeImageIndex] || activeImages[0] || null);
@@ -72,6 +106,8 @@
   });
 
   function getSizeStockForActiveVariant(size: string | number): number {
+    const sizeVar = getSizeVariant(size);
+    if (sizeVar) return sizeVar.stock_quantity ?? 0;
     if (!activeVariant) return 0;
     const szKey = String(size);
     const sizeStock = activeVariant.attributes?.size_stock;
@@ -84,6 +120,8 @@
   // Selected Size State (Indian Footwear Sizes)
   let selectedSize = $state<string | number | null>(null);
   let isSizeChartOpen = $state(false);
+
+  const activeSizeVariant = $derived(getSizeVariant(selectedSize) || activeVariant);
 
   // Auto-select first in-stock size when variant or product loads/switches
   $effect(() => {
@@ -198,7 +236,8 @@
         },
         size: Number(selectedSize) || 38,
         quantity: quantity,
-        variantId: activeVariant?.id
+        variantId: activeSizeVariant?.id || activeVariant?.id,
+        sku: activeSizeVariant?.sku || activeVariant?.sku || null
       });
 
       uiStore.addToast(`Added ${product.name} (${activeVariant?.color_name}) to your cart!`, 'success');
@@ -342,13 +381,13 @@
             <span class="text-xs font-bold uppercase tracking-wider text-stone-700">
               Color: <span class="text-stone-900 font-semibold">{activeVariant?.color_name || 'Selected Color'}</span>
             </span>
-            <span class="text-xs font-mono text-stone-400">SKU: {activeVariant?.sku}</span>
+            <span class="text-xs font-mono text-stone-400">SKU: {activeSizeVariant?.sku || activeVariant?.sku}</span>
           </div>
 
           <!-- Color Swatch Circles -->
           <div class="flex items-center gap-3.5 flex-wrap">
-            {#each variants as variant (variant.id)}
-              {@const isSelected = variant.id === selectedVariantId}
+            {#each distinctColorVariants as variant (variant.id || variant.color_name)}
+              {@const isSelected = (variant.color_name || variant.color || '').toLowerCase() === (activeVariant?.color_name || activeVariant?.color || '').toLowerCase()}
               {@const isVarOutOfStock = (variant.stock_quantity ?? 0) <= 0}
               <button
                 type="button"

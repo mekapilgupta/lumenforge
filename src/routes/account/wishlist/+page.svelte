@@ -76,7 +76,7 @@
         price: Math.round(p.price / 100),
         originalPrice: p.original_price ? Math.round(p.original_price / 100) : undefined,
         color: colors[0] ?? { name: 'Default', hex: '#f4a7c3' },
-        size: selectedSize,
+        size: Number(selectedSize) || 38,
         quantity: 1,
       });
       uiStore.addToast(`${p.name} (Size ${selectedSize}) added to cart! 🛍️`, 'success');

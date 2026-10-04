@@ -68,8 +68,69 @@
   }
 
   async function loadStats() {
-    const { data } = await supabase.from('sales_analytics').select('*').single();
-    stats = data;
+    try {
+      const now = new Date();
+      const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
+      const startOfWeek = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString();
+      const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
+
+      const { data: allOrders } = await supabase
+        .from('orders')
+        .select('total_amount, created_at, status, user_id')
+        .neq('status', 'cancelled');
+
+      if (allOrders && allOrders.length > 0) {
+        let todayRev = 0, todayCount = 0;
+        let weekRev = 0, weekCount = 0;
+        let monthRev = 0, monthCount = 0;
+        let totalRev = 0;
+        const customers = new Set<string>();
+
+        for (const o of allOrders) {
+          const amt = o.total_amount || 0;
+          totalRev += amt;
+          if (o.user_id) customers.add(o.user_id);
+          const dt = o.created_at || '';
+          if (dt >= startOfDay) {
+            todayRev += amt;
+            todayCount++;
+          }
+          if (dt >= startOfWeek) {
+            weekRev += amt;
+            weekCount++;
+          }
+          if (dt >= startOfMonth) {
+            monthRev += amt;
+            monthCount++;
+          }
+        }
+
+        stats = {
+          today_revenue: todayRev,
+          today_orders: todayCount,
+          week_revenue: weekRev,
+          week_orders: weekCount,
+          month_revenue: monthRev,
+          month_orders: monthCount,
+          avg_order_value: allOrders.length > 0 ? Math.round(totalRev / allOrders.length) : 0,
+          unique_customers: customers.size || allOrders.length
+        };
+        return;
+      }
+    } catch (e) {
+      console.warn('Failed to load live sales stats:', e);
+    }
+
+    stats = {
+      today_revenue: 0,
+      today_orders: 0,
+      week_revenue: 0,
+      week_orders: 0,
+      month_revenue: 0,
+      month_orders: 0,
+      avg_order_value: 0,
+      unique_customers: 0
+    };
   }
 
   async function loadRecentOrders() {
@@ -82,13 +143,52 @@
   }
 
   async function loadTopProducts() {
-    const { data } = await supabase.from('top_products').select('*').limit(5);
-    topProducts = data ?? [];
+    try {
+      const { data: orderItems } = await supabase
+        .from('order_items')
+        .select('product_name, quantity, total_price');
+
+      if (orderItems && orderItems.length > 0) {
+        const counts: Record<string, { name: string; sales_count: number }> = {};
+        for (const item of orderItems) {
+          const name = item.product_name || 'Product';
+          if (!counts[name]) counts[name] = { name, sales_count: 0 };
+          counts[name].sales_count += (item.quantity || 1);
+        }
+        topProducts = Object.values(counts).sort((a, b) => b.sales_count - a.sales_count).slice(0, 5);
+        return;
+      }
+    } catch {}
+
+    const { data: prods } = await supabase
+      .from('products')
+      .select('name, is_featured')
+      .order('is_featured', { ascending: false })
+      .limit(5);
+
+    topProducts = (prods || []).map((p) => ({ name: p.name, sales_count: 0 }));
   }
 
   async function loadLowStock() {
-    const { data } = await supabase.from('low_stock_products').select('*').limit(10);
-    lowStock = data ?? [];
+    try {
+      const { data } = await supabase
+        .from('products')
+        .select('id, name, variants:product_variants(id, size, stock_quantity)');
+      if (data) {
+        lowStock = data
+          .map((p) => {
+            const total = (p.variants || []).reduce((sum: number, v: any) => sum + (v.stock_quantity || 0), 0);
+            return { id: p.id, name: p.name, stock_quantity: total };
+          })
+          .filter((p) => p.stock_quantity <= 15)
+          .sort((a, b) => a.stock_quantity - b.stock_quantity)
+          .slice(0, 10);
+      } else {
+        lowStock = [];
+      }
+    } catch {
+      lowStock = [];
+    }
   }
 
   function fmt(paise: number) {

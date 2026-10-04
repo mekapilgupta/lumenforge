@@ -156,7 +156,7 @@
           price: product.price,
           originalPrice: product.originalPrice,
           color: activeColor,
-          size: selectedSize,
+          size: Number(selectedSize) || 38,
           quantity: 1,
         });
         uiStore.addToast(`${product.name} (${activeColor.name} - Size ${selectedSize}) added to cart 🛍️`, 'success');

@@ -1,0 +1,67 @@
+{
+  "theme": "French Toes",
+  "primary_brand_color": "#D81B60",
+  "secondary_accent_color": "#f4a7c3",
+  "global_colors": [
+    {
+      "name": "Brand Magenta (Primary)",
+      "slug": "brand-magenta",
+      "color": "#D81B60"
+    },
+    {
+      "name": "Blush Deep (Accent)",
+      "slug": "blush-deep",
+      "color": "#f4a7c3"
+    },
+    {
+      "name": "Blush Light",
+      "slug": "blush-light",
+      "color": "#f9d5e5"
+    },
+    {
+      "name": "Peach",
+      "slug": "peach",
+      "color": "#ffdab9"
+    },
+    {
+      "name": "Lavender Deep",
+      "slug": "lavender-deep",
+      "color": "#c9a0dc"
+    },
+    {
+      "name": "Mint Deep",
+      "slug": "mint-deep",
+      "color": "#7ecba1"
+    },
+    {
+      "name": "Coral Deep",
+      "slug": "coral-deep",
+      "color": "#ff7f6e"
+    },
+    {
+      "name": "Text Dark",
+      "slug": "text-dark",
+      "color": "#2d1b2e"
+    },
+    {
+      "name": "Text Mid",
+      "slug": "text-mid",
+      "color": "#6b4c6e"
+    },
+    {
+      "name": "Warm White",
+      "slug": "warm-white",
+      "color": "#FAFAFA"
+    },
+    {
+      "name": "Cream Background",
+      "slug": "cream",
+      "color": "#fdf8f3"
+    }
+  ],
+  "typography": {
+    "primary_font": "Playfair Display",
+    "body_font": "Outfit",
+    "fallback_font": "Inter, sans-serif"
+  }
+}

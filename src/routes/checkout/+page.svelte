@@ -202,7 +202,9 @@
         quantity: item.quantity,
         price: item.price,
         size: item.size,
-        color: item.color.name
+        color: item.color.name,
+        sku: item.sku ?? null,
+        variant_id: item.variantId ?? null
       }));
       const capturedTotal = totalPaise / 100; // capture before cart is cleared
       const userId = authStore.user!.id;
@@ -234,8 +236,10 @@
       const items = cartStore.items.map(item => ({
         order_id: order.id,
         product_id: item.productId,
+        variant_id: item.variantId ?? null,
         product_name: item.name,
-        variant_info: { size: String(item.size), color: item.color.name },
+        product_sku: item.sku ?? null,
+        variant_info: { size: String(item.size), color: item.color.name, sku: item.sku ?? null },
         unit_price: item.price * 100,
         quantity: item.quantity,
         total_price: item.price * item.quantity * 100,
@@ -365,10 +369,12 @@
           codBalanceDue: isCod ? codBalanceDuePaise : 0,
           items: cartStore.items.map(item => ({
             product_id: item.productId,
+            variant_id: item.variantId ?? null,
+            sku: item.sku ?? null,
             name: item.name,
             quantity: item.quantity,
             price: item.price * 100,
-            variant_info: { size: String(item.size), color: item.color.name },
+            variant_info: { size: String(item.size), color: item.color.name, sku: item.sku ?? null },
             product_image_url: item.image,
           })),
         }),
@@ -408,6 +414,19 @@
 
           const verifyData = await verifyRes.json();
           if (verifyData.success) {
+            // Guarantee COD fields are properly persisted in DB
+            if (isCod) {
+              await supabase
+                .from('orders')
+                .update({
+                  payment_method: 'cod',
+                  payment_status: 'partial_paid',
+                  advance_amount: codAdvancePaise,
+                  cod_balance_due: codBalanceDuePaise,
+                })
+                .eq('id', createData.dbOrderId);
+            }
+
             isNavigatingToSuccess = true;
             uiStore.addToast(isCod ? `${fmt(codAdvancePaise)} Advance Paid! COD Order confirmed 🌸` : 'Payment successful! Order confirmed 🌸', 'success');
             

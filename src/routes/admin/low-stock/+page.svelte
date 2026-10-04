@@ -19,32 +19,37 @@
   async function loadLowStock() {
     const { data, error } = await supabase
       .from('products')
-      .select('*, category:category_id(name), variants:product_variants(*)')
-      .or('stock_status.eq.low_stock,stock_status.eq.out_of_stock,stock_quantity.lte.15')
-      .order('stock_quantity', { ascending: true });
+      .select('*, category:category_id(name), variants:product_variants(*)');
 
     if (error) {
       uiStore.addToast('Error fetching low stock: ' + error.message, 'error');
     } else {
-      lowStockProducts = data ?? [];
+      const items = (data ?? []).map((p: any) => {
+        const total = (p.variants || []).reduce((acc: number, v: any) => acc + (v.stock_quantity || 0), 0);
+        return { ...p, stock_quantity: total };
+      }).filter((p: any) => {
+        return p.stock_status === 'low_stock' || p.stock_status === 'out_of_stock' || p.stock_quantity <= 15 || (p.variants || []).some((v: any) => (v.stock_quantity || 0) <= 5);
+      }).sort((a: any, b: any) => a.stock_quantity - b.stock_quantity);
+
+      lowStockProducts = items;
     }
   }
 
-  async function updateStock(id: string, newQtyStr: string) {
+  async function updateVariantStock(variantId: string, newQtyStr: string) {
     const newQty = parseInt(newQtyStr);
     if (isNaN(newQty) || newQty < 0) return;
-    updatingId = id;
+    updatingId = variantId;
     try {
       const { error } = await supabase
-        .from('products')
+        .from('product_variants')
         .update({
           stock_quantity: newQty,
           updated_at: new Date().toISOString(),
         })
-        .eq('id', id);
+        .eq('id', variantId);
 
       if (error) throw error;
-      uiStore.addToast('Stock level updated! 📦', 'success');
+      uiStore.addToast('Variant stock updated! 📦', 'success');
       await loadLowStock();
     } catch (err: any) {
       uiStore.addToast('Failed to update stock: ' + err.message, 'error');
@@ -163,16 +168,25 @@
                 </td>
 
                 <td class="py-3 px-4">
-                  <div class="flex items-center gap-2">
-                    <input
-                      type="number"
-                      min="0"
-                      value={p.stock_quantity ?? 0}
-                      onchange={(e) => updateStock(p.id, (e.target as HTMLInputElement).value)}
-                      disabled={updatingId === p.id}
-                      class="w-20 px-2.5 py-1 rounded-lg bg-white/10 border border-white/20 text-white font-mono text-xs outline-none focus:border-indigo-500 disabled:opacity-50"
-                    />
-                    <span class="text-[11px] text-gray-400">units</span>
+                  <div class="flex flex-col gap-1.5">
+                    {#if prodVariants.length > 0}
+                      {#each prodVariants as v}
+                        {@const opt = findSizeOption(v.size)}
+                        <div class="flex items-center gap-2">
+                          <span class="text-[10px] font-mono text-gray-400 w-16 truncate">{opt ? `UK ${opt.ukIndia}` : v.size}:</span>
+                          <input
+                            type="number"
+                            min="0"
+                            value={v.stock_quantity ?? 0}
+                            onchange={(e) => updateVariantStock(v.id, (e.target as HTMLInputElement).value)}
+                            disabled={updatingId === v.id}
+                            class="w-16 px-2 py-0.5 rounded bg-white/10 border border-white/20 text-white font-mono text-xs outline-none focus:border-indigo-500 disabled:opacity-50"
+                          />
+                        </div>
+                      {/each}
+                    {:else}
+                      <span class="text-[11px] text-gray-400 italic">No variants</span>
+                    {/if}
                   </div>
                 </td>
 

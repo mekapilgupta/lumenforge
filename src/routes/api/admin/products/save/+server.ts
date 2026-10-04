@@ -1,6 +1,7 @@
 export const prerender = false;
 import { json } from '@sveltejs/kit';
 import { supabaseAdmin } from '$lib/server/supabase';
+import { generate8DigitSku } from '$lib/server/variants';
 
 function slugify(text: string): string {
   return text
@@ -127,26 +128,105 @@ export async function POST({ request }) {
       return json({ success: false, error: 'Failed to save product: ' + prodErr?.message }, { status: 500 });
     }
 
-    // 2. Upsert variants
-    const variantInsertData = variantsPayload.map(v => ({
-      ...v,
-      product_id: savedProduct.id
-    }));
+    // 2. Fetch existing variants to preserve IDs and SKUs
+    const { data: existingVariants } = await supabaseAdmin
+      .from('product_variants')
+      .select('id, color_name, size, sku')
+      .eq('product_id', savedProduct.id);
+
+    const existingMap = new Map<string, { id: string; sku: string }>();
+    for (const ev of existingVariants || []) {
+      const key = `${(ev.color_name || '').toLowerCase()}_${String(ev.size || '')}`;
+      existingMap.set(key, { id: ev.id, sku: ev.sku });
+    }
+
+    // Build (Color x Size) variants with unique 8-digit SKUs
+    const finalVariants: any[] = [];
+    const usedSkus = new Set<string>();
+    let pos = 0;
+
+    for (const v of variantsPayload) {
+      const sizeStock = v.attributes?.size_stock || {};
+      const sizeSkus = v.attributes?.size_skus || {};
+      const activeSizes = Object.keys(sizeStock).length > 0 ? Object.keys(sizeStock) : sizesArray;
+
+      for (const sz of activeSizes) {
+        const qty = Number(sizeStock[sz] ?? v.stock_quantity ?? 10) || 0;
+        const key = `${v.color_name.toLowerCase()}_${String(sz)}`;
+        const existing = existingMap.get(key);
+
+        let sku = sizeSkus[sz] || existing?.sku;
+        if (!sku || sku.trim() === '' || isNaN(Number(sku)) || sku.length !== 8) {
+          sku = generate8DigitSku(productPayload.slug, v.color_name, sz);
+        }
+        while (usedSkus.has(sku)) {
+          sku = String(Number(sku) + 1);
+        }
+        usedSkus.add(sku);
+
+        finalVariants.push({
+          id: existing?.id || undefined,
+          product_id: savedProduct.id,
+          sku,
+          size: String(sz),
+          color: v.color_name,
+          color_name: v.color_name,
+          color_hex: v.color_hex,
+          color_slug: v.color_slug,
+          stock_quantity: qty,
+          price_override: v.price_override,
+          compare_at_price: v.compare_at_price,
+          attributes: { size_stock: { [sz]: qty } },
+          is_default: pos === 0,
+          position: pos++
+        });
+      }
+    }
 
     const { data: savedVariants, error: varErr } = await supabaseAdmin
       .from('product_variants')
-      .upsert(variantInsertData)
+      .upsert(finalVariants)
       .select('*');
 
     if (varErr) {
       return json({ success: false, error: 'Failed to save variants: ' + varErr.message }, { status: 500 });
     }
 
-    // 3. Upsert images if provided
+    // Clean up removed variants if any
+    const savedIds = new Set((savedVariants || []).map(sv => sv.id));
+    const toDeleteIds = (existingVariants || []).filter(ev => !savedIds.has(ev.id)).map(ev => ev.id);
+    if (toDeleteIds.length > 0) {
+      await supabaseAdmin.from('product_variants').delete().in('id', toDeleteIds);
+    }
+
+    // 3. Upsert images mapped to color primary variant ID
     if (images.length > 0) {
+      const colorToPrimaryVarId = new Map<string, string>();
+      for (const sv of savedVariants || []) {
+        const cKey = (sv.color_name || '').toLowerCase();
+        if (!colorToPrimaryVarId.has(cKey)) {
+          colorToPrimaryVarId.set(cKey, sv.id);
+        }
+      }
+
+      const mappedImages = images.map((img: any) => {
+        let targetVarId = img.variant_id;
+        // If variant_id matches a color variant, point to the saved primary variant id
+        for (const v of variantsPayload) {
+          if (v.id === img.variant_id) {
+            targetVarId = colorToPrimaryVarId.get(v.color_name.toLowerCase()) || targetVarId;
+            break;
+          }
+        }
+        return {
+          ...img,
+          variant_id: targetVarId
+        };
+      });
+
       await supabaseAdmin
         .from('product_images')
-        .upsert(images);
+        .upsert(mappedImages);
     }
 
     return json({

@@ -1,9 +1,27 @@
-// ─── Cart Store — Svelte 5 Runes (Functional Closure) ───────────────────────
+// ─── Cart Store — Svelte 5 Runes (Functional Closure) ───────────────────────────
 import type { CartItem, ColorVariant } from '$lib/types';
 import { supabase } from '$lib/supabaseClient';
 import { uiStore } from '$lib/stores/ui.svelte';
+import { canonicalizeSize } from '$lib/sizes';
 
 export const MAX_QTY_PER_ITEM = 5;
+
+/** Canonical size key — every variant line is distinct per (product, variant, size) */
+function sizeKey(size: number | string | null | undefined): string {
+  if (size === null || size === undefined || size === '') return '38';
+  return canonicalizeSize(size);
+}
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** Guard against composite display ids like "<uuid>_BEIGE" — keep only the uuid part */
+function sanitizeProductId(id: string): string {
+  if (!id) return id;
+  if (UUID_RE.test(id)) return id;
+  const head = id.split('_')[0];
+  if (UUID_RE.test(head)) return head;
+  return id;
+}
 
 function createCartStore() {
   let items = $state<CartItem[]>([]);
@@ -55,6 +73,20 @@ function createCartStore() {
       localStorage.setItem('ft_cart_meta', JSON.stringify(current));
     } catch (e) {
       console.error('Error saving local cart meta:', e);
+    }
+  }
+
+  function _deleteLocalMeta(keys: string[]) {
+    if (typeof window === 'undefined') return;
+    try {
+      const current = _loadLocalMeta();
+      let changed = false;
+      for (const k of keys) {
+        if (k && k in current) { delete current[k]; changed = true; }
+      }
+      if (changed) localStorage.setItem('ft_cart_meta', JSON.stringify(current));
+    } catch (e) {
+      console.error('Error cleaning local cart meta:', e);
     }
   }
 
@@ -117,37 +149,40 @@ function createCartStore() {
       for (const item of localItems) {
         try {
           await _runWithRetry(async () => {
-            // Resolve variant ID if not present
-            let variantId: string | null = null;
-            const { data: variants, error: variantError } = await supabase
-              .from('product_variants')
-              .select('id')
-              .eq('product_id', item.productId)
-              .ilike('color_name', item.color.name)
-              .limit(1);
-            
-            if (!variantError && variants && variants.length > 0) {
-              variantId = variants[0].id;
+            const rowSize = sizeKey(item.size);
+            // SKU-first: resolve variant + canonical sku from product+size+color
+            let variantId: string | null = item.variantId ?? null;
+            let itemSku: string | null = item.sku ?? null;
+            if (!itemSku || !variantId) {
+              try {
+                const res = await fetch('/api/variants/resolve', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ productId: item.productId, size: rowSize, color: item.color.name, ...(itemSku ? { sku: itemSku } : {}) })
+                });
+                if (res.ok) {
+                  const data = await res.json();
+                  itemSku = data.sku ?? itemSku;
+                  variantId = data.variantId ?? variantId;
+                }
+              } catch (e) {
+                console.warn('[Cart] Variant resolution failed during merge:', e);
+              }
             }
-            
-            // Add or update row in database
-            let query = supabase
+
+            // SKU identity for the merged row
+            const mergeSku = itemSku || `${item.productId}-${item.color.name}-${rowSize}`.toLowerCase().replace(/[^a-z0-9-]/gi, '-');
+
+            // Add or update row in database — keyed by sku
+            const { data: existingRows, error: findError } = await supabase
               .from('cart')
               .select('id, quantity')
               .eq('user_id', userId)
-              .eq('product_id', item.productId);
-
-            if (variantId) {
-              query = query.eq('variant_id', variantId);
-            } else {
-              query = query.is('variant_id', null);
-            }
-
-            const { data: existingRows, error: findError } = await query;
+              .eq('sku', mergeSku);
             if (findError) throw findError;
 
             if (existingRows && existingRows.length > 0) {
-              const newQty = existingRows[0].quantity + item.quantity;
+              const newQty = Math.min(existingRows[0].quantity + item.quantity, MAX_QTY_PER_ITEM);
               const { error: updateError } = await supabase
                 .from('cart')
                 .update({ quantity: newQty })
@@ -160,7 +195,9 @@ function createCartStore() {
                   user_id: userId,
                   product_id: item.productId,
                   variant_id: variantId,
-                  quantity: item.quantity
+                  sku: mergeSku,
+                  size: rowSize,
+                  quantity: Math.min(item.quantity, MAX_QTY_PER_ITEM)
                 });
               if (insertError) throw insertError;
             }
@@ -169,12 +206,12 @@ function createCartStore() {
           console.error(`Failed to merge item ${item.name} to DB:`, e);
         }
       }
-      
+
       // Clear guest cart
       if (typeof window !== 'undefined') {
         localStorage.removeItem('ft_cart');
       }
-      
+
       // Reload final merged cart from Supabase
       await loadFromSupabase(userId);
     }
@@ -210,30 +247,33 @@ function createCartStore() {
   }
 
   function _mapDbRowsToItems(rows: any[]): CartItem[] {
-    const localMeta = _loadLocalMeta();
     return rows.map((row: any) => {
       const p = row.product;
       if (!p) return null;
 
       const v = row.variant;
-      
+
       // Determine variant image
       let imgUrl = '';
       if (v?.images && Array.isArray(v.images) && v.images.length > 0) {
         const primary = v.images.find((img: any) => img.is_primary) || v.images[0];
         imgUrl = primary?.image_url || primary?.url || '';
       }
+      if (!imgUrl && p?.images && Array.isArray(p.images) && p.images.length > 0) {
+        const first = p.images[0];
+        imgUrl = typeof first === 'string' ? first : (first?.image_url || first?.url || '');
+      }
 
-      const cached = localMeta[row.id] || localMeta[row.product_id];
+      // Row size is authoritative (stored per cart row); fall back to variant size
+      const rowSize = Number(sizeKey(row.size ?? v?.size ?? 38));
 
       const matchedColor: ColorVariant = {
-        name: v?.color_name || cached?.color?.name || 'Default',
-        hex: v?.color_hex || cached?.color?.hex || '#f4a7c3'
+        // Show the admin-defined color name verbatim; fall back through variant columns
+        name: v?.color_name || v?.color || 'Default',
+        hex: v?.color_hex || '#f4a7c3'
       };
 
-      const size = cached?.size || 38;
-
-      // Price in rupees
+      // Price in rupees: variant price_override wins over base price
       const basePriceNum = Number(p.base_price || 0);
       const variantPrice = v?.price_override !== null && v?.price_override !== undefined && v?.price_override !== ''
         ? Number(v.price_override)
@@ -242,13 +282,15 @@ function createCartStore() {
       return {
         id: row.id,
         productId: p.id,
+        variantId: row.variant_id ?? null,
+        sku: row.sku || v?.sku || undefined,
         slug: p.slug,
         name: p.name,
         image: imgUrl || '/placeholder.jpg',
         price: variantPrice,
         originalPrice: undefined,
         color: matchedColor,
-        size: size,
+        size: isNaN(rowSize) ? 38 : rowSize,
         quantity: Math.min(row.quantity || 1, MAX_QTY_PER_ITEM),
       };
     }).filter(Boolean) as CartItem[];
@@ -272,13 +314,20 @@ function createCartStore() {
     size: number;
     quantity?: number;
     variantId?: string | null;
+    sku?: string | null;
   }) {
-    const { productId, slug, name, image, price, originalPrice, color, size, quantity = 1 } = params;
+    const { slug, name, image, price, originalPrice, color, size, quantity = 1 } = params;
+    // Guard: some callers pass composite display ids ("<uuid>_ColorName") — keep the uuid part
+    const productId = sanitizeProductId(params.productId);
 
-    // Check existing quantity for this item
-    const existing = items.find(
-      (item) => item.productId === productId && item.color.name.toLowerCase() === color.name.toLowerCase() && item.size === size
-    );
+    // Per-variant identity: same product but different color/size = different line
+    const isSameLine = (item: CartItem) =>
+      item.productId === productId &&
+      item.color.name.toLowerCase() === color.name.toLowerCase() &&
+      sizeKey(item.size) === sizeKey(size);
+
+    // Check existing quantity for this variant line
+    const existing = items.find(isSameLine);
     const existingQty = existing ? existing.quantity : 0;
 
     if (existingQty >= MAX_QTY_PER_ITEM) {
@@ -286,19 +335,20 @@ function createCartStore() {
       return;
     }
 
-    const qtyToAdd = Math.min(quantity, MAX_QTY_PER_ITEM - existingQty);
+    const qtyToAdd = Math.max(1, Math.min(quantity, MAX_QTY_PER_ITEM - existingQty));
 
     if (!_userId) {
       // Local storage mode for anonymous users
       const localItems = _loadLocalCart();
-      const existingIndex = localItems.findIndex(
-        (item) => item.productId === productId && item.color.name.toLowerCase() === color.name.toLowerCase() && item.size === size
-      );
-      
+      const existingIndex = localItems.findIndex(isSameLine);
+
       if (existingIndex > -1) {
         localItems[existingIndex].quantity = Math.min(localItems[existingIndex].quantity + qtyToAdd, MAX_QTY_PER_ITEM);
+        localItems[existingIndex].variantId = params.variantId ?? localItems[existingIndex].variantId ?? null;
+        localItems[existingIndex].image = image || localItems[existingIndex].image;
+        localItems[existingIndex].price = price;
       } else {
-        const id = `anon-${productId}-${color.name}-${size}`;
+        const id = `anon-${productId}-${color.name.toLowerCase()}-${sizeKey(size)}`;
         localItems.push({
           id,
           productId,
@@ -308,52 +358,51 @@ function createCartStore() {
           price,
           originalPrice,
           color,
-          size,
-          quantity: qtyToAdd
+          size: Number(sizeKey(size)),
+          quantity: qtyToAdd,
+          variantId: params.variantId ?? null,
+          sku: params.sku ?? undefined
         });
-        _saveLocalMeta(id, { size, color });
       }
-      
+
       items = localItems;
       _saveLocalCart(localItems);
       return;
     }
 
-    // Authenticated Database mode
+    // Authenticated Database mode — one row per (user, sku); SKU is the global identity
     try {
       await _runWithRetry(async () => {
-        let variantId = params.variantId;
+        let sku = params.sku ?? null;
+        let variantId = params.variantId ?? null;
 
-        // Resolve variantId if not explicitly passed
-        if (variantId === undefined) {
-          const { data: variants, error: variantError } = await supabase
-            .from('product_variants')
-            .select('id')
-            .eq('product_id', productId)
-            .ilike('color_name', color.name)
-            .limit(1);
-          
-          if (!variantError && variants && variants.length > 0) {
-            variantId = variants[0].id;
-          } else {
-            variantId = null;
+        // Ensure we always resolve the exact size-specific 8-digit SKU
+        if (!sku || sku.length !== 8 || isNaN(Number(sku)) || !variantId) {
+          try {
+            const res = await fetch('/api/variants/resolve', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ productId, size: sizeKey(size), color: color.name })
+            });
+            if (res.ok) {
+              const data = await res.json();
+              if (data.sku) sku = data.sku;
+              if (data.variantId) variantId = data.variantId;
+            }
+          } catch (e) {
+            console.warn('[Cart] Variant resolution failed, continuing without variant:', e);
           }
         }
 
-        // Query existing cart row
-        let query = supabase
+        // SKU identity: deterministic fallback keeps distinct lines even without a variant row
+        const lineSku = sku || `${productId}-${color.name}-${sizeKey(size)}`.toLowerCase().replace(/[^a-z0-9-]/gi, '-');
+
+        // Look for an existing row for THIS sku + size
+        const { data: existingRows, error: findError } = await supabase
           .from('cart')
           .select('id, quantity')
           .eq('user_id', _userId!)
-          .eq('product_id', productId);
-
-        if (variantId) {
-          query = query.eq('variant_id', variantId);
-        } else {
-          query = query.is('variant_id', null);
-        }
-
-        const { data: existingRows, error: findError } = await query;
+          .eq('sku', lineSku);
         if (findError) throw findError;
 
         if (existingRows && existingRows.length > 0) {
@@ -363,28 +412,23 @@ function createCartStore() {
             .from('cart')
             .update({ quantity: newQty })
             .eq('id', existingRows[0].id);
-          
+
           if (updateError) throw updateError;
-          _saveLocalMeta(existingRows[0].id, { size, color });
         } else {
-          // Insert new row
-          const { data: insertedRow, error: insertError } = await supabase
+          // Insert a NEW distinct row carrying size + variant
+          const { error: insertError } = await supabase
             .from('cart')
             .insert({
               user_id: _userId!,
               product_id: productId,
-              variant_id: variantId || null,
+              variant_id: variantId,
+              sku: lineSku,
+              size: sizeKey(size),
               quantity: qtyToAdd
-            })
-            .select('id')
-            .single();
+            });
 
           if (insertError) throw insertError;
-          if (insertedRow) {
-            _saveLocalMeta(insertedRow.id, { size, color });
-          }
         }
-        _saveLocalMeta(productId, { size, color });
       });
 
       // Sync abandoned cart
@@ -394,6 +438,7 @@ function createCartStore() {
       await loadFromSupabase(_userId);
     } catch (e) {
       console.error('Error adding item to cart:', e);
+      uiStore.addToast('Could not add to cart. Please try again.', 'error');
     }
   }
 
@@ -415,6 +460,8 @@ function createCartStore() {
           .eq('user_id', _userId!);
         if (error) throw error;
       });
+
+      _deleteLocalMeta([id]);
 
       // Sync abandoned cart
       await syncAbandonedCart();
@@ -558,13 +605,16 @@ function createCartStore() {
         }
 
         const cartItems = cartRows.map((row: any) => {
-          const basePrice = row.product?.price ?? 0;
-          const adjustment = row.variant?.price_adjustment ?? 0;
-          const price = basePrice + adjustment;
+          // Variant price_override wins; else base price. Stored in rupees.
+          const price = row.variant?.price_override !== null && row.variant?.price_override !== undefined && row.variant?.price_override !== ''
+            ? Number(row.variant.price_override)
+            : Number(row.product?.base_price ?? 0);
           return {
             product_id: row.product_id,
             variant_id: row.variant_id,
+            sku: row.sku ?? row.variant?.sku ?? null,
             quantity: row.quantity,
+            size: row.size ?? null,
             product_name: row.product?.name ?? 'Unknown',
             price: price
           };
