@@ -5,18 +5,21 @@
   const slides = [
     {
       image: 'https://ik.imagekit.io/who7qvgvp/banners/1782513212(1).png',
-      alt: 'French Toes Summer Sale - Premium Women\'s Slippers',
-      link: '/shop?badge=Sale'
+      alt: 'French Toes Navratri Festive Sale — Premium Women\'s Slippers',
+      link: '/shop?badge=Sale',
+      festiveTag: '🪔 Navratri Picks'
     },
     {
       image: 'https://ik.imagekit.io/who7qvgvp/banners/1782560916(1).png',
-      alt: 'Cloud-Soft Cushioned Comfort - Pastel Dreams Collection',
-      link: '/shop?badge=New+Arrival'
+      alt: 'Garba Night Ready — Cloud-Soft Festive Slippers',
+      link: '/shop?badge=New+Arrival',
+      festiveTag: '💃 Garba Night Ready'
     },
     {
       image: 'https://ik.imagekit.io/who7qvgvp/banners/1782560899(1).png',
-      alt: 'Everyday Chic Slipper Essentials - Crafted for Indian Summers',
-      link: '/shop'
+      alt: 'Diwali Footwear — Shine Bright This Festive Season',
+      link: '/shop',
+      festiveTag: '🪔 Diwali Pairs'
     }
   ];
 
@@ -133,6 +136,14 @@
           class="w-full h-full object-cover object-center transition-transform duration-[6000ms] ease-out {activeIdx === idx ? 'scale-[1.01]' : 'scale-100'}"
           loading={idx === 0 ? 'eager' : 'lazy'}
         />
+        <!-- Festive tag pill -->
+        {#if slide.festiveTag}
+          <div class="absolute top-4 left-4 z-20 pointer-events-none">
+            <span class="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-bold uppercase tracking-wider" style="background: rgba(120,20,10,0.82); backdrop-filter: blur(8px); color: #ffd080; border: 1px solid rgba(212,168,83,0.5); letter-spacing: 0.1em;">
+              {slide.festiveTag}
+            </span>
+          </div>
+        {/if}
         <!-- Subtle shadow overlay at bottom for organic transition to sale banner -->
         <div class="absolute bottom-0 left-0 right-0 h-24 bg-gradient-to-t from-black/5 to-transparent pointer-events-none"></div>
       </a>

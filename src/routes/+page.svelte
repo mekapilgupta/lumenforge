@@ -4,6 +4,7 @@
   import CategoryStories from '$lib/components/home/CategoryStories.svelte';
   import CategorySlider from '$lib/components/home/CategorySlider.svelte';
   import MarqueeStrip from '$lib/components/home/MarqueeStrip.svelte';
+  import FestivePicksSection from '$lib/components/home/FestivePicksSection.svelte';
   import BestSellers from '$lib/components/home/BestSellers.svelte';
   import ProductCarousel from '$lib/components/home/ProductCarousel.svelte';
   import ShopByColor from '$lib/components/home/ShopByColor.svelte';
@@ -31,13 +32,16 @@
 <!-- Category Marquee Strip -->
 <MarqueeStrip />
 
-<!-- Best Sellers / New Arrivals grid with tabs -->
+<!-- ⭐ NEW: Festive Picks — auto-updating, all color variants, capped at 12 -->
+<FestivePicksSection />
+
+<!-- Best Sellers / Collections grid with tabs -->
 <BestSellers />
 
 <!-- Auto-scrolling Product Carousel -->
 <ProductCarousel />
 
-<!-- Shop by Color -->
+<!-- Shop by Color / Vibe -->
 <ShopByColor />
 
 <!-- Why French Toes features -->
