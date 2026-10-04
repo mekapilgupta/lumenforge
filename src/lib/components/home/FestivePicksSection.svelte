@@ -215,7 +215,7 @@
               <!-- Quick Add overlay -->
               <div class="quick-add-wrap">
                 <button
-                  onclick|stopPropagation={() => quickAdd(card)}
+                  onclick={(e) => { e.preventDefault(); e.stopPropagation(); quickAdd(card); }}
                   class="quick-add-btn"
                   aria-label="Quick add {card.name} to bag"
                 >
