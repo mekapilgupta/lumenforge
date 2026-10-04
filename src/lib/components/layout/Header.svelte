@@ -27,7 +27,7 @@
     { href: '/shop', label: '🛍️ Shop All' },
     { href: '/shop?badge=Best+Seller', label: '⭐ Best Sellers' },
     { href: '/shop?badge=New+Arrival', label: '🆕 New Arrivals' },
-    { href: '/shop?badge=Sale', label: '🌸 Sale' },
+    { href: '/shop?badge=Sale', label: '🪔 Festive Sale' },
   ];
 
   // Extended mobile menu links
@@ -82,13 +82,15 @@
         <span class="opacity-50">|</span>
         <span>🏷️ 5% OFF ON PREPAID ORDERS 🏷️</span>
         <span class="opacity-50">|</span>
+        <span>🪔 HAPPY NAVRATRI & DIWALI 🪔</span>
+        <span class="opacity-50">|</span>
+        <span>💃 PICK YOUR GARBA PAIR NOW 💃</span>
+        <span class="opacity-50">|</span>
         <span>💖 CASH ON DELIVERY AVAILABLE 💖</span>
         <span class="opacity-50">|</span>
         <span>🚚 FREE SHIPPING ON ALL ORDERS 🚚</span>
         <span class="opacity-50">|</span>
         <span>🏷️ 5% OFF ON PREPAID ORDERS 🏷️</span>
-        <span class="opacity-50">|</span>
-        <span>💖 CASH ON DELIVERY AVAILABLE 💖</span>
       </div>
     </div>
   </div>

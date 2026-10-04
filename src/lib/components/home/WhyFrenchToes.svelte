@@ -3,7 +3,7 @@
     {
       icon: `<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>`,
       title: 'Breathable Fabric',
-      desc: 'Engineered mesh & quick-dry materials keep your feet cool even in 45°C heat.',
+      desc: 'Engineered mesh & quick-dry materials — cool in 45°C heat, comfortable for garba nights.',
       bg: 'var(--color-blush)',
       accent: 'var(--color-blush-deep)',
     },
@@ -23,22 +23,22 @@
     },
     {
       icon: `<circle cx="12" cy="12" r="10"/><path d="M12 8v4l3 3"/>`,
-      title: 'Indian Summer Ready',
-      desc: 'Designed specifically for India\'s climate: lightweight, airy, easy to clean.',
+      title: 'India-Ready All Year',
+      desc: 'From Navratri garba nights to Diwali gatherings — lightweight, airy, easy to clean.',
       bg: 'var(--color-peach)',
       accent: 'var(--color-peach-deep)',
     },
     {
       icon: `<circle cx="13.5" cy="6.5" r="0.5"/><circle cx="17.5" cy="10.5" r="0.5"/><circle cx="8.5" cy="7.5" r="0.5"/><circle cx="6.5" cy="12.5" r="0.5"/><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125..."/>`,
-      title: 'Handpicked Colors',
-      desc: '18 blossom pastels this season — from Blush Pink to Lavender to Mint.',
+      title: 'Handpicked Festive Colours',
+      desc: '18+ curated shades this season — from Gold & Coral to Lavender & Mint.',
       bg: 'var(--color-gold-light)',
       accent: 'var(--color-gold)',
     },
     {
       icon: `<polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>`,
       title: 'Limited Editions',
-      desc: 'Only 500 pairs per color — exclusive, collectible summer slippers.',
+      desc: 'Only 500 pairs per colour — exclusive, collectible festive styles.',
       bg: 'var(--color-coral)',
       accent: 'var(--color-coral-deep)',
     },
@@ -52,7 +52,7 @@
       <span class="text-xs font-semibold uppercase tracking-widest" style="color: var(--color-blush-deep);">Why Choose Us</span>
       <h2 class="font-display text-3xl md:text-4xl font-bold mt-2" style="color: var(--color-text-dark);">Why French Toes?</h2>
       <p class="mt-3 text-base max-w-lg mx-auto" style="color: var(--color-text-mid);">
-        We obsess over every detail so your feet experience pure joy, all summer long.
+        We obsess over every detail so your feet experience pure joy — through every garba night, Diwali evening & beyond.
       </p>
     </div>
 

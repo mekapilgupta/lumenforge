@@ -258,9 +258,9 @@
     
     <!-- Title -->
     <div class="text-center mb-10">
-      <span class="text-xs font-semibold uppercase tracking-widest text-[var(--color-brand-magenta)]">Lush Series</span>
+      <span class="text-xs font-semibold uppercase tracking-widest text-[var(--color-brand-magenta)]">Festive Season</span>
       <h2 class="font-display text-4xl font-bold mt-2 text-[#2d1b2e]">Explore the Collections</h2>
-      <p class="text-sm text-[#9e7ca0] mt-2 font-light max-w-md mx-auto">Click a series tab to browse its premium pastel colors and custom-styled textures.</p>
+      <p class="text-sm text-[#9e7ca0] mt-2 font-light max-w-md mx-auto">Browse festive series tabs to find your perfect Navratri, Diwali & celebration styles.</p>
     </div>
 
     <!-- Tabs row -->
@@ -277,7 +277,7 @@
           "
           aria-pressed={activeTab === tab}
         >
-          ✨ {tab}
+          🪔 {tab}
         </button>
       {/each}
     </div>

@@ -1,13 +1,13 @@
 <script lang="ts">
   const items: { label: string; href: string }[] = [
-    { label: '👡 Slippers', href: '/shop' },
-    { label: '🌸 Blossom Pastels', href: '/shop' },
-    { label: '🏆 Best Sellers', href: '/shop?badge=Best+Seller' },
+    { label: '🪔 Navratri Picks', href: '/shop?category=flats' },
+    { label: '💃 Garba Pairs', href: '/shop?category=flats' },
+    { label: '🌸 Diwali Footwear', href: '/shop?badge=Best+Seller' },
+    { label: '⭐ Best Sellers', href: '/shop?badge=Best+Seller' },
     { label: '🆕 New Arrivals', href: '/shop?badge=New+Arrival' },
-    { label: '☀️ Summer Ready', href: '/shop' },
     { label: '🇮🇳 Made for India', href: '/shop' },
+    { label: '✨ Limited Edition', href: '/shop?badge=Limited+Edition' },
     { label: '💖 10,000+ Happy Women', href: '/shop' },
-    { label: '🌺 Limited Edition', href: '/shop?badge=Limited+Edition' },
   ];
 </script>
 
