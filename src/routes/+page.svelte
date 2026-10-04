@@ -48,7 +48,7 @@
 <WhyFrenchToes />
 
 <!-- Festive CTA Strip -->
-<section class="py-16 px-4 relative overflow-hidden" style="background-image: linear-gradient(135deg, rgba(120, 20, 20, 0.92) 0%, rgba(60, 10, 50, 0.95) 100%), url('https://images.unsplash.com/photo-1604440963853-978fcf0427c3?w=1600&q=80'); background-size: cover; background-position: center;">
+<section class="py-16 px-4 relative overflow-hidden" style="background-image: linear-gradient(135deg, rgba(120, 20, 20, 0.90) 0%, rgba(60, 10, 50, 0.93) 100%), url('/images/festive/hero_banner_diwali.jpg'); background-size: cover; background-position: center;">
   <!-- Decorative diya glow blobs -->
   <div class="absolute top-4 left-8 w-32 h-32 rounded-full blur-3xl pointer-events-none" style="background: radial-gradient(circle, rgba(255,180,30,0.35), transparent);" aria-hidden="true"></div>
   <div class="absolute bottom-4 right-8 w-40 h-40 rounded-full blur-3xl pointer-events-none" style="background: radial-gradient(circle, rgba(255,80,30,0.30), transparent);" aria-hidden="true"></div>

@@ -5,36 +5,36 @@
     href: string;
   }
 
-  // Default stories data array provided by the user
+  // Default stories data array with festive graphics
   const defaultStories: StoryItem[] = [
     {
       title: "✨ WEDGES",
-      image: "https://ik.imagekit.io/who7qvgvp/frenchtoes_virginia_black_2_ITtFmHwxm.jpg?updatedAt=1782557488154",
+      image: "/images/festive/story_wedges.jpg",
       href: "/shop?category=wedges"
     },
     {
-      title: "✨ FLATS",
-      image: "https://ik.imagekit.io/who7qvgvp/frenchtoes_phoenix_white_2_t5V55W0gA.jpg?updatedAt=1782557471480",
+      title: "💃 GARBA FLATS",
+      image: "/images/festive/story_garba_flats.jpg",
       href: "/shop?category=flats"
     },
     {
-      title: "✨ DAILY COMFORT",
-      image: "https://ik.imagekit.io/who7qvgvp/frenchtoes_phoenix_tan_2_vgejSsoo3.jpg?updatedAt=1782557468096",
+      title: "🪔 DAILY COMFORT",
+      image: "/images/festive/story_daily_comfort.jpg",
       href: "/shop?category=daily-comfort"
     },
     {
       title: "Shop All",
-      image: "https://ik.imagekit.io/who7qvgvp/frenchtoes_phoenix_black_2_d5qQ6B6bN.jpg?updatedAt=1782557464758",
+      image: "/images/festive/story_shop_all.jpg",
       href: "/shop"
     },
     {
-      title: "Discounts",
-      image: "https://ik.imagekit.io/who7qvgvp/frenchtoes_phoenix_berry_2_OCJLuV17S.jpg?updatedAt=1782557461516",
+      title: "Diwali Deals",
+      image: "/images/festive/story_festive_sale.jpg",
       href: "/shop?badge=Sale"
     },
     {
-      title: "Sale",
-      image: "https://ik.imagekit.io/who7qvgvp/frenchtoes_virginia_black_2_ITtFmHwxm.jpg?updatedAt=1782557488154",
+      title: "Festive Sale",
+      image: "/images/festive/hero_banner_diwali.jpg",
       href: "/shop?badge=Sale"
     }
   ];

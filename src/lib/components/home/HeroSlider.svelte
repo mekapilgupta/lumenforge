@@ -1,22 +1,22 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
 
-  // Standalone and reusable slide list containing the requested banner images
+  // Standalone and reusable slide list containing the festive banner images
   const slides = [
     {
-      image: 'https://ik.imagekit.io/who7qvgvp/banners/1782513212(1).png',
+      image: '/images/festive/hero_banner_navratri.jpg',
       alt: 'French Toes Navratri Festive Sale — Premium Women\'s Slippers',
       link: '/shop?badge=Sale',
       festiveTag: '🪔 Navratri Picks'
     },
     {
-      image: 'https://ik.imagekit.io/who7qvgvp/banners/1782560916(1).png',
+      image: '/images/festive/hero_banner_garba.jpg',
       alt: 'Garba Night Ready — Cloud-Soft Festive Slippers',
       link: '/shop?badge=New+Arrival',
       festiveTag: '💃 Garba Night Ready'
     },
     {
-      image: 'https://ik.imagekit.io/who7qvgvp/banners/1782560899(1).png',
+      image: '/images/festive/hero_banner_diwali.jpg',
       alt: 'Diwali Footwear — Shine Bright This Festive Season',
       link: '/shop',
       festiveTag: '🪔 Diwali Pairs'
