@@ -1,25 +1,13 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
 
-  // Standalone and reusable slide list containing the festive banner images
+  // Slide list with single hero banner
   const slides = [
     {
       image: '/images/festive/hero_banner_navratri.jpg',
       alt: 'French Toes Navratri Festive Sale — Premium Women\'s Slippers',
       link: '/shop?badge=Sale',
-      festiveTag: '🪔 Navratri Picks'
-    },
-    {
-      image: '/images/festive/hero_banner_garba.jpg',
-      alt: 'Garba Night Ready — Cloud-Soft Festive Slippers',
-      link: '/shop?badge=New+Arrival',
-      festiveTag: '💃 Garba Night Ready'
-    },
-    {
-      image: '/images/festive/hero_banner_diwali.jpg',
-      alt: 'Diwali Footwear — Shine Bright This Festive Season',
-      link: '/shop',
-      festiveTag: '🪔 Diwali Pairs'
+      festiveTag: '🪔 Navratri Festive Picks'
     }
   ];
 
@@ -33,10 +21,12 @@
   let touchEndX = 0;
 
   function nextSlide() {
+    if (slides.length <= 1) return;
     activeIdx = (activeIdx + 1) % slides.length;
   }
 
   function prevSlide() {
+    if (slides.length <= 1) return;
     activeIdx = (activeIdx - 1 + slides.length) % slides.length;
   }
 
@@ -46,6 +36,7 @@
   }
 
   function startAutoplay() {
+    if (slides.length <= 1) return;
     stopAutoplay();
     timer = setInterval(() => {
       if (!isHovering) {
@@ -68,6 +59,7 @@
 
   // Keyboard navigation handler
   function handleKeyDown(e: KeyboardEvent) {
+    if (slides.length <= 1) return;
     if (e.key === 'ArrowRight') {
       nextSlide();
       resetAutoplay();
@@ -89,6 +81,7 @@
   }
 
   function handleSwipeGesture() {
+    if (slides.length <= 1) return;
     const swipeThreshold = 50; // Minimum swipe distance in pixels
     if (touchStartX - touchEndX > swipeThreshold) {
       // Swiped Left -> Next Slide
@@ -150,45 +143,47 @@
     </div>
   {/each}
 
-  <!-- Navigation Arrows (Hidden on Mobile, Hover State for Desktop) -->
-  <button
-    onclick={() => { prevSlide(); resetAutoplay(); }}
-    class="absolute left-4 sm:left-6 top-1/2 -translate-y-1/2 w-11 h-11 sm:w-12 sm:h-12 rounded-full flex items-center justify-center transition-all duration-300 z-20 hover:scale-105 active:scale-95 hidden lg:flex opacity-0 group-hover:opacity-100 bg-white/40 hover:bg-white/75 text-neutral-800 backdrop-blur-md border border-white/40 shadow-sm"
-    aria-label="Previous Slide"
-    tabindex="0"
-  >
-    <svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M15 19l-7-7 7-7"/>
-    </svg>
-  </button>
-  
-  <button
-    onclick={() => { nextSlide(); resetAutoplay(); }}
-    class="absolute right-4 sm:right-6 top-1/2 -translate-y-1/2 w-11 h-11 sm:w-12 sm:h-12 rounded-full flex items-center justify-center transition-all duration-300 z-20 hover:scale-105 active:scale-95 hidden lg:flex opacity-0 group-hover:opacity-100 bg-white/40 hover:bg-white/75 text-neutral-800 backdrop-blur-md border border-white/40 shadow-sm"
-    aria-label="Next Slide"
-    tabindex="0"
-  >
-    <svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M9 5l7 7-7 7"/>
-    </svg>
-  </button>
+  {#if slides.length > 1}
+    <!-- Navigation Arrows (Hidden on Mobile, Hover State for Desktop) -->
+    <button
+      onclick={() => { prevSlide(); resetAutoplay(); }}
+      class="absolute left-4 sm:left-6 top-1/2 -translate-y-1/2 w-11 h-11 sm:w-12 sm:h-12 rounded-full flex items-center justify-center transition-all duration-300 z-20 hover:scale-105 active:scale-95 hidden lg:flex opacity-0 group-hover:opacity-100 bg-white/40 hover:bg-white/75 text-neutral-800 backdrop-blur-md border border-white/40 shadow-sm"
+      aria-label="Previous Slide"
+      tabindex="0"
+    >
+      <svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M15 19l-7-7 7-7"/>
+      </svg>
+    </button>
+    
+    <button
+      onclick={() => { nextSlide(); resetAutoplay(); }}
+      class="absolute right-4 sm:right-6 top-1/2 -translate-y-1/2 w-11 h-11 sm:w-12 sm:h-12 rounded-full flex items-center justify-center transition-all duration-300 z-20 hover:scale-105 active:scale-95 hidden lg:flex opacity-0 group-hover:opacity-100 bg-white/40 hover:bg-white/75 text-neutral-800 backdrop-blur-md border border-white/40 shadow-sm"
+      aria-label="Next Slide"
+      tabindex="0"
+    >
+      <svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M9 5l7 7-7 7"/>
+      </svg>
+    </button>
 
-  <!-- Modern Pill-style Bottom Dot Indicators -->
-  <div class="absolute bottom-3 sm:bottom-6 left-1/2 -translate-x-1/2 z-20" role="tablist" aria-label="Slide Selection">
-    <div class="bg-black/10 backdrop-blur-md px-3.5 py-2 rounded-full border border-white/30 flex gap-2">
-      {#each slides as _, idx}
-        <button
-          role="tab"
-          aria-selected={activeIdx === idx}
-          aria-label="Go to Slide {idx + 1}"
-          onclick={() => setSlide(idx)}
-          class="h-2 rounded-full transition-all duration-300 cursor-pointer"
-          style="
-            width: {activeIdx === idx ? '24px' : '8px'};
-            background-color: {activeIdx === idx ? 'var(--color-brand-magenta, #D81B60)' : 'rgba(255, 255, 255, 0.65)'};
-          "
-        ></button>
-      {/each}
+    <!-- Modern Pill-style Bottom Dot Indicators -->
+    <div class="absolute bottom-3 sm:bottom-6 left-1/2 -translate-x-1/2 z-20" role="tablist" aria-label="Slide Selection">
+      <div class="bg-black/10 backdrop-blur-md px-3.5 py-2 rounded-full border border-white/30 flex gap-2">
+        {#each slides as _, idx}
+          <button
+            role="tab"
+            aria-selected={activeIdx === idx}
+            aria-label="Go to Slide {idx + 1}"
+            onclick={() => setSlide(idx)}
+            class="h-2 rounded-full transition-all duration-300 cursor-pointer"
+            style="
+              width: {activeIdx === idx ? '24px' : '8px'};
+              background-color: {activeIdx === idx ? 'var(--color-brand-magenta, #D81B60)' : 'rgba(255, 255, 255, 0.65)'};
+            "
+          ></button>
+        {/each}
+      </div>
     </div>
-  </div>
+  {/if}
 </div>
