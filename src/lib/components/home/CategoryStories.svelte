@@ -3,43 +3,62 @@
     title: string;
     image: string;
     href: string;
+    badge?: string;
+    badgeColor?: string;
   }
 
-  // Default stories data array with festive graphics
+  // Default stories data array matching Neeman's explore bar with festive graphics
   const defaultStories: StoryItem[] = [
     {
-      title: "✨ WEDGES",
+      title: "Festive Picks",
+      image: "/images/festive/hero_banner_navratri.jpg",
+      href: "/shop?badge=Best+Seller",
+      badge: "HOT",
+      badgeColor: "#d81b60"
+    },
+    {
+      title: "Garba Ready",
+      image: "/images/festive/story_garba_flats.jpg",
+      href: "/shop?category=flats",
+      badge: "NEW",
+      badgeColor: "#e07020"
+    },
+    {
+      title: "Diwali Luxe",
+      image: "/images/festive/hero_banner_diwali.jpg",
+      href: "/shop?badge=Sale",
+      badge: "FESTIVE",
+      badgeColor: "#9e6d1c"
+    },
+    {
+      title: "Wedges",
       image: "/images/festive/story_wedges.jpg",
       href: "/shop?category=wedges"
     },
     {
-      title: "💃 GARBA FLATS",
+      title: "Flats",
       image: "/images/festive/story_garba_flats.jpg",
       href: "/shop?category=flats"
     },
     {
-      title: "🪔 DAILY COMFORT",
+      title: "Daily Comfort",
       image: "/images/festive/story_daily_comfort.jpg",
       href: "/shop?category=daily-comfort"
     },
     {
-      title: "Shop All",
+      title: "All Footwear",
       image: "/images/festive/story_shop_all.jpg",
       href: "/shop"
     },
     {
-      title: "Diwali Deals",
+      title: "Festive Offers",
       image: "/images/festive/story_festive_sale.jpg",
-      href: "/shop?badge=Sale"
-    },
-    {
-      title: "Festive Sale",
-      image: "/images/festive/hero_banner_diwali.jpg",
-      href: "/shop?badge=Sale"
+      href: "/shop?badge=Sale",
+      badge: "20% OFF",
+      badgeColor: "#d81b60"
     }
   ];
 
-  // Svelte 5 reactive props configuration with fallbacks
   interface Props {
     items?: StoryItem[];
   }
@@ -47,13 +66,23 @@
   let { items = defaultStories }: Props = $props();
 </script>
 
-<section class="stories-section py-6 bg-[#FDFBF7] border-b border-[#f0e0e8]/30 overflow-hidden select-none">
-  <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-    <div class="stories-scroll-container">
+<section class="explore-bar-section py-4 sm:py-5 bg-[#FFFFFF] border-b border-[#f0e0e8]/50 overflow-hidden select-none shadow-[0_2px_8px_rgba(0,0,0,0.03)]">
+  <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col lg:flex-row items-center lg:items-center gap-3 lg:gap-6">
+    
+    <!-- Left label (Neeman's style) -->
+    <div class="shrink-0 flex items-center gap-2 self-start lg:self-center">
+      <span class="text-[11px] sm:text-xs font-extrabold uppercase tracking-wider text-[#7a6270]">
+        Shop & Explore
+      </span>
+      <span class="w-1.5 h-1.5 rounded-full bg-[#d81b60] animate-pulse"></span>
+    </div>
+
+    <!-- Scrollable category icons -->
+    <div class="stories-scroll-container w-full">
       {#each items as item}
         <a href={item.href} class="story-item group">
           <div class="story-circle-container">
-            <!-- Animated spinning gradient border (Instagram style) -->
+            <!-- Subtle gradient border ring -->
             <div class="story-gradient-bg"></div>
             
             <!-- White space gap wrapper -->
@@ -62,9 +91,16 @@
                 src={item.image} 
                 alt={item.title} 
                 class="story-image" 
-                loading="lazy"
+                loading="eager"
               />
             </div>
+
+            <!-- Optional overlay pill badge (NEW, EXCLUSIVE, etc.) -->
+            {#if item.badge}
+              <div class="story-badge-pill" style="background: {item.badgeColor || '#d81b60'};">
+                {item.badge}
+              </div>
+            {/if}
           </div>
           
           <!-- Typography directly below the circle -->
@@ -76,29 +112,28 @@
 </section>
 
 <style>
-  /* Scroll container configuration with cross-browser scrollbar hiding */
   .stories-scroll-container {
     display: flex;
     gap: 16px;
     overflow-x: auto;
-    scrollbar-width: none; /* Firefox */
-    -ms-overflow-style: none; /* IE & Edge */
-    -webkit-overflow-scrolling: touch; /* Momentum scrolling for iOS */
-    padding: 6px 4px 10px 4px;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+    -webkit-overflow-scrolling: touch;
+    padding: 6px 4px 6px 4px;
+    align-items: flex-start;
   }
 
-  @media (min-width: 768px) {
+  @media (min-width: 1024px) {
     .stories-scroll-container {
-      gap: 24px;
-      justify-content: center; /* Center items on desktop */
+      gap: 22px;
+      justify-content: flex-start;
     }
   }
 
   .stories-scroll-container::-webkit-scrollbar {
-    display: none; /* Chrome, Safari, Opera */
+    display: none;
   }
 
-  /* Story Item structure */
   .story-item {
     display: flex;
     flex-direction: column;
@@ -109,69 +144,40 @@
     outline: none;
   }
 
-  /* Perfect circle container for the border and image */
   .story-circle-container {
     position: relative;
-    width: 72px;
-    height: 72px;
+    width: 64px;
+    height: 64px;
     border-radius: 50%;
-    overflow: hidden;
     flex-shrink: 0;
-    transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275), box-shadow 0.3s ease;
-    box-shadow: 0 4px 10px rgba(216, 27, 96, 0.08);
+    transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
   }
 
   @media (min-width: 768px) {
     .story-circle-container {
-      width: 86px;
-      height: 86px;
+      width: 72px;
+      height: 72px;
     }
   }
 
   .story-item:hover .story-circle-container {
-    transform: scale(1.06);
-    box-shadow: 0 6px 16px rgba(216, 27, 96, 0.16);
+    transform: translateY(-2px) scale(1.05);
   }
 
-  /* Custom spinning gradient animation */
-  @keyframes spin {
-    0% {
-      transform: rotate(0deg);
-    }
-    100% {
-      transform: rotate(360deg);
-    }
-  }
-
-  /* Conic gradient using custom brand-aligned colors */
   .story-gradient-bg {
     position: absolute;
     inset: 0;
     border-radius: 50%;
-    background: conic-gradient(
-      from 0deg,
-      #d81b60 0%,   /* Brand Magenta */
-      #ff2e93 25%,  /* Vivid Pink */
-      #ff8a80 50%,  /* Soft Coral */
-      #ffb347 75%,  /* Sunset Gold */
-      #d81b60 100%  /* Brand Magenta */
-    );
-    animation: spin 3s linear infinite;
-    transform-origin: center;
+    background: linear-gradient(135deg, #d81b60 0%, #ff8a80 50%, #ffb347 100%);
+    box-shadow: 0 2px 8px rgba(216, 27, 96, 0.15);
   }
 
-  /* Interactive speed up on hover */
-  .story-item:hover .story-gradient-bg {
-    animation-duration: 1.5s;
-  }
-
-  /* White space gap (Instagram style spacing) */
   .story-inner-gap {
     position: absolute;
-    inset: 3px; /* Controls border thickness */
+    inset: 2.5px;
     border-radius: 50%;
-    background: #ffffff; /* White background gap */
-    padding: 3px; /* Gap between white border and image */
+    background: #ffffff;
+    padding: 2px;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -179,40 +185,55 @@
     z-index: 1;
   }
 
-  /* Circular image */
   .story-image {
     width: 100%;
     height: 100%;
     border-radius: 50%;
     object-fit: cover;
-    transition: transform 0.4s cubic-bezier(0.165, 0.84, 0.44, 1);
+    transition: transform 0.3s ease;
   }
 
   .story-item:hover .story-image {
     transform: scale(1.08);
   }
 
-  /* Typography configuration */
+  .story-badge-pill {
+    position: absolute;
+    bottom: -4px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 10;
+    color: #ffffff;
+    font-size: 8px;
+    font-weight: 800;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    padding: 1px 6px;
+    border-radius: 999px;
+    white-space: nowrap;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+    border: 1.5px solid #ffffff;
+  }
+
   .story-title {
-    margin-top: 8px;
+    margin-top: 6px;
     font-family: var(--font-sans, system-ui, -apple-system, sans-serif);
-    font-size: 0.72rem;
-    font-weight: 700;
-    color: var(--color-text-dark, #2d1b2e);
+    font-size: 0.70rem;
+    font-weight: 600;
+    color: #3d2b38;
     text-align: center;
     white-space: nowrap;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
+    letter-spacing: 0.02em;
     transition: color 0.2s ease;
   }
 
   @media (min-width: 768px) {
     .story-title {
-      font-size: 0.78rem;
+      font-size: 0.75rem;
     }
   }
 
   .story-item:hover .story-title {
-    color: var(--color-brand-magenta, #d81b60);
+    color: #d81b60;
   }
 </style>

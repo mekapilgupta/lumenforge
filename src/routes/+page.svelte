@@ -1,15 +1,16 @@
 <script lang="ts">
+  import CategoryStories from '$lib/components/home/CategoryStories.svelte';
   import HeroSlider from '$lib/components/home/HeroSlider.svelte';
   import SaleBanner from '$lib/components/home/SaleBanner.svelte';
-  import CategoryStories from '$lib/components/home/CategoryStories.svelte';
-  import CategorySlider from '$lib/components/home/CategorySlider.svelte';
-  import MarqueeStrip from '$lib/components/home/MarqueeStrip.svelte';
+  import FestiveFeatureGrid from '$lib/components/home/FestiveFeatureGrid.svelte';
   import FestivePicksSection from '$lib/components/home/FestivePicksSection.svelte';
-  import BestSellers from '$lib/components/home/BestSellers.svelte';
-  import ProductCarousel from '$lib/components/home/ProductCarousel.svelte';
   import ShopByColor from '$lib/components/home/ShopByColor.svelte';
   import WhyFrenchToes from '$lib/components/home/WhyFrenchToes.svelte';
   import Testimonials from '$lib/components/home/Testimonials.svelte';
+  // import CategorySlider from '$lib/components/home/CategorySlider.svelte';
+  // import MarqueeStrip from '$lib/components/home/MarqueeStrip.svelte';
+  // import BestSellers from '$lib/components/home/BestSellers.svelte';
+  // import ProductCarousel from '$lib/components/home/ProductCarousel.svelte';
 </script>
 
 <svelte:head>
@@ -17,34 +18,31 @@
   <meta name="description" content="Shop French Toes — premium women's slippers perfect for Navratri garba, Diwali celebrations & festive occasions. Free shipping. COD available." />
 </svelte:head>
 
-<!-- Hero Section -->
-<HeroSlider />
-
-<!-- Sale Banner marquee -->
-<SaleBanner />
-
-<!-- Instagram Style Category Stories -->
+<!-- 1. Shop & Explore Top Bar (Neeman's style — below header, above slider) -->
 <CategoryStories />
 
-<!-- Shop by Category Slider -->
-<CategorySlider />
+<!-- 2. Hero Section (Single festive banner) -->
+<HeroSlider />
 
-<!-- Category Marquee Strip -->
-<MarqueeStrip />
+<!-- 3. Sale Banner marquee -->
+<SaleBanner />
 
-<!-- ⭐ NEW: Festive Picks — auto-updating, all color variants, capped at 12 -->
+<!-- 4. 3-Column Festive Highlights Grid (using generated festive artwork) -->
+<FestiveFeatureGrid />
+
+<!-- 5. ⭐ Festive Picks — auto-updating, all color variants, capped at 12 -->
 <FestivePicksSection />
 
-<!-- Best Sellers / Collections grid with tabs -->
-<BestSellers />
+<!-- Shop by Category & Marquee commented out per request -->
+<!-- <CategorySlider /> -->
+<!-- <MarqueeStrip /> -->
+<!-- <BestSellers /> -->
+<!-- <ProductCarousel /> -->
 
-<!-- Auto-scrolling Product Carousel -->
-<ProductCarousel />
-
-<!-- Shop by Color / Vibe -->
+<!-- 6. Shop by Color / Vibe -->
 <ShopByColor />
 
-<!-- Why French Toes features -->
+<!-- 7. Why French Toes features -->
 <WhyFrenchToes />
 
 <!-- Festive CTA Strip -->

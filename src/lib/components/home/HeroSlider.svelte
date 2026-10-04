@@ -103,7 +103,8 @@
   });
 </script>
 
-<!-- Outer Slider Container with hover triggers and keyboard events -->
+<!-- Outer Slider Container -->
+<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 <div
   class="relative w-full aspect-[1664/928] sm:aspect-auto sm:h-[380px] md:h-[500px] lg:h-[600px] xl:h-[750px] overflow-hidden group select-none bg-neutral-100"
   onmouseenter={() => isHovering = true}
@@ -111,9 +112,7 @@
   ontouchstart={handleTouchStart}
   ontouchend={handleTouchEnd}
   role="region"
-  aria-label="Promotional Hero Slider"
-  tabindex="0"
-  onkeydown={handleKeyDown}
+  aria-label="Promotional Hero Banner"
 >
   <!-- Slides Wrapper -->
   {#each slides as slide, idx}
