@@ -4,9 +4,10 @@
   import SaleBanner from '$lib/components/home/SaleBanner.svelte';
   import FestiveFeatureGrid from '$lib/components/home/FestiveFeatureGrid.svelte';
   import FestivePicksSection from '$lib/components/home/FestivePicksSection.svelte';
+  import FestiveOccasionGuide from '$lib/components/home/FestiveOccasionGuide.svelte';
   import ShopByColor from '$lib/components/home/ShopByColor.svelte';
   import WhyFrenchToes from '$lib/components/home/WhyFrenchToes.svelte';
-  import Testimonials from '$lib/components/home/Testimonials.svelte';
+  import FestiveCustomerReviews from '$lib/components/home/FestiveCustomerReviews.svelte';
   // import CategorySlider from '$lib/components/home/CategorySlider.svelte';
   // import MarqueeStrip from '$lib/components/home/MarqueeStrip.svelte';
   // import BestSellers from '$lib/components/home/BestSellers.svelte';
@@ -30,22 +31,22 @@
 <!-- 4. 3-Column Festive Highlights Grid (using generated festive artwork) -->
 <FestiveFeatureGrid />
 
-<!-- 5. ⭐ Festive Picks — auto-updating, all color variants, capped at 12 -->
+<!-- 5. ⭐ Festive Picks — auto-updating, all color variants from DB -->
 <FestivePicksSection />
 
-<!-- Shop by Category & Marquee commented out per request -->
-<!-- <CategorySlider /> -->
-<!-- <MarqueeStrip /> -->
-<!-- <BestSellers /> -->
-<!-- <ProductCarousel /> -->
+<!-- 6. Interactive Festive Occasion Styling Guide -->
+<FestiveOccasionGuide />
 
-<!-- 6. Shop by Color / Vibe -->
+<!-- 7. Shop by Color / Vibe -->
 <ShopByColor />
 
-<!-- 7. Why French Toes features -->
+<!-- 8. Why French Toes features (Festive Cards) -->
 <WhyFrenchToes />
 
-<!-- Festive CTA Strip -->
+<!-- 9. Real Festive Stories & Verified Reviews -->
+<FestiveCustomerReviews />
+
+<!-- 10. Festive CTA Strip -->
 <section class="py-16 px-4 relative overflow-hidden" style="background-image: linear-gradient(135deg, rgba(120, 20, 20, 0.90) 0%, rgba(60, 10, 50, 0.93) 100%), url('/images/festive/hero_banner_diwali.jpg'); background-size: cover; background-position: center;">
   <!-- Decorative diya glow blobs -->
   <div class="absolute top-4 left-8 w-32 h-32 rounded-full blur-3xl pointer-events-none" style="background: radial-gradient(circle, rgba(255,180,30,0.35), transparent);" aria-hidden="true"></div>
@@ -65,6 +66,3 @@
     </a>
   </div>
 </section>
-
-<!-- Testimonials -->
-<Testimonials />

@@ -4,7 +4,7 @@
   // Slide list with single hero banner
   const slides = [
     {
-      image: '/images/festive/hero_banner_navratri.jpg',
+      image: 'https://i.ibb.co/Rph7q5JX/1791128946-1.png',
       alt: 'French Toes Navratri Festive Sale — Premium Women\'s Slippers',
       link: '/shop?badge=Sale',
       festiveTag: '🪔 Navratri Festive Picks'

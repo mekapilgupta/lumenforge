@@ -215,14 +215,6 @@
             </li>
           {/each}
         </ul>
-
-        <!-- Rangoli decorative block -->
-        <div class="mt-6 rangoli-block" aria-hidden="true">
-          <div class="rangoli-ring r1"></div>
-          <div class="rangoli-ring r2"></div>
-          <div class="rangoli-ring r3"></div>
-          <span class="rangoli-center">🌺</span>
-        </div>
       </div>
 
     </div>
@@ -298,25 +290,6 @@
   .footer-link:hover {
     color: #d4a853;
   }
-
-  /* Rangoli decorative rings */
-  .rangoli-block {
-    position: relative;
-    width: 80px;
-    height: 80px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-  }
-  .rangoli-ring {
-    position: absolute;
-    border-radius: 50%;
-    border-style: solid;
-  }
-  .r1 { width: 76px; height: 76px; border-width: 1.5px; border-color: rgba(212,168,83,0.35); }
-  .r2 { width: 54px; height: 54px; border-width: 1.5px; border-color: rgba(192,57,43,0.4); }
-  .r3 { width: 32px; height: 32px; border-width: 1.5px; border-color: rgba(212,168,83,0.5); }
-  .rangoli-center { font-size: 18px; position: relative; z-index: 1; }
 
   /* Trust badge animations (reuse existing global classes) */
   :global(.trust-badge-animate) {
