@@ -68,29 +68,7 @@ export async function POST({ request, url }) {
       }
     }
 
-    // Edge function cloud check fallback
-    if (!order) {
-      try {
-        const edgeRes = await fetch(`${PUBLIC_SUPABASE_URL}/functions/v1/push-to-shiprocket`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${PUBLIC_SUPABASE_ANON_KEY}`,
-          },
-          body: JSON.stringify({ orderId: orderIdentifier }),
-        });
-        const edgeData = await edgeRes.json().catch(() => ({}));
-        if (edgeRes.ok && (edgeData.success || edgeData.shiprocket_order_id)) {
-          return json({
-            success: true,
-            pushed: true,
-            synced: true,
-            shiprocket_order_id: edgeData.shiprocket_order_id,
-            order: edgeData.order,
-          });
-        }
-      } catch (e) {}
-    }
+
 
     if (!order) {
       return json({
@@ -149,44 +127,14 @@ export async function POST({ request, url }) {
 
     // 3. Auto-Push to Shiprocket (if not pushed yet or if forcePush)
     if (!order.shiprocket_order_id || forcePush) {
-      console.log(`[Process Sync] Order #${order.order_number} has no Shiprocket ID. Attempting auto-push...`);
+      console.log(`[Process Sync] Order #${order.order_number} has no Shiprocket ID. Pushing via authoritative server route...`);
       try {
-        let pushSuccess = false;
-        let srId = null;
-
-        // A. Try Cloud Edge Function
-        try {
-          const edgeRes = await fetch(`${PUBLIC_SUPABASE_URL}/functions/v1/push-to-shiprocket`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${PUBLIC_SUPABASE_ANON_KEY}`,
-            },
-            body: JSON.stringify({ orderId: order.id }),
-          });
-          const edgeData = await edgeRes.json().catch(() => ({}));
-          if (edgeRes.ok && (edgeData.success || edgeData.shiprocket_order_id)) {
-            pushSuccess = true;
-            srId = edgeData.shiprocket_order_id;
-          }
-        } catch (edgeErr: any) {
-          console.warn('[Process Sync] Cloud Edge push skipped:', edgeErr.message);
-        }
-
-        // B. Fallback to Local Server Push
-        if (!pushSuccess) {
-          const localPushResult = await pushOrderToShiprocket(order.id);
-          if (localPushResult.success) {
-            pushSuccess = true;
-            srId = localPushResult.shiprocket_order_id;
-          } else if (localPushResult.error) {
-            warnings.push(`Shiprocket push: ${localPushResult.error}`);
-          }
-        }
-
-        if (pushSuccess) {
+        const pushResult = await pushOrderToShiprocket(order.id);
+        if (pushResult.success) {
           pushed = true;
-          order.shiprocket_order_id = srId || order.shiprocket_order_id;
+          order.shiprocket_order_id = pushResult.shiprocket_order_id || order.shiprocket_order_id;
+        } else if (pushResult.error) {
+          warnings.push(`Shiprocket push: ${pushResult.error}`);
         }
       } catch (pushErr: any) {
         warnings.push(`Shiprocket push failed: ${pushErr.message}`);
