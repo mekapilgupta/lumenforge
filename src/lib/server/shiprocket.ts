@@ -434,8 +434,17 @@ export async function syncOrderWithShiprocket(orderIdOrAwb: string, customClient
   const etd = shipmentTrack?.expected_date || shipmentTrack?.edd || trackData?.etd || dbOrder.estimated_delivery_date || null;
   const trackUrl = shipmentTrack?.track_url || (awbCode ? `https://shiprocket.co/tracking/${awbCode}` : dbOrder.tracking_url);
 
-  const mappedDbStatus = mapShiprocketStatus(rawStatus);
+  let mappedDbStatus = mapShiprocketStatus(rawStatus);
   const oldStatus = dbOrder.status;
+
+  // CRITICAL: A shipment cancellation in Shiprocket (label fix, AWB regen, courier change)
+  // must NEVER cancel the customer's store order!
+  // If Shiprocket reports CANCELED, keep the store order active (confirmed/processing).
+  if (mappedDbStatus === 'cancelled' && oldStatus !== 'cancelled') {
+    console.log(`[Shiprocket Sync] Order #${dbOrder.order_number}: shipment is CANCELED in Shiprocket, preserving active store status: "${oldStatus}"`);
+    mappedDbStatus = oldStatus === 'pending' ? 'pending' : (oldStatus || 'confirmed');
+  }
+
   const statusChanged = mappedDbStatus !== oldStatus;
 
   console.log(`[Shiprocket Sync] Order #${dbOrder.order_number}: SR Status="${rawStatus}" -> DB Status="${mappedDbStatus}" (Changed: ${statusChanged})`);

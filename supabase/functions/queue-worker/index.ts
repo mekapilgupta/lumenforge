@@ -250,7 +250,7 @@ async function handleProcessRefund(runId: string, task: any) {
 
   const { data: order, error: orderFetchErr } = await supabaseAdmin
     .from("orders")
-    .select("id, order_number, payment_status, payment_gateway_response, user_id, profiles(email, full_name)")
+    .select("id, order_number, status, payment_status, payment_method, advance_amount, cod_balance_due, shipped_at, payment_gateway_response, user_id, profiles(email, full_name)")
     .eq("id", task.order_id)
     .maybeSingle();
   if (orderFetchErr) {
@@ -262,14 +262,34 @@ async function handleProcessRefund(runId: string, task: any) {
     return;
   }
 
-  log(runId, "info", "Calling Razorpay refund API", { orderId: task.order_id, razorpay_payment_id, amount, order_return_id });
+  const isCod = order?.payment_method?.toLowerCase() === 'cod' || (Number(order?.advance_amount || 0) > 0);
+
+  // CRITICAL RULE: For COD orders, if order was shipped or delivered, the remaining balance was collected
+  // in cash by the courier at the customer's doorstep.
+  // Never automatically process online Razorpay refund for cash collected by courier!
+  if (isCod && (order?.shipped_at || ['shipped', 'out_for_delivery', 'delivered', 'returned'].includes(order?.status))) {
+    log(runId, "info", "COD order was already shipped/delivered — cash collected by courier. Skipping automated Razorpay refund for manual admin handling.", { orderId: task.order_id });
+    await writeOrderLog(runId, task.order_id, "refund_manual_required",
+      "Notice: COD order was already dispatched/delivered. Balance collected via Shiprocket courier. Admin will reconcile refund manually.");
+    return;
+  }
+
+  // Pre-shipment cancellation: clamp refund strictly to the captured online advance
+  let targetAmount = amount;
+  const capturedOnline = order?.payment_gateway_response?.amount || order?.advance_amount;
+  if (capturedOnline && targetAmount > capturedOnline) {
+    log(runId, "warn", `Refund amount ₹${targetAmount / 100} exceeds captured online advance ₹${capturedOnline / 100}. Clamping to captured amount.`, { orderId: task.order_id });
+    targetAmount = capturedOnline;
+  }
+
+  log(runId, "info", "Calling Razorpay refund API", { orderId: task.order_id, razorpay_payment_id, amount: targetAmount, order_return_id });
 
   let refundRes: Response;
   try {
     refundRes = await fetchWithTimeout(`https://api.razorpay.com/v1/payments/${razorpay_payment_id}/refund`, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: razorpayAuth },
-      body: JSON.stringify({ amount }),
+      body: JSON.stringify({ amount: targetAmount }),
     });
   } catch (e) {
     throw new TaskError(`Razorpay refund request failed/timed out: ${(e as Error).message}`, true);
@@ -281,13 +301,13 @@ async function handleProcessRefund(runId: string, task: any) {
     const description: string = refundData?.error?.description ?? JSON.stringify(refundData);
     const alreadyRefunded = /already.*refund/i.test(description);
     if (alreadyRefunded) {
-      await finalizeRefund(runId, task.order_id, order_return_id, amount, refundData, order);
+      await finalizeRefund(runId, task.order_id, order_return_id, targetAmount, refundData, order);
       return;
     }
     throw new TaskError(`Razorpay refund failed (${refundRes.status}): ${description}`, refundRes.status >= 500);
   }
 
-  await finalizeRefund(runId, task.order_id, order_return_id, amount, refundData, order);
+  await finalizeRefund(runId, task.order_id, order_return_id, targetAmount, refundData, order);
 }
 
 async function finalizeRefund(runId: string, orderId: string, orderReturnId: string | undefined, amount: number, refundData: any, order: any) {
@@ -512,7 +532,7 @@ async function handleSendCancellationEmail(runId: string, task: any) {
 
   const { data: order, error: orderErr } = await supabaseAdmin
     .from("orders")
-    .select("id, order_number, user_id, profiles(email, full_name)")
+    .select("id, order_number, payment_method, advance_amount, payment_status, user_id, profiles(email, full_name)")
     .eq("id", task.order_id)
     .maybeSingle();
 
@@ -529,12 +549,22 @@ async function handleSendCancellationEmail(runId: string, task: any) {
     return;
   }
 
+  const isCod = order?.payment_method?.toLowerCase() === 'cod' || (Number(order?.advance_amount || 0) > 0);
+  const advRupees = order?.advance_amount ? (Number(order.advance_amount) / 100).toFixed(2) : null;
+
+  let refundParagraph = `<p style="font-size: 15px; color: #5c3d2e; line-height: 1.5;">If you made a payment online, your refund will be processed back to your original payment method within 5–7 business days.</p>`;
+  if (isCod && advRupees && Number(advRupees) > 0) {
+    refundParagraph = `<p style="font-size: 15px; color: #5c3d2e; line-height: 1.5;">Your online advance payment of <strong>₹${advRupees}</strong> has been queued for refund back to your original payment method within 5–7 business days. No further amount will be collected.</p>`;
+  } else if (isCod) {
+    refundParagraph = `<p style="font-size: 15px; color: #5c3d2e; line-height: 1.5;">Since this was a Cash on Delivery order, no payment was collected and no refund is due.</p>`;
+  }
+
   const html = `
     <div style="font-family: sans-serif; color: #333; max-width: 600px; margin: 0 auto; padding: 25px; border: 1px solid #ff7f6e; border-radius: 16px; background-color: #fffdf9;">
       <h2 style="color: #ff7f6e; font-family: Georgia, serif; border-bottom: 2px solid #ff7f6e; padding-bottom: 10px; margin-top: 0;">Order Cancelled 💔</h2>
       <p style="font-size: 15px; color: #5c3d2e; line-height: 1.5;">Dear ${name},</p>
       <p style="font-size: 15px; color: #5c3d2e; line-height: 1.5;">Your order (<strong>#${orderNumber}</strong>) has been successfully cancelled.</p>
-      <p style="font-size: 15px; color: #5c3d2e; line-height: 1.5;">If you made a payment online, your refund will be processed back to your original payment method within 5–7 business days.</p>
+      ${refundParagraph}
       <p style="font-size: 13px; color: #8b6f5e; margin-top: 20px;">If you have any questions or did not request this cancellation, please reply to this email or contact support immediately.</p>
     </div>
   `;

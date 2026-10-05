@@ -105,7 +105,14 @@ serve(async (req) => {
 
     // Normalize incoming status for case-insensitive lookup
     const statusNormalized = (shiprocketStatus ?? "").trim().toUpperCase();
-    const dbStatus = STATUS_MAP[statusNormalized] ?? currentOrder.status;
+    let dbStatus = STATUS_MAP[statusNormalized] ?? currentOrder.status;
+
+    // CRITICAL: A shipment cancellation in Shiprocket must NEVER cancel an active store order!
+    if (dbStatus === "cancelled" && currentOrder.status !== "cancelled") {
+      log(reqId, "info", "Shipment cancelled in Shiprocket, preserving active store order status", { orderId, currentStatus: currentOrder.status });
+      dbStatus = currentOrder.status;
+    }
+
     const statusChanged = dbStatus !== currentOrder.status;
 
     const updatePayload: Record<string, unknown> = {
@@ -134,7 +141,7 @@ serve(async (req) => {
     if (NOTIFY_ON.has(statusNormalized) && statusChanged) {
       await sendAdminEmail(reqId, `Shipment update: ${shiprocketStatus} — Order ${orderId}`,
         `<p>Shiprocket reports <b>${shiprocketStatus}</b> for order <b>${orderId}</b> (AWB ${awbCode ?? "N/A"}).</p>` +
-        ((statusNormalized === "CANCELLED" || statusNormalized === "CANCELED") ? "<p>Refund and internal cancellation have been queued automatically.</p>" : ""));
+        ((statusNormalized === "CANCELLED" || statusNormalized === "CANCELED") ? "<p>Shipment was cancelled in Shiprocket.</p>" : ""));
     }
 
     return new Response(JSON.stringify({ success: true }), { headers: { "Content-Type": "application/json" } });

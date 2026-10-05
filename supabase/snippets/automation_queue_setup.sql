@@ -39,23 +39,36 @@ create policy "Admin full access to queue" on public.automation_queue for all us
 --                   orders can insert into automation_queue without admin rights.
 create or replace function public.queue_order_automations()
 returns trigger as $$
+declare
+  v_is_cod boolean;
+  v_refund_amount int;
 begin
   -- SCENARIO A: Order is Cancelled
   if new.status = 'cancelled' and (old.status is null or old.status != 'cancelled') then
     
-    -- 1. If it was pushed to Shiprocket, queue a cancellation
-    if new.shiprocket_order_id is not null then
+    -- 1. If it was pushed to Shiprocket and not delivered, queue a shipment cancellation
+    if new.shiprocket_order_id is not null and (old.status is null or old.status not in ('delivered', 'returned')) then
       insert into public.automation_queue (order_id, action_type, payload)
       values (new.id, 'cancel_shipment', jsonb_build_object('shiprocket_order_id', new.shiprocket_order_id));
     end if;
 
-    -- 2. If it was paid via Razorpay, queue a refund
-    if new.payment_method = 'razorpay' and new.payment_status = 'paid' then
-      insert into public.automation_queue (order_id, action_type, payload)
-      values (new.id, 'process_refund', jsonb_build_object(
-        'razorpay_payment_id', new.razorpay_payment_id,
-        'amount', new.total_amount
-      ));
+    -- 2. If it was paid online via Razorpay (prepaid OR COD with advance)
+    -- ONLY auto-refund if cancelled BEFORE shipment! Once shipped, COD balance is collected in cash.
+    if new.razorpay_payment_id is not null and (old.status is null or old.status not in ('shipped', 'out_for_delivery', 'delivered', 'returned')) then
+      v_is_cod := (new.payment_method = 'cod' or coalesce(new.advance_amount, 0) > 0);
+      if v_is_cod then
+        v_refund_amount := coalesce(nullif(new.advance_amount, 0), 0);
+      else
+        v_refund_amount := new.total_amount;
+      end if;
+
+      if v_refund_amount > 0 then
+        insert into public.automation_queue (order_id, action_type, payload)
+        values (new.id, 'process_refund', jsonb_build_object(
+          'razorpay_payment_id', new.razorpay_payment_id,
+          'amount', v_refund_amount
+        ));
+      end if;
     end if;
 
     -- 3. Queue cancellation email to the customer
@@ -64,9 +77,9 @@ begin
   end if;
 
   -- SCENARIO B: Order is Returned (After Shipping)
+  -- For returns after delivery, only auto-refund prepaid orders. COD orders are handled manually by admin via Shiprocket remittance.
   if new.status = 'returned' and (old.status is null or old.status != 'returned') then
-     -- Auto-queue refund for returned items if prepaid
-     if new.payment_method = 'razorpay' and new.payment_status = 'paid' then
+    if new.payment_method = 'razorpay' and new.payment_status = 'paid' and coalesce(new.advance_amount, 0) = 0 then
       insert into public.automation_queue (order_id, action_type, payload)
       values (new.id, 'process_refund', jsonb_build_object(
         'razorpay_payment_id', new.razorpay_payment_id,

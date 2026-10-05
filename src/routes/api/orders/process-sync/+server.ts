@@ -100,6 +100,17 @@ export async function POST({ request, url }) {
       }, { status: 404 });
     }
 
+    // Administrative correction / override (if provided in payload)
+    const overrideSrId = body.shiprocketOrderId || body.shiprocket_order_id;
+    if (overrideSrId || (body.status && body.status !== order.status)) {
+      const patchData: Record<string, any> = {};
+      if (overrideSrId) patchData.shiprocket_order_id = String(overrideSrId);
+      if (body.status) patchData.status = body.status;
+      if (body.status === 'confirmed') patchData.cancellation_reason = null;
+      await supabaseAdmin.from('orders').update(patchData).eq('id', order.id);
+      order = { ...order, ...patchData };
+    }
+
     // 2. Auto-Reconcile COD vs Prepaid Status & Balance
     // Amounts (advance_amount / cod_balance_due) are the source of truth. A COD order
     // with balance still due is 'partial_paid' even if payment_status says 'paid' —
