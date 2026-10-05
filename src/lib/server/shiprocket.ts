@@ -172,10 +172,23 @@ export async function pushOrderToShiprocket(orderId: string, customClient?: any)
     orderQuery = orderQuery.eq('order_number', orderId);
   }
 
-  const { data: order, error: orderErr } = await orderQuery.maybeSingle();
+  let { data: order, error: orderErr } = await orderQuery.maybeSingle();
 
-  if (orderErr || !order) {
-    return { success: false, error: orderErr?.message || 'Order not found' };
+  // Fallback: If not found through orders table due to RLS, query orders_complete view
+  if (!order) {
+    const ocQuery = db.from('orders_complete').select('*');
+    const { data: ocOrder } = await (isUuid ? ocQuery.eq('id', orderId) : ocQuery.eq('order_number', orderId)).maybeSingle();
+    if (ocOrder) {
+      order = ocOrder;
+      if (order.shipping_address_id && !order.address) {
+        const { data: addr } = await db.from('addresses').select('*').eq('id', order.shipping_address_id).maybeSingle();
+        if (addr) order.address = addr;
+      }
+    }
+  }
+
+  if (!order) {
+    return { success: false, error: orderErr?.message || 'Order not found in database' };
   }
 
   const token = await getShiprocketToken();
@@ -345,9 +358,30 @@ export async function syncOrderWithShiprocket(orderIdOrAwb: string, customClient
     orderQuery = orderQuery.or(`awb_code.eq.${idStr},order_number.eq.${idStr},razorpay_order_id.eq.${idStr}`);
   }
 
-  const { data: dbOrder, error: dbErr } = await orderQuery.maybeSingle();
+  let { data: dbOrder, error: dbErr } = await orderQuery.maybeSingle();
 
-  if (dbErr || !dbOrder) {
+  if (!dbOrder) {
+    let ocQuery = db.from('orders_complete').select('*');
+    if (isUuid) {
+      ocQuery = ocQuery.eq('id', idStr);
+    } else if (idStr.startsWith('FT') || idStr.startsWith('ft_')) {
+      ocQuery = ocQuery.eq('order_number', idStr);
+    } else if (isDigits) {
+      ocQuery = ocQuery.or(`shiprocket_order_id.eq.${idStr},awb_code.eq.${idStr},order_number.eq.${idStr}`);
+    } else {
+      ocQuery = ocQuery.or(`awb_code.eq.${idStr},order_number.eq.${idStr},razorpay_order_id.eq.${idStr}`);
+    }
+    const { data: ocOrder } = await ocQuery.maybeSingle();
+    if (ocOrder) {
+      dbOrder = ocOrder;
+      if (dbOrder.shipping_address_id && !dbOrder.address) {
+        const { data: addr } = await db.from('addresses').select('*').eq('id', dbOrder.shipping_address_id).maybeSingle();
+        if (addr) dbOrder.address = addr;
+      }
+    }
+  }
+
+  if (!dbOrder) {
     console.error(`[Shiprocket Sync] Order not found for identifier: ${orderIdOrAwb}`, dbErr);
     return { success: false, error: dbErr?.message || 'Order not found in database' };
   }

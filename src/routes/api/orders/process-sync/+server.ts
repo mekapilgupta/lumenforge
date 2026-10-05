@@ -60,11 +60,33 @@ export async function POST({ request, url }) {
 
     let { data: order, error: orderErr } = await orderQuery.maybeSingle();
 
-    // Fallback: If not found through primary client, try elevated edge function or supabaseAdmin
+    // Fallback 1: If not found through primary client, try elevated supabaseAdmin
     if (!order && db !== supabaseAdmin) {
       const { data: adminOrder } = await supabaseAdmin.from('orders').select('*, address:addresses!shipping_address_id(*), items:order_items(*), profile:user_id(id, full_name, email, phone)').eq(isUuid ? 'id' : 'order_number', orderIdentifier).maybeSingle();
       if (adminOrder) {
         order = adminOrder;
+      }
+    }
+
+    // Fallback 2: If still not found due to RLS, query public orders_complete view
+    if (!order) {
+      let ocQuery = db.from('orders_complete').select('*');
+      if (isUuid) {
+        ocQuery = ocQuery.eq('id', orderIdentifier);
+      } else if (orderIdentifier.startsWith('FT') || orderIdentifier.startsWith('ft_')) {
+        ocQuery = ocQuery.eq('order_number', orderIdentifier);
+      } else if (isDigits) {
+        ocQuery = ocQuery.or(`shiprocket_order_id.eq.${orderIdentifier},awb_code.eq.${orderIdentifier},order_number.eq.${orderIdentifier}`);
+      } else {
+        ocQuery = ocQuery.or(`awb_code.eq.${orderIdentifier},order_number.eq.${orderIdentifier},razorpay_order_id.eq.${orderIdentifier}`);
+      }
+      const { data: ocOrder } = await ocQuery.maybeSingle();
+      if (ocOrder) {
+        order = ocOrder;
+        if (order.shipping_address_id && !order.address) {
+          const { data: addr } = await db.from('addresses').select('*').eq('id', order.shipping_address_id).maybeSingle();
+          if (addr) order.address = addr;
+        }
       }
     }
 
