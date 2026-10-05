@@ -267,6 +267,12 @@ export async function pushOrderToShiprocket(orderId: string, customClient?: any)
     discount: srTotalDiscount,
     total_discount: srTotalDiscount,
     cod_amount: codAmountToCollect,
+    comment: isCod && !isFullyPaid && advAmount > 0
+      ? `COD Order: ₹${(advAmount / 100).toFixed(2)} Advance Paid Online (Razorpay). Collect Balance ₹${(codDue / 100).toFixed(2)} from Customer.`
+      : (isCod ? `COD Order: Collect ₹${(totalPaise / 100).toFixed(2)}` : 'Prepaid Order'),
+    order_tag: isCod && !isFullyPaid && advAmount > 0
+      ? `Advance_Paid_Rs${Math.round(advAmount / 100)},COD_Due_Rs${Math.round(codDue / 100)}`
+      : (isCod ? 'COD' : 'Prepaid'),
     length: 30,
     breadth: 20,
     height: 10,
