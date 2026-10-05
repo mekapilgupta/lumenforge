@@ -256,14 +256,11 @@
       uiStore.addToast('Order placed successfully! 🌸', 'success');
       goto(`/checkout/success?order_id=${order.id}`);
 
-      // Push to Shiprocket (fire-and-forget to avoid blocking UI)
+      // Push to Shiprocket via server route (fire-and-forget to avoid blocking UI)
       console.log('[Checkout] Pushing COD order to Shiprocket...');
-      fetch(`${PUBLIC_SUPABASE_URL}/functions/v1/push-to-shiprocket`, {
+      fetch('/api/shiprocket/push', {
         method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${PUBLIC_SUPABASE_ANON_KEY}`
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ orderId: order.id })
       })
       .then(res => res.json())
@@ -441,14 +438,11 @@
             // Clear cart and mark abandoned cart as recovered
             await cartStore.checkoutSuccess(createData.dbOrderId);
 
-            // Push to Shiprocket (with collectable balance if COD)
+            // Push to Shiprocket (with collectable balance if COD) via server route
             console.log('[Checkout] Pushing order to Shiprocket...');
-            fetch(`${PUBLIC_SUPABASE_URL}/functions/v1/push-to-shiprocket`, {
+            fetch('/api/shiprocket/push', {
               method: 'POST',
-              headers: { 
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${PUBLIC_SUPABASE_ANON_KEY}`
-              },
+              headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ orderId: createData.dbOrderId })
             })
             .then(res => res.json())

@@ -132,9 +132,24 @@ serve(async (req) => {
     const state = fullOrder.address?.state || "State Missing";
     const email = profile?.email || fullOrder.payment_gateway_response?.email || "customer@frenchtoes.in";
     const phone = fullOrder.address?.phone || profile?.phone || fullOrder.payment_gateway_response?.contact || "9999999999";
-    const isCod = fullOrder.payment_method === "cod";
+    
+    // Robust COD detection
+    const gwAmount = (fullOrder.payment_gateway_response as any)?.amount;
+    const isPartialGateway = typeof gwAmount === 'number' && gwAmount > 0 && fullOrder.total_amount && gwAmount < fullOrder.total_amount;
+    const desc = (fullOrder.payment_gateway_response as any)?.description || '';
+    const isCodDesc = typeof desc === 'string' && (desc.toLowerCase().includes('cod advance') || desc.toLowerCase().includes('advance confirmation'));
+    const isCod = fullOrder.payment_method === "cod" || fullOrder.payment_status === "partial_paid" || isPartialGateway || isCodDesc || (fullOrder.cod_balance_due && fullOrder.cod_balance_due > 0);
+    
+    const advAmount = (fullOrder.advance_amount && fullOrder.advance_amount > 0 && fullOrder.advance_amount < fullOrder.total_amount)
+      ? fullOrder.advance_amount
+      : (isPartialGateway ? gwAmount : 500);
+    const codDue = fullOrder.cod_balance_due != null && fullOrder.cod_balance_due > 0
+      ? fullOrder.cod_balance_due
+      : Math.max(0, (fullOrder.total_amount || 0) - advAmount);
+    const isFullyPaid = fullOrder.payment_status === 'paid' || codDue === 0;
+    const codAmountToCollect = isCod && !isFullyPaid ? (codDue / 100) : 0;
 
-    console.log(`[Shiprocket Push] Field Verification: Name: ${customerName}, Pincode: ${pincode}, Phone: ${phone}`);
+    console.log(`[Shiprocket Push] Field Verification: Name: ${customerName}, Pincode: ${pincode}, Phone: ${phone}, isCod: ${isCod}, collectDue: ₹${codAmountToCollect}`);
 
     const token = await getShiprocketToken();
 
@@ -170,11 +185,11 @@ serve(async (req) => {
           "discount": (item.discount_amount || 0) / 100,
         };
       }),
-      "payment_method": isCod ? "COD" : "Prepaid",
+      "payment_method": isCod && !isFullyPaid ? "COD" : "Prepaid",
       "sub_total": (fullOrder.subtotal || fullOrder.total_amount || 0) / 100,
       "shipping_charges": (fullOrder.shipping_charges || 0) / 100,
       "discount": (fullOrder.discount_amount || 0) / 100,
-      "cod_amount": isCod ? (((fullOrder.cod_balance_due !== null && fullOrder.cod_balance_due !== undefined) ? fullOrder.cod_balance_due : (fullOrder.total_amount - (fullOrder.advance_amount || 0))) || 0) / 100 : 0, // Remaining balance to collect on delivery
+      "cod_amount": codAmountToCollect,
       "length": 30,
       "breadth": 20,
       "height": 10,

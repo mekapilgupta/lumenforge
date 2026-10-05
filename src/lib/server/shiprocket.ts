@@ -177,15 +177,12 @@ export async function pushOrderToShiprocket(orderId: string): Promise<{ success:
   const city = order.address?.city || 'City Missing';
   const pincode = order.address?.pincode || '110001';
   const state = order.address?.state || 'State Missing';
-  const email = order.profile?.email || order.payment_gateway_response?.email || 'customer@frenchtoes.in';
-  const phone = order.address?.phone || order.profile?.phone || order.payment_gateway_response?.contact || '9999999999';
-  
-  const gwAmount = (order.payment_gateway_response as any)?.amount;
-  const isPartialGateway = typeof gwAmount === 'number' && gwAmount > 0 && gwAmount < (order.total_amount || 0);
-  const isCod = order.payment_method?.toLowerCase() === 'cod' || order.payment_status === 'partial_paid' || isPartialGateway;
-  const advAmount = order.advance_amount || (isPartialGateway ? gwAmount : 500);
-  const codDue = order.cod_balance_due != null ? order.cod_balance_due : Math.max(0, (order.total_amount || 0) - advAmount);
-  const codAmountToCollect = isCod && order.payment_status !== 'paid' ? (codDue / 100) : 0;
+  const { isCodOrder, getAdvAmount, getCodDue } = await import('$lib/utils/orderPayments');
+  const isCod = isCodOrder(order);
+  const advAmount = getAdvAmount(order);
+  const codDue = getCodDue(order);
+  const isFullyPaid = order.payment_status === 'paid' || codDue === 0;
+  const codAmountToCollect = isCod && !isFullyPaid ? (codDue / 100) : 0;
 
   const payload = {
     order_id: order.id,
@@ -216,7 +213,7 @@ export async function pushOrderToShiprocket(orderId: string): Promise<{ success:
         discount: (item.discount_amount || 0) / 100,
       };
     }),
-    payment_method: codAmountToCollect > 0 ? 'COD' : 'Prepaid',
+    payment_method: isCod && !isFullyPaid ? 'COD' : 'Prepaid',
     sub_total: (order.subtotal || order.total_amount || 0) / 100,
     shipping_charges: (order.shipping_charges || 0) / 100,
     discount: (order.discount_amount || 0) / 100,
