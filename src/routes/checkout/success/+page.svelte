@@ -4,6 +4,7 @@
   import { authStore } from '$lib/stores/auth.svelte';
   import { uiStore } from '$lib/stores/ui.svelte';
   import { supabase } from '$lib/supabaseClient';
+  import { getOrderPaymentInfo, isCodOrder } from '$lib/utils/orderPayments';
   import type { Order } from '$lib/types';
 
   let order = $state<Order | null>(null);
@@ -31,6 +32,17 @@
     if (error || !data) {
       uiStore.addToast('Order not found', 'error');
       return;
+    }
+
+    if (isCodOrder(data)) {
+      // Reconcile in DB if needed to guarantee admin & customer see COD
+      if (data.payment_method !== 'cod' || data.payment_status === 'paid' || !data.advance_amount) {
+        fetch('/api/orders/reconcile', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ orderId: data.id, isCod: true })
+        }).catch(() => {});
+      }
     }
 
     order = data as Order;
@@ -68,6 +80,7 @@
         <a href="/account/orders" class="btn-primary max-w-xs mx-auto justify-center">Go to My Orders</a>
       </div>
     {:else}
+      {@const payInfo = getOrderPaymentInfo(order)}
       <div class="text-center">
         <!-- Success Icon -->
         <div class="w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-6 border-4" style="background: #ecfdf5; border-color: #a7f3d0;">
@@ -135,18 +148,22 @@
             <div>
               <p class="font-semibold" style="color: var(--color-text-dark);">Payment Method</p>
               <div class="text-sm mt-0.5" style="color: var(--color-text-mid);">
-                {#if order.payment_method === 'cod' || order.payment_status === 'partial_paid' || order.payment_status === 'paid_advance' || (order.advance_amount && order.advance_amount > 0 && order.advance_amount < order.total_amount)}
-                  {@const adv = order.advance_amount || 500}
-                  {@const due = order.cod_balance_due != null ? order.cod_balance_due : Math.max(0, order.total_amount - adv)}
+                {#if payInfo.isCod}
                   <span class="font-semibold text-pink-600 block">Cash on Delivery (COD)</span>
                   <span class="block text-xs text-pink-800 font-medium mt-1">
-                    ✓ {fmt(adv)} Advance Paid Online
+                    ✓ {payInfo.advancePaidFormatted} Advance Paid Online
                   </span>
-                  <span class="block text-xs font-bold text-emerald-700 mt-0.5">
-                    💵 {fmt(due)} Balance Payable on Delivery
-                  </span>
+                  {#if !payInfo.isFullyPaid}
+                    <span class="block text-xs font-bold text-emerald-700 mt-0.5">
+                      💵 {payInfo.balanceDueFormatted} Balance Payable on Delivery
+                    </span>
+                  {:else}
+                    <span class="block text-xs font-bold text-emerald-700 mt-0.5">
+                      ✓ 100% Fully Paid
+                    </span>
+                  {/if}
                 {:else}
-                  <span class="font-semibold text-emerald-600">Online Paid (Razorpay)</span>
+                  <span class="font-semibold text-emerald-600">Prepaid (Online Payment)</span>
                   <span class="block text-xs text-gray-500 mt-0.5">100% Paid in full</span>
                 {/if}
               </div>

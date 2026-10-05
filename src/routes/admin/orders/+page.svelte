@@ -4,6 +4,7 @@
   import { uiStore } from "$lib/stores/ui.svelte";
   import { supabase } from "$lib/supabaseClient";
   import { formatDate } from "$lib/utils/helpers";
+  import { getOrderPaymentInfo, isCodOrder, getAdvAmount, getCodDue, formatPaise } from "$lib/utils/orderPayments";
 
   let orders = $state<any[]>([]);
   let returns = $state<any[]>([]);
@@ -79,34 +80,6 @@
     rejected: "#ef4444",
     completed: "#6b7280",
   };
-
-  function isCodOrder(o: any): boolean {
-    if (!o) return false;
-    if (o.payment_method === 'cod') return true;
-    if (o.payment_status === 'partial_paid' || o.payment_status === 'paid_advance') return true;
-    if (o.advance_amount && o.advance_amount > 0 && o.advance_amount < o.total_amount) return true;
-    if (o.cod_balance_due && o.cod_balance_due > 0) return true;
-    const gwAmount = (o.payment_gateway_response as any)?.amount;
-    if (typeof gwAmount === 'number' && gwAmount > 0 && gwAmount < (o.total_amount || 0)) return true;
-    const desc = (o.payment_gateway_response as any)?.description;
-    if (typeof desc === 'string' && (desc.toLowerCase().includes('cod advance') || desc.toLowerCase().includes('advance confirmation'))) return true;
-    return false;
-  }
-
-  function getAdvAmount(o: any): number {
-    if (!o) return 0;
-    if (o.advance_amount && o.advance_amount > 0 && o.advance_amount < o.total_amount) return o.advance_amount;
-    const gwAmount = (o.payment_gateway_response as any)?.amount;
-    if (typeof gwAmount === 'number' && gwAmount > 0 && gwAmount < (o.total_amount || 0)) return gwAmount;
-    return 500;
-  }
-
-  function getCodDue(o: any): number {
-    if (!o) return 0;
-    if (o.cod_balance_due != null && o.cod_balance_due > 0) return o.cod_balance_due;
-    const adv = getAdvAmount(o);
-    return Math.max(0, (o.total_amount || 0) - adv);
-  }
 
   onMount(async () => {
     await authStore.init();

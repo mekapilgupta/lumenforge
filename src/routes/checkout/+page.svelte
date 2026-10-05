@@ -414,17 +414,22 @@
 
           const verifyData = await verifyRes.json();
           if (verifyData.success) {
-            // Guarantee COD fields are properly persisted in DB
+            // Guarantee COD fields are properly persisted in DB with server admin privileges
             if (isCod) {
-              await supabase
-                .from('orders')
-                .update({
-                  payment_method: 'cod',
-                  payment_status: 'partial_paid',
-                  advance_amount: codAdvancePaise,
-                  cod_balance_due: codBalanceDuePaise,
-                })
-                .eq('id', createData.dbOrderId);
+              try {
+                await fetch('/api/orders/reconcile', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    orderId: createData.dbOrderId,
+                    isCod: true,
+                    advanceAmount: codAdvancePaise,
+                    codBalanceDue: codBalanceDuePaise
+                  })
+                });
+              } catch (e) {
+                console.warn('Reconcile call warning:', e);
+              }
             }
 
             isNavigatingToSuccess = true;
