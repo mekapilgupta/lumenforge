@@ -412,22 +412,15 @@
           const verifyData = await verifyRes.json();
           if (verifyData.success) {
             // Guarantee COD fields are properly persisted in DB with server admin privileges
-            if (isCod) {
-              try {
-                await fetch('/api/orders/reconcile', {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({
-                    orderId: createData.dbOrderId,
-                    isCod: true,
-                    advanceAmount: codAdvancePaise,
-                    codBalanceDue: codBalanceDuePaise
-                  })
-                });
-              } catch (e) {
-                console.warn('Reconcile call warning:', e);
-              }
-            }
+            // 1. Trigger unified order reconciliation & Shiprocket auto-push in background
+            fetch('/api/orders/process-sync', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                orderId: createData.dbOrderId,
+                forcePush: true
+              })
+            }).catch((err) => console.warn('[Checkout] Process-sync notice:', err));
 
             isNavigatingToSuccess = true;
             uiStore.addToast(isCod ? `${fmt(codAdvancePaise)} Advance Paid! COD Order confirmed 🌸` : 'Payment successful! Order confirmed 🌸', 'success');
@@ -437,23 +430,6 @@
 
             // Clear cart and mark abandoned cart as recovered
             await cartStore.checkoutSuccess(createData.dbOrderId);
-
-            // Push to Shiprocket (with collectable balance if COD) via server route
-            console.log('[Checkout] Pushing order to Shiprocket...');
-            fetch('/api/shiprocket/push', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ orderId: createData.dbOrderId })
-            })
-            .then(res => res.json())
-            .then(shiprocketData => {
-              if (shiprocketData.success) {
-                console.log('[Checkout] Successfully pushed order to Shiprocket:', shiprocketData.shiprocket_order_id);
-              } else {
-                console.warn('[Checkout] Failed to push order to Shiprocket:', shiprocketData.error);
-              }
-            })
-            .catch((err) => console.error('[Checkout] Shiprocket push error:', err));
 
             // Send order confirmation email
             fetch('/api/emails', {

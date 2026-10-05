@@ -35,12 +35,11 @@
     }
 
     if (isCodOrder(data)) {
-      // Reconcile in DB if needed to guarantee admin & customer see COD
       if (data.payment_method !== 'cod' || data.payment_status === 'paid' || !data.advance_amount) {
-        fetch('/api/orders/reconcile', {
+        fetch('/api/orders/process-sync', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ orderId: data.id, isCod: true })
+          body: JSON.stringify({ orderId: data.id })
         }).catch(() => {});
       }
     }

@@ -126,7 +126,48 @@
     }
   }
 
-  async function loadOrder() {
+  let hasAutoSyncedOnLoad = false;
+
+  async function runProcessSync(isUserAction = false, forcePush = false, forceSync = false) {
+    const orderId = ($page.params as Record<string, string>)['id'];
+    if (!orderId || orderId === 'undefined' || orderId === 'null') return;
+
+    if (isUserAction) {
+      uiStore.addToast('Connecting to Shiprocket & checking order status...', 'info');
+    }
+
+    try {
+      const res = await fetch('/api/orders/process-sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ orderId, forcePush, forceSync })
+      });
+      const data = await res.json().catch(() => ({}));
+
+      if (res.ok && data.success) {
+        if (data.order) {
+          order = data.order;
+        }
+        if (isUserAction) {
+          const statusDesc = data.shiprocket_status || (data.pushed ? 'Pushed to Shiprocket' : 'Order Synced');
+          const courierDesc = data.courier_name ? ` via ${data.courier_name}${data.awb_code ? ` (AWB: ${data.awb_code})` : ''}` : '';
+          uiStore.addToast(`Order Synced: ${statusDesc}${courierDesc}`, 'success');
+        }
+        if (data.warnings && data.warnings.length > 0 && isUserAction) {
+          uiStore.addToast(data.warnings[0], 'info');
+        }
+        await loadOrder(true);
+      } else if (isUserAction) {
+        uiStore.addToast(data.error || 'Failed to sync order', 'error');
+      }
+    } catch (e: any) {
+      if (isUserAction) {
+        uiStore.addToast(`Sync error: ${e?.message || 'Network error'}`, 'error');
+      }
+    }
+  }
+
+  async function loadOrder(skipAutoSync = false) {
     const orderId = ($page.params as Record<string, string>)['id'];
     if (!orderId || orderId === 'undefined' || orderId === 'null') {
       return;
@@ -145,17 +186,17 @@
         data.payment_status = 'partial_paid';
         data.advance_amount = adv;
         data.cod_balance_due = due;
-        // Reconcile DB in background via server API
-        fetch('/api/orders/reconcile', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ orderId, isCod: true, advanceAmount: adv, codBalanceDue: due })
-        }).catch(() => {});
       }
     }
 
     order = data;
     adminNote = data?.admin_notes ?? '';
+
+    // Auto-sync with Shiprocket strictly ONCE on initial page load in background
+    if (!hasAutoSyncedOnLoad && !skipAutoSync && data) {
+      hasAutoSyncedOnLoad = true;
+      runProcessSync(false).catch(() => {});
+    }
 
     const [{ data: logData }, { data: msgData }] = await Promise.all([
       supabase
@@ -564,23 +605,8 @@
   async function syncShiprocket() {
     if (syncingShiprocket || !order) return;
     syncingShiprocket = true;
-    uiStore.addToast('Syncing with Shiprocket API...', 'info');
-
     try {
-      const res = await fetch('/api/shiprocket/sync', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ orderId: order.id, awb: order.awb_code }),
-      });
-      const data = await res.json();
-      if (res.ok && data.success) {
-        uiStore.addToast(`Shiprocket synced! Status: ${data.trackingData?.status || data.order?.shiprocket_status || 'Updated'}`, 'success');
-        await loadOrder();
-      } else {
-        uiStore.addToast(`Shiprocket sync failed: ${data.error || 'Unknown error'}`, 'error');
-      }
-    } catch (e: any) {
-      uiStore.addToast(`Sync error: ${e.message}`, 'error');
+      await runProcessSync(true, false, true);
     } finally {
       syncingShiprocket = false;
     }
@@ -589,23 +615,8 @@
   async function pushToShiprocket() {
     if (pushingShiprocket || !order) return;
     pushingShiprocket = true;
-    uiStore.addToast('Pushing order to Shiprocket...', 'info');
-
     try {
-      const res = await fetch('/api/shiprocket/push', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ orderId: order.id }),
-      });
-      const data = await res.json();
-      if (res.ok && data.success) {
-        uiStore.addToast(`Pushed to Shiprocket! Order ID: ${data.shiprocket_order_id}`, 'success');
-        await loadOrder();
-      } else {
-        uiStore.addToast(`Push failed: ${data.error || 'Unknown error'}`, 'error');
-      }
-    } catch (e: any) {
-      uiStore.addToast(`Push error: ${e.message}`, 'error');
+      await runProcessSync(true, true, true);
     } finally {
       pushingShiprocket = false;
     }
