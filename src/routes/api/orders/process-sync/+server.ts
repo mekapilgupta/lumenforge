@@ -129,7 +129,7 @@ export async function POST({ request, url }) {
     if (!order.shiprocket_order_id || forcePush) {
       console.log(`[Process Sync] Order #${order.order_number} has no Shiprocket ID. Pushing via authoritative server route...`);
       try {
-        const pushResult = await pushOrderToShiprocket(order.id);
+        const pushResult = await pushOrderToShiprocket(order.id, db);
         if (pushResult.success) {
           pushed = true;
           order.shiprocket_order_id = pushResult.shiprocket_order_id || order.shiprocket_order_id;
@@ -145,7 +145,7 @@ export async function POST({ request, url }) {
     if (order.shiprocket_order_id || order.awb_code || forceSync) {
       console.log(`[Process Sync] Syncing Shiprocket tracking for Order #${order.order_number}...`);
       try {
-        const syncResult = await syncOrderWithShiprocket(order.id);
+        const syncResult = await syncOrderWithShiprocket(order.id, db);
         if (syncResult.success) {
           synced = true;
           if (syncResult.order) {

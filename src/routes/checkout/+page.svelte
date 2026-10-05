@@ -463,9 +463,14 @@
           if (verifyData.success) {
             // Guarantee COD fields are properly persisted in DB with server admin privileges
             // 1. Trigger unified order reconciliation & Shiprocket auto-push in background
+            const { data: sessionData } = await supabase.auth.getSession();
+            const token = sessionData?.session?.access_token;
             fetch('/api/orders/process-sync', {
               method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
+              headers: {
+                'Content-Type': 'application/json',
+                ...(token ? { Authorization: `Bearer ${token}` } : {})
+              },
               body: JSON.stringify({
                 orderId: createData.dbOrderId,
                 forcePush: true

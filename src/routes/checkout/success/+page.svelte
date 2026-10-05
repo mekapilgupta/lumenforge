@@ -36,9 +36,14 @@
 
     if (isCodOrder(data)) {
       if (data.payment_method !== 'cod' || data.payment_status === 'paid' || !data.advance_amount) {
+        const { data: sessionData } = await supabase.auth.getSession();
+        const token = sessionData?.session?.access_token;
         fetch('/api/orders/process-sync', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            ...(token ? { Authorization: `Bearer ${token}` } : {})
+          },
           body: JSON.stringify({ orderId: data.id })
         }).catch(() => {});
       }

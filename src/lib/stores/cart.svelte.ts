@@ -677,9 +677,14 @@ function createCartStore() {
         
         // Update abandoned_carts to recovered via server endpoint
         try {
+          const { data: sessionData } = await supabase.auth.getSession();
+          const token = sessionData?.session?.access_token;
           await fetch('/api/cart/abandoned', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: {
+              'Content-Type': 'application/json',
+              ...(token ? { Authorization: `Bearer ${token}` } : {})
+            },
             body: JSON.stringify({
               userId: _userId,
               status: 'recovered',
@@ -729,10 +734,16 @@ function createCartStore() {
 
       const totalAmount = cartItems.reduce((sum, item) => sum + item.price * item.quantity, 0);
 
-      // Call server endpoint (uses supabaseAdmin to avoid client RLS 403 errors)
+      // Call server endpoint with auth token
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData?.session?.access_token;
+
       await fetch('/api/cart/abandoned', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {})
+        },
         body: JSON.stringify({
           userId: _userId,
           cartItems,

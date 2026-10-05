@@ -154,9 +154,10 @@ export async function fetchShiprocketOrderDetails(srOrderId: string): Promise<an
 /**
  * Push an order from DB to Shiprocket
  */
-export async function pushOrderToShiprocket(orderId: string): Promise<{ success: boolean; shiprocket_order_id?: string; error?: string }> {
+export async function pushOrderToShiprocket(orderId: string, customClient?: any): Promise<{ success: boolean; shiprocket_order_id?: string; error?: string }> {
+  const db = customClient || supabaseAdmin;
   const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(orderId).trim());
-  let orderQuery = supabaseAdmin
+  let orderQuery = db
     .from('orders')
     .select(`
       *,
@@ -262,7 +263,7 @@ export async function pushOrderToShiprocket(orderId: string): Promise<{ success:
   }
 
   // Update order with Shiprocket details
-  await supabaseAdmin
+  await db
     .from('orders')
     .update({
       shiprocket_order_id: String(resData.order_id),
@@ -280,11 +281,12 @@ export async function pushOrderToShiprocket(orderId: string): Promise<{ success:
  * Comprehensive Order Synchronization with Shiprocket
  * Syncs DB status, logs scans, triggers transactional emails & in-app alerts.
  */
-export async function syncOrderWithShiprocket(orderIdOrAwb: string): Promise<{ success: boolean; order?: any; trackingData?: any; error?: string }> {
+export async function syncOrderWithShiprocket(orderIdOrAwb: string, customClient?: any): Promise<{ success: boolean; order?: any; trackingData?: any; error?: string }> {
+  const db = customClient || supabaseAdmin;
   console.log(`[Shiprocket Sync] Starting sync for identifier: ${orderIdOrAwb}`);
 
   // 1. Locate Order in Supabase
-  let orderQuery = supabaseAdmin
+  let orderQuery = db
     .from('orders')
     .select(`
       *,
@@ -383,7 +385,7 @@ export async function syncOrderWithShiprocket(orderIdOrAwb: string): Promise<{ s
   }
 
   // Save updates to orders table
-  const { data: updatedOrder, error: updateErr } = await supabaseAdmin
+  const { data: updatedOrder, error: updateErr } = await db
     .from('orders')
     .update(updateData)
     .eq('id', dbOrder.id)
@@ -405,7 +407,7 @@ export async function syncOrderWithShiprocket(orderIdOrAwb: string): Promise<{ s
       const note = `Shiprocket: ${activity}${location ? ` at ${location}` : ''}`;
 
       // Deduplicate log by note + order_id
-      const { data: existingLog } = await supabaseAdmin
+      const { data: existingLog } = await db
         .from('order_logs')
         .select('id')
         .eq('order_id', dbOrder.id)
@@ -413,7 +415,7 @@ export async function syncOrderWithShiprocket(orderIdOrAwb: string): Promise<{ s
         .maybeSingle();
 
       if (!existingLog) {
-        await supabaseAdmin.from('order_logs').insert({
+        await db.from('order_logs').insert({
           order_id: dbOrder.id,
           status: mappedDbStatus,
           note: note,
@@ -423,7 +425,7 @@ export async function syncOrderWithShiprocket(orderIdOrAwb: string): Promise<{ s
       }
     }
   } else if (statusChanged) {
-    await supabaseAdmin.from('order_logs').insert({
+    await db.from('order_logs').insert({
       order_id: dbOrder.id,
       status: mappedDbStatus,
       note: `Shiprocket status updated to: ${rawStatus} (${courierName || 'Courier'} - AWB: ${awbCode || 'N/A'})`,
