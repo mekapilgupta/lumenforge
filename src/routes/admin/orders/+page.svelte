@@ -768,13 +768,13 @@
                         order.payment_status
                       ] ?? 'bg-white/5 border-white/10 text-white'}"
                     >
-                      {isCodOrder(order) && getCodDue(order) > 0 && order.payment_status !== 'paid' ? 'Advance Paid' : order.payment_status}
+                      {isCodOrder(order) && getCodDue(order) > 0 ? 'Advance Paid' : order.payment_status}
                     </span>
                     {#if isCodOrder(order)}
                       {@const adv = getAdvAmount(order)}
                       {@const due = getCodDue(order)}
                       <span class="text-[9px] font-medium text-pink-300">
-                        ₹{(adv/100).toFixed(0)} adv · {due > 0 && order.payment_status !== 'paid' ? `Collect ₹${(due/100).toFixed(0)}` : 'Fully Paid'}
+                        ₹{(adv/100).toFixed(0)} adv · {due > 0 ? `Collect ₹${(due/100).toFixed(0)}` : 'Fully Paid'}
                       </span>
                     {/if}
                   </div>
@@ -1099,7 +1099,7 @@
         <div>
           <p class="text-[9px] uppercase text-gray-500">Payment Status</p>
           <p class="text-white font-medium capitalize mt-0.5">
-            {isCodOrder(selectedOrder) && getCodDue(selectedOrder) > 0 && selectedOrder.payment_status !== 'paid' ? `Advance Paid (₹${(((getAdvAmount(selectedOrder)))/100).toFixed(0)})` : selectedOrder.payment_status || "—"}
+            {isCodOrder(selectedOrder) && getCodDue(selectedOrder) > 0 ? `Advance Paid (₹${(((getAdvAmount(selectedOrder)))/100).toFixed(0)})` : selectedOrder.payment_status || "—"}
           </p>
         </div>
         {#if isCodOrder(selectedOrder)}
@@ -1107,7 +1107,7 @@
           {@const due = getCodDue(selectedOrder)}
           <div class="col-span-2 p-2.5 rounded-lg bg-pink-950/30 border border-pink-500/20 text-xs flex justify-between items-center">
             <span class="text-pink-300">Advance Paid: <strong>₹{(adv/100).toFixed(0)}</strong></span>
-            <span class="text-emerald-400 font-bold">Collect on Delivery: {due > 0 && selectedOrder.payment_status !== 'paid' ? `₹${(due/100).toFixed(0)}` : '₹0 (Paid in Full)'}</span>
+            <span class="text-emerald-400 font-bold">Collect on Delivery: {due > 0 ? `₹${(due/100).toFixed(0)}` : '₹0 (Paid in Full)'}</span>
           </div>
         {/if}
         {#if selectedOrder.razorpay_order_id}<div class="col-span-2">

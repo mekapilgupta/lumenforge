@@ -148,8 +148,15 @@ serve(async (req) => {
       : Math.max(0, (fullOrder.total_amount || 0) - advAmount);
     const isFullyPaid = fullOrder.payment_status === 'paid' || codDue === 0;
     const codAmountToCollect = isCod && !isFullyPaid ? (codDue / 100) : 0;
+    // Shiprocket's adhoc API has NO cod_amount param. It computes the COD collect
+    // amount as: sub_total + shipping_charges + giftwrap/transaction charges - total_discount.
+    // So for a partially-paid COD order we pass the ADVANCE already paid as
+    // total_discount, making Shiprocket's Order Total = balance due (₹11,181 not ₹11,186).
+    const srTotalDiscount = isCod && !isFullyPaid
+      ? ((fullOrder.discount_amount || 0) + advAmount) / 100
+      : (fullOrder.discount_amount || 0) / 100;
 
-    console.log(`[Shiprocket Push] Field Verification: Name: ${customerName}, Pincode: ${pincode}, Phone: ${phone}, isCod: ${isCod}, collectDue: ₹${codAmountToCollect}`);
+    console.log(`[Shiprocket Push] Field Verification: Name: ${customerName}, Pincode: ${pincode}, Phone: ${phone}, isCod: ${isCod}, collectDue: ₹${codAmountToCollect}, srTotalDiscount: ₹${srTotalDiscount}`);
 
     const token = await getShiprocketToken();
 
@@ -189,6 +196,9 @@ serve(async (req) => {
       "sub_total": (fullOrder.subtotal || fullOrder.total_amount || 0) / 100,
       "shipping_charges": (fullOrder.shipping_charges || 0) / 100,
       "discount": (fullOrder.discount_amount || 0) / 100,
+      // Shiprocket ignores unknown "cod_amount"; it collects sub_total - total_discount.
+      // Sending the advance here makes Order Total on Shiprocket = balance due only.
+      "total_discount": srTotalDiscount,
       "cod_amount": codAmountToCollect,
       "length": 30,
       "breadth": 20,

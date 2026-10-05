@@ -108,6 +108,8 @@
         },
         handler: async function (response: any) {
           try {
+            const currentOrder = order as { id: string } | null;
+            if (!currentOrder) return;
             const verifyRes = await fetch('/api/payments/balance', {
               method: 'POST',
               headers: {
@@ -116,7 +118,7 @@
               },
               body: JSON.stringify({
                 action: 'verify',
-                orderId: order.id,
+                orderId: currentOrder.id,
                 sessionToken: token,
                 razorpay_order_id: response.razorpay_order_id,
                 razorpay_payment_id: response.razorpay_payment_id,
@@ -170,23 +172,9 @@
     if (error || !data) { uiStore.addToast('Order not found', 'error'); return; }
 
     if (data) {
-      if (isCodOrder(data)) {
-        const adv = getAdvAmount(data);
-        const due = getCodDue(data);
-        data.payment_method = 'cod';
-        data.advance_amount = adv;
-        data.cod_balance_due = due;
-        if (data.payment_status !== 'paid') {
-          data.payment_status = 'partial_paid';
-        }
-
-        // Reconcile in DB via server API
-        fetch('/api/orders/reconcile', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ orderId, isCod: true, advanceAmount: adv, codBalanceDue: due })
-        }).catch(() => {});
-      }
+      // Payment display is derived via isCodOrder/getAdvAmount/getCodDue from the raw
+      // DB row — no client-side mutation or reconcile rewrite on every load. The DB
+      // (razorpay-verify / admin actions) remains the single source of truth.
     }
 
     order = data as Order;
@@ -770,7 +758,7 @@
               <span class="text-xs font-bold uppercase tracking-wider text-pink-700 bg-pink-100/90 px-2.5 py-0.5 rounded-full border border-pink-200">
                 🛡️ Cash on Delivery (Advance Deposit)
               </span>
-              {#if due > 0 && order.payment_status !== 'paid'}
+              {#if due > 0}
                 <span class="text-xs font-bold text-emerald-800 bg-emerald-50 border border-emerald-200 px-2.5 py-0.5 rounded-full">
                   ₹{(due/100).toFixed(0)} Due on Delivery
                 </span>
@@ -783,7 +771,7 @@
 
             <p class="text-xs text-gray-700 leading-relaxed">
               Advance deposit paid: <strong class="text-pink-900">{fmt(adv)}</strong>.
-              {#if due > 0 && order.payment_status !== 'paid'}
+              {#if due > 0}
                 Remaining collectable amount: <strong class="text-emerald-800">{fmt(due)}</strong> (payable to courier upon delivery).
               {:else}
                 Your order is fully paid. No cash will be collected on delivery!
@@ -792,7 +780,7 @@
 
             <!-- Leftover COD online payment collection hidden for now per request -->
             <!--
-            {#if due > 0 && order.payment_status !== 'paid' && order.status !== 'cancelled' && order.status !== 'delivered'}
+            {#if due > 0 && order.status !== 'cancelled' && order.status !== 'delivered'}
               <div class="mt-4 pt-3 border-t border-pink-100">
                 <button
                   onclick={payRemainingBalance}
@@ -841,7 +829,7 @@
                 </div>
                 <div class="flex justify-between text-emerald-700 font-bold">
                   <span>Balance Payable on Delivery:</span>
-                  <span>{due > 0 && order.payment_status !== 'paid' ? fmt(due) : '₹0 (Paid in Full)'}</span>
+                  <span>{due > 0 ? fmt(due) : '₹0 (Paid in Full)'}</span>
                 </div>
               </div>
             {/if}
@@ -912,11 +900,11 @@
               {/if}
               <div>
                 <p class="text-xs" style="color: var(--color-text-soft);">Payment Status</p>
-                {#if order.payment_status === 'paid' && !isCodOrder(order)}
+                {#if !isCodOrder(order) || getCodDue(order) <= 0}
                   <span class="inline-block px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800">
                     ✓ Paid in Full
                   </span>
-                {:else if isCodOrder(order) && getCodDue(order) > 0 && order.payment_status !== 'paid'}
+                {:else if isCodOrder(order) && getCodDue(order) > 0}
                   <span class="inline-block px-2.5 py-0.5 rounded-full text-xs font-semibold bg-pink-100 text-pink-800">
                     🛡️ Advance Paid (₹{(getCodDue(order)/100).toFixed(0)} Due)
                   </span>

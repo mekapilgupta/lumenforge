@@ -53,7 +53,7 @@
           result.error,
         );
       } else {
-        uiStore.addToast("Login link & verification code sent! 📩", "success");
+        uiStore.addToast("Verification code sent! 📩", "success");
         authStep = "verify";
         startCooldown();
       }

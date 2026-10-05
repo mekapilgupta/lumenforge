@@ -192,6 +192,13 @@ export async function pushOrderToShiprocket(orderId: string): Promise<{ success:
   const codDue = getCodDue(order);
   const isFullyPaid = order.payment_status === 'paid' || codDue === 0;
   const codAmountToCollect = isCod && !isFullyPaid ? (codDue / 100) : 0;
+  // Shiprocket's adhoc API has NO cod_amount param. It computes the COD collect
+  // amount as: sub_total + shipping_charges + giftwrap/transaction charges - total_discount.
+  // So for a partially-paid COD order we pass the ADVANCE already paid as
+  // total_discount, making Shiprocket's Order Total = balance due.
+  const srTotalDiscount = isCod && !isFullyPaid
+    ? ((order.discount_amount || 0) + advAmount) / 100
+    : (order.discount_amount || 0) / 100;
 
   const payload = {
     order_id: order.id,
@@ -226,6 +233,9 @@ export async function pushOrderToShiprocket(orderId: string): Promise<{ success:
     sub_total: (order.subtotal || order.total_amount || 0) / 100,
     shipping_charges: (order.shipping_charges || 0) / 100,
     discount: (order.discount_amount || 0) / 100,
+    // Shiprocket ignores unknown "cod_amount"; it collects sub_total - total_discount.
+    // Sending the advance here makes Order Total on Shiprocket = balance due only.
+    total_discount: srTotalDiscount,
     cod_amount: codAmountToCollect,
     length: 30,
     breadth: 20,

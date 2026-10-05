@@ -351,7 +351,7 @@
                 {@const adv = getAdvAmount(order)}
                 {@const due = getCodDue(order)}
                 <span class="font-semibold text-pink-700">COD (₹{(adv/100).toFixed(0)} Advance Paid)</span>
-                {#if due > 0 && order.payment_status !== 'paid'}
+                {#if due > 0}
                   <div class="flex items-center gap-2 mt-1">
                     <span class="text-xs font-semibold text-emerald-700">💵 Due on Delivery: ₹{(due/100).toFixed(0)}</span>
                     <!-- Leftover COD online payment collection link hidden for now per request -->

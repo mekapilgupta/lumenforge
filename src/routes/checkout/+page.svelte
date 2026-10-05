@@ -273,20 +273,42 @@
       })
       .catch((err) => console.error('[Checkout] Shiprocket push error:', err));
 
-      // Send order confirmation email (fire-and-forget)
+      // Send order confirmation email (fire-and-forget) — customer + admin copy
       fetch('/api/emails', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          type: 'transactional',
+          event: 'order_placed',
           recipientEmail: authStore.user?.email ?? '',
           recipientName: authStore.profile?.full_name ?? 'Customer',
           payloadData: {
-            orderId: order.order_number,
-            amount: totalPaise / 100,
+            orderNumber: order.order_number,
+            customerName: authStore.profile?.full_name,
+            items: cartStore.items.map(item => ({
+              name: item.name,
+              sku: item.sku ?? null,
+              color: item.color.name,
+              size: item.size,
+              quantity: item.quantity,
+              unitPrice: item.price,
+              lineTotal: item.price * item.quantity,
+            })),
+            subtotal: subtotalPaise / 100,
+            discount: (couponDiscount + prepaidDiscountPaise) / 100,
+            shipping: shippingPaise / 100,
+            codCharges: codPaise / 100,
+            gst: gstPaise / 100,
+            total: totalPaise / 100,
             isCod: true,
             advancePaid: codAdvancePaise / 100,
-            codBalance: codBalanceDuePaise / 100
+            balanceDue: codBalanceDuePaise / 100,
+            addressLines: [
+              shippingAddr.full_name,
+              shippingAddr.address_line1,
+              shippingAddr.address_line2,
+              `${shippingAddr.city}, ${shippingAddr.state} – ${shippingAddr.pincode}`,
+            ].filter(Boolean),
+            phone: shippingAddr.phone,
           }
         })
       }).catch((err) => console.warn('Order confirmation email failed:', err));
@@ -337,6 +359,34 @@
       const receiptId = `ft_${Date.now()}`;
       const shippingAddr = addresses.find(a => a.id === selectedAddressId)!;
       const isCod = paymentMethod === 'cod';
+      // Rich email payload shared by customer + admin order emails
+      const emailOrderData = {
+        items: cartStore.items.map(item => ({
+          name: item.name,
+          sku: item.sku ?? null,
+          color: item.color.name,
+          size: item.size,
+          quantity: item.quantity,
+          unitPrice: item.price,
+          lineTotal: item.price * item.quantity,
+        })),
+        subtotal: subtotalPaise / 100,
+        discount: (couponDiscount + prepaidDiscountPaise) / 100,
+        shipping: shippingPaise / 100,
+        codCharges: codPaise / 100,
+        gst: gstPaise / 100,
+        total: totalPaise / 100,
+        isCod,
+        advancePaid: isCod ? codAdvancePaise / 100 : totalPaise / 100,
+        balanceDue: isCod ? codBalanceDuePaise / 100 : 0,
+        addressLines: [
+          shippingAddr.full_name,
+          shippingAddr.address_line1,
+          shippingAddr.address_line2,
+          `${shippingAddr.city}, ${shippingAddr.state} – ${shippingAddr.pincode}`,
+        ].filter(Boolean) as string[],
+        phone: shippingAddr.phone,
+      };
 
       // Step 1: Call Edge Function to create Razorpay order for online amount (₹50 for COD or 100% for Prepaid)
       console.log(`[Checkout] Creating ${isCod ? 'COD Advance (₹50)' : 'Prepaid'} order via Edge Function...`);
@@ -431,42 +481,21 @@
             // Clear cart and mark abandoned cart as recovered
             await cartStore.checkoutSuccess(createData.dbOrderId);
 
-            // Send order confirmation email
+            // Send detailed order confirmation email to customer + admin copy
             fetch('/api/emails', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
-                type: 'transactional',
+                event: 'order_placed',
                 recipientEmail: authStore.user?.email ?? '',
                 recipientName: authStore.profile?.full_name ?? 'Customer',
                 payloadData: {
-                  orderId: createData.orderNumber || createData.order?.receipt,
-                  amount: totalPaise / 100,
-                  isCod,
-                  advancePaid: isCod ? codAdvancePaise / 100 : totalPaise / 100,
-                  codBalance: isCod ? codBalanceDuePaise / 100 : 0
+                  orderNumber: createData.orderNumber || createData.order?.receipt,
+                  customerName: authStore.profile?.full_name,
+                  ...emailOrderData,
                 }
               })
             }).catch((err) => console.warn('Order confirmation email failed:', err));
-
-            // Send admin notification email
-            fetch('/api/notify-admin', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                eventType: 'Checkout',
-                details: {
-                  orderNumber: createData.orderNumber || createData.order?.receipt,
-                  amount: capturedTotal,
-                  customerEmail: authStore.user?.email ?? '',
-                  customerName: authStore.profile?.full_name ?? 'Customer',
-                  paymentMethod: isCod ? `COD (${fmt(codAdvancePaise)} Advance Paid)` : 'Prepaid (Razorpay)',
-                  advancePaid: isCod ? codAdvancePaise / 100 : capturedTotal,
-                  codBalance: isCod ? codBalanceDuePaise / 100 : 0,
-                  items: itemsSnapshot
-                }
-              })
-            }).catch((err) => console.warn('Admin checkout notification failed:', err));
           } else {
             uiStore.addToast('Payment verification failed. Please contact support.', 'error');
           }

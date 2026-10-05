@@ -184,14 +184,9 @@
       .single();
 
     if (data) {
-      if (isCodOrder(data) && (data.payment_method !== 'cod' || data.payment_status === 'paid')) {
-        const adv = getAdvAmount(data);
-        const due = getCodDue(data);
-        data.payment_method = 'cod';
-        data.payment_status = 'partial_paid';
-        data.advance_amount = adv;
-        data.cod_balance_due = due;
-      }
+      // Payment display is derived via isCodOrder/getAdvAmount/getCodDue from the raw
+      // DB row — do NOT rewrite payment_method/payment_status on load; that caused the
+      // view to flip-flop between "paid" and "COD advance".
     }
 
     order = data;
@@ -297,20 +292,59 @@
         .eq('id', logId);
     }
 
-    // 3. Send email to customer if requested
+    // 3. Send detailed email to customer (+ admin copy) if requested
     if (notifyCustomer && order.profile?.email) {
+      const statusEventMap: Record<string, string> = {
+        processing: 'order_processing',
+        confirmed: 'order_confirmed',
+        shipped: 'order_shipped',
+        out_for_delivery: 'order_out_for_delivery',
+        delivered: 'order_delivered',
+        cancelled: 'order_cancelled',
+      };
+      const evt = statusEventMap[targetStatus] || 'order_confirmed';
+      const adv = getAdvAmount(order);
+      const due = getCodDue(order);
       fetch('/api/emails', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          type: 'status_update',
+          event: evt,
           recipientEmail: order.profile.email,
           recipientName: order.profile.full_name || 'Customer',
           payloadData: {
             orderNumber: order.order_number,
-            newStatusLabel: STATUS_LABEL[targetStatus],
-            comment: statusComment
-          }
+            customerName: order.profile.full_name,
+            items: (order.items || []).map((it: any) => ({
+              name: it.product_name,
+              sku: it.product_sku || it.variant_info?.sku,
+              color: it.variant_info?.color,
+              size: it.variant_info?.size,
+              quantity: it.quantity,
+              unitPrice: (it.unit_price || 0) / 100,
+              lineTotal: ((it.unit_price || 0) * it.quantity) / 100,
+            })),
+            subtotal: (order.subtotal || 0) / 100,
+            discount: (order.discount_amount || 0) / 100,
+            shipping: (order.shipping_charges || 0) / 100,
+            codCharges: (order.cod_charges || 0) / 100,
+            gst: (order.gst_amount || 0) / 100,
+            total: (order.total_amount || 0) / 100,
+            isCod: isCodOrder(order),
+            advancePaid: adv / 100,
+            balanceDue: due / 100,
+            razorpayPaymentId: order.razorpay_payment_id,
+            addressLines: order.shipping_address ? [
+              order.shipping_address.full_name,
+              order.shipping_address.address_line1,
+              order.shipping_address.address_line2,
+              `${order.shipping_address.city}, ${order.shipping_address.state} – ${order.shipping_address.pincode}`,
+            ].filter(Boolean) : [],
+            phone: order.shipping_address?.phone,
+            awb: order.awb_code,
+          },
+          notifyAdmin: true,
+          adminExtra: `Status updated to ${STATUS_LABEL[targetStatus]}${statusComment?.trim() ? ` — “${statusComment.trim()}”` : ''}`
         })
       }).catch(err => console.warn('Customer notification email failed:', err));
     }
@@ -469,20 +503,36 @@
       .eq('type', 'cancellation')
       .eq('status', 'pending');
 
-    // 7. Email customer
+    // 7. Email customer (detailed) + admin copy
     if (order.profile?.email) {
       fetch('/api/emails', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          type: 'cancellation_response',
+          event: 'cancellation_approved',
           recipientEmail: order.profile.email,
           recipientName: order.profile.full_name || 'Customer',
           payloadData: {
             orderNumber: order.order_number,
-            approved: true,
-            comment: cancelActionComment || 'Your order was successfully cancelled.'
-          }
+            customerName: order.profile.full_name,
+            items: (order.items || []).map((it: any) => ({
+              name: it.product_name,
+              sku: it.product_sku || it.variant_info?.sku,
+              color: it.variant_info?.color,
+              size: it.variant_info?.size,
+              quantity: it.quantity,
+              unitPrice: (it.unit_price || 0) / 100,
+              lineTotal: ((it.unit_price || 0) * it.quantity) / 100,
+            })),
+            subtotal: (order.subtotal || 0) / 100,
+            total: (order.total_amount || 0) / 100,
+            isCod: isCodOrder(order),
+            advancePaid: getAdvAmount(order) / 100,
+            balanceDue: 0,
+            razorpayPaymentId: order.razorpay_payment_id,
+          },
+          notifyAdmin: true,
+          adminExtra: `Cancellation APPROVED for ${order.order_number}`
         })
       }).catch(err => console.warn('Cancellation approval email failed:', err));
     }
@@ -528,20 +578,34 @@
       .eq('type', 'cancellation')
       .eq('status', 'pending');
 
-    // 4. Email customer
+    // 4. Email customer (detailed) + admin copy
     if (order.profile?.email) {
       fetch('/api/emails', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          type: 'cancellation_response',
+          event: 'cancellation_rejected',
           recipientEmail: order.profile.email,
           recipientName: order.profile.full_name || 'Customer',
           payloadData: {
             orderNumber: order.order_number,
-            approved: false,
-            comment: cancelActionComment || 'We are unable to cancel this order as it has entered dispatch processing.'
-          }
+            customerName: order.profile.full_name,
+            items: (order.items || []).map((it: any) => ({
+              name: it.product_name,
+              sku: it.product_sku || it.variant_info?.sku,
+              color: it.variant_info?.color,
+              size: it.variant_info?.size,
+              quantity: it.quantity,
+              unitPrice: (it.unit_price || 0) / 100,
+              lineTotal: ((it.unit_price || 0) * it.quantity) / 100,
+            })),
+            total: (order.total_amount || 0) / 100,
+            isCod: isCodOrder(order),
+            advancePaid: getAdvAmount(order) / 100,
+            balanceDue: getCodDue(order) / 100,
+          },
+          notifyAdmin: true,
+          adminExtra: `Cancellation REJECTED for ${order.order_number}`
         })
       }).catch(err => console.warn('Cancellation rejection email failed:', err));
     }
@@ -648,6 +712,39 @@
       const data = await res.json();
       if (data.success) {
         uiStore.addToast(data.message, 'success');
+        // Detailed "fully paid" email to customer + admin copy
+        if (order.profile?.email) {
+          fetch('/api/emails', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              event: 'cod_balance_collected',
+              recipientEmail: order.profile.email,
+              recipientName: order.profile.full_name || 'Customer',
+              payloadData: {
+                orderNumber: order.order_number,
+                customerName: order.profile.full_name,
+                items: (order.items || []).map((it: any) => ({
+                  name: it.product_name,
+                  sku: it.product_sku || it.variant_info?.sku,
+                  color: it.variant_info?.color,
+                  size: it.variant_info?.size,
+                  quantity: it.quantity,
+                  unitPrice: (it.unit_price || 0) / 100,
+                  lineTotal: ((it.unit_price || 0) * it.quantity) / 100,
+                })),
+                subtotal: (order.subtotal || 0) / 100,
+                total: (order.total_amount || 0) / 100,
+                isCod: true,
+                advancePaid: order.total_amount / 100,
+                balanceDue: 0,
+                razorpayPaymentId: order.razorpay_payment_id,
+              },
+              notifyAdmin: true,
+              adminExtra: `COD balance collected for ${order.order_number}`
+            })
+          }).catch(err => console.warn('COD collected email failed:', err));
+        }
         await loadOrder();
       } else {
         uiStore.addToast(data.error || 'Failed to update order', 'error');
@@ -1093,7 +1190,7 @@
             <div class="flex justify-between items-center py-1 border-b border-white/5">
               <span class="text-gray-400">Shiprocket Status:</span>
               <span class="font-bold px-2 py-0.5 rounded text-[11px] {order.shiprocket_status === 'DELIVERED' ? 'bg-green-900/60 text-green-300 border border-green-700' : 'bg-indigo-900/60 text-indigo-300 border border-indigo-700'}">
-                {order.shiprocket_status || 'NOT PUSHED'}
+                {order.shiprocket_status || (order.shiprocket_order_id ? 'PUSHED · AWB PENDING' : 'NOT PUSHED')}
               </span>
             </div>
 
@@ -1110,7 +1207,7 @@
               <div class="flex justify-between items-center py-1 border-b border-white/5">
                 <span class="text-gray-400">Collectable COD Balance:</span>
                 <span class="font-bold font-mono text-emerald-400 text-xs">
-                  {due > 0 && order.payment_status !== 'paid' ? fmt(due) : '₹0 (Fully Paid)'}
+                  {due > 0 ? fmt(due) : '₹0 (Fully Paid)'}
                 </span>
               </div>
             {/if}
@@ -1221,9 +1318,9 @@
                 </div>
                 <div class="flex justify-between text-emerald-400 font-bold">
                   <span>Collect on Delivery:</span>
-                  <span>{due > 0 && order.payment_status !== 'paid' ? fmt(due) : '₹0 (Paid in Full)'}</span>
+                  <span>{due > 0 ? fmt(due) : '₹0 (Paid in Full)'}</span>
                 </div>
-                {#if due > 0 && order.payment_status !== 'paid'}
+                {#if due > 0}
                   <button
                     onclick={markCodPaid}
                     disabled={markingCodPaid}
@@ -1253,14 +1350,14 @@
             {/if}
             <div class="flex justify-between">
               <span>Payment Status:</span>
-              <span class="font-bold text-xs uppercase" style="color: {order.payment_status === 'paid' && !isCodOrder(order) ? '#22c55e' : isCodOrder(order) && getCodDue(order) > 0 && order.payment_status !== 'paid' ? '#f59e0b' : '#22c55e'};">
-                {isCodOrder(order) && getCodDue(order) > 0 && order.payment_status !== 'paid' ? 'Advance Paid (Balance Due)' : 'Paid in Full'}
+              <span class="font-bold text-xs uppercase" style="color: {!isCodOrder(order) || getCodDue(order) <= 0 ? '#22c55e' : '#f59e0b'};">
+                {isCodOrder(order) && getCodDue(order) > 0 ? 'Advance Paid (Balance Due)' : 'Paid in Full'}
               </span>
             </div>
 
             <!-- Admin Mode Toggles -->
             <div class="pt-2 mt-2 border-t border-white/10 flex flex-col gap-1.5">
-              {#if !isCodOrder(order) || order.payment_status === 'paid'}
+              {#if !isCodOrder(order) || getCodDue(order) <= 0}
                 <button
                   onclick={() => togglePaymentType('cod')}
                   disabled={togglingPayment}
@@ -1270,7 +1367,7 @@
                   <span>{togglingPayment ? 'Updating...' : `Set as Partial COD (₹5 Adv · Due ₹${(((order.total_amount || 0) - 500)/100).toFixed(0)})`}</span>
                 </button>
               {/if}
-              {#if isCodOrder(order) && order.payment_status !== 'paid'}
+              {#if isCodOrder(order) && getCodDue(order) > 0}
                 <button
                   onclick={() => togglePaymentType('prepaid')}
                   disabled={togglingPayment}

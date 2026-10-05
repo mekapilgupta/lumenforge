@@ -101,22 +101,31 @@ export async function POST({ request, url }) {
     }
 
     // 2. Auto-Reconcile COD vs Prepaid Status & Balance
+    // Amounts (advance_amount / cod_balance_due) are the source of truth. A COD order
+    // with balance still due is 'partial_paid' even if payment_status says 'paid' —
+    // heal rows corrupted by older writers.
     try {
       const isCod = isCodOrder(order);
       if (isCod) {
+        const total = Number(order.total_amount || 0);
+        const storedAdv = Number(order.advance_amount || 0);
+        const storedDue = Number(order.cod_balance_due || 0);
         const adv = getAdvAmount(order);
         const due = getCodDue(order);
+        const actuallyFullyPaid = due <= 0 || adv >= total;
+        const statusLie = order.payment_status === 'paid' && !actuallyFullyPaid;
         const needsUpdate = order.payment_method !== 'cod' ||
+          statusLie ||
           (order.payment_status !== 'partial_paid' && order.payment_status !== 'paid') ||
-          order.advance_amount !== adv ||
-          order.cod_balance_due !== due;
+          storedAdv !== adv ||
+          storedDue !== due;
 
         if (needsUpdate) {
           const { data: updatedOrder, error: recError } = await db
             .from('orders')
             .update({
               payment_method: 'cod',
-              payment_status: order.payment_status === 'paid' ? 'paid' : 'partial_paid',
+              payment_status: actuallyFullyPaid ? 'paid' : 'partial_paid',
               advance_amount: adv,
               cod_balance_due: due,
               updated_at: new Date().toISOString()
@@ -128,6 +137,7 @@ export async function POST({ request, url }) {
           if (!recError && updatedOrder) {
             order = { ...order, ...updatedOrder };
             reconciled = true;
+            if (statusLie) warnings.push('Payment status healed: COD balance still due, marked as partial_paid.');
           } else if (recError) {
             warnings.push(`Payment reconciliation notice: ${recError.message}`);
           }
