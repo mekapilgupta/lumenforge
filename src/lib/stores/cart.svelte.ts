@@ -277,7 +277,7 @@ function createCartStore() {
           .from('cart')
           .select(`
             *,
-            product:product_id(id, slug, name, base_price, description, brand, category, thumbnail_url, images, variants:product_variants(*, images:product_images(*))),
+            product:product_id(id, slug, name, base_price, description, brand, category, variants:product_variants(*, images:product_images(*))),
             variant:variant_id(*, images:product_images(*))
           `)
           .eq('user_id', userId);
@@ -303,7 +303,7 @@ function createCartStore() {
         hex: v?.color_hex || '#f4a7c3'
       };
 
-      // Determine image with comprehensive fallback chain
+      // Determine product image directly from variant images or cached image
       let imgUrl = '';
       if (v?.images && Array.isArray(v.images) && v.images.length > 0) {
         const primary = v.images.find((img: any) => img.is_primary) || v.images[0];
@@ -323,16 +323,7 @@ function createCartStore() {
           imgUrl = primary?.image_url || primary?.url || '';
         }
       }
-      // Check product level images
-      if (!imgUrl && p?.images && Array.isArray(p.images) && p.images.length > 0) {
-        const first = p.images[0];
-        imgUrl = typeof first === 'string' ? first : (first?.image_url || first?.url || '');
-      }
-      // Check product thumbnail_url
-      if (!imgUrl && p?.thumbnail_url) {
-        imgUrl = p.thumbnail_url;
-      }
-      // Fallback to cached image passed during addItem
+      // Fallback to exact image passed when item was added
       if (!imgUrl) {
         imgUrl = _getKnownImage(p.id, matchedColor.name);
       }
@@ -627,22 +618,25 @@ function createCartStore() {
         const { error: deleteError } = await supabase.from('cart').delete().eq('user_id', _userId!);
         if (deleteError) throw deleteError;
         
-        // Update abandoned_carts to recovered
-        const { error: recoveryError } = await supabase
-          .from('abandoned_carts')
-          .update({
-            status: 'recovered',
-            recovered: true,
-            recovered_order_id: orderId,
-            last_updated: new Date().toISOString()
-          })
-          .eq('user_id', _userId!);
-
-        if (recoveryError) throw recoveryError;
+        // Update abandoned_carts to recovered via server endpoint
+        try {
+          await fetch('/api/cart/abandoned', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              userId: _userId,
+              status: 'recovered',
+              recovered: true,
+              recoveredOrderId: orderId
+            })
+          });
+        } catch (recoveryError) {
+          // Non-blocking
+        }
       });
       items = [];
     } catch (e) {
-      console.error('Error updating abandoned cart to recovered:', e);
+      console.error('Error clearing cart on checkout success:', e);
     }
   }
 
@@ -652,65 +646,45 @@ function createCartStore() {
     if (!_userId) return;
 
     try {
-      await _runWithRetry(async () => {
-        // Fetch the updated cart items from the database to ensure we have the most fresh state
-        const { data: cartRows, error: cartError } = await supabase
-          .from('cart')
-          .select('*, product:product_id(id, name, base_price), variant:variant_id(id, price_override)')
-          .eq('user_id', _userId!);
+      // Fetch current cart items from the database to ensure we have the most fresh state
+      const { data: cartRows, error: cartError } = await supabase
+        .from('cart')
+        .select('*, product:product_id(id, name, base_price), variant:variant_id(id, price_override)')
+        .eq('user_id', _userId!);
 
-        if (cartError || !cartRows) {
-          throw cartError || new Error('Failed to fetch cart rows for sync');
-        }
+      if (cartError || !cartRows) return;
 
-        const cartItems = cartRows.map((row: any) => {
-          // Variant price_override wins; else base price. Stored in rupees.
-          const price = row.variant?.price_override !== null && row.variant?.price_override !== undefined && row.variant?.price_override !== ''
-            ? Number(row.variant.price_override)
-            : Number(row.product?.base_price ?? 0);
-          return {
-            product_id: row.product_id,
-            variant_id: row.variant_id,
-            sku: row.sku ?? row.variant?.sku ?? null,
-            quantity: row.quantity,
-            size: row.size ?? null,
-            product_name: row.product?.name ?? 'Unknown',
-            price: price
-          };
-        });
-
-        const totalAmount = cartItems.reduce((sum, item) => sum + item.price * item.quantity, 0);
-
-        // Check if an abandoned cart row already exists for this user (avoids 42P10 missing constraint error)
-        const { data: existing } = await supabase
-          .from('abandoned_carts')
-          .select('id')
-          .eq('user_id', _userId!)
-          .maybeSingle();
-
-        const payload = {
-          user_id: _userId!,
-          cart_items: cartItems,
-          total_amount: totalAmount,
-          status: 'pending',
-          last_updated: new Date().toISOString()
+      const cartItems = cartRows.map((row: any) => {
+        // Variant price_override wins; else base price. Stored in rupees.
+        const price = row.variant?.price_override !== null && row.variant?.price_override !== undefined && row.variant?.price_override !== ''
+          ? Number(row.variant.price_override)
+          : Number(row.product?.base_price ?? 0);
+        return {
+          product_id: row.product_id,
+          variant_id: row.variant_id,
+          sku: row.sku ?? row.variant?.sku ?? null,
+          quantity: row.quantity,
+          size: row.size ?? null,
+          product_name: row.product?.name ?? 'Unknown',
+          price: price
         };
+      });
 
-        if (existing?.id) {
-          const { error } = await supabase
-            .from('abandoned_carts')
-            .update(payload)
-            .eq('id', existing.id);
-          if (error) throw error;
-        } else {
-          const { error } = await supabase
-            .from('abandoned_carts')
-            .insert(payload);
-          if (error) throw error;
-        }
+      const totalAmount = cartItems.reduce((sum, item) => sum + item.price * item.quantity, 0);
+
+      // Call server endpoint (uses supabaseAdmin to avoid client RLS 403 errors)
+      await fetch('/api/cart/abandoned', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId: _userId,
+          cartItems,
+          totalAmount,
+          status: 'pending'
+        })
       });
     } catch (e) {
-      console.warn('Note: Abandoned cart sync:', (e as Error)?.message || e);
+      // Silently catch background sync notes
     }
   }
 
