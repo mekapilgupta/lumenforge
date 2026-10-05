@@ -90,6 +90,50 @@ function createCartStore() {
     }
   }
 
+  // ─── Known Image Cache ───────────────────────────────────────────────────
+  const _knownImagesMem: Record<string, string> = {};
+
+  function _saveKnownImage(productId: string, colorName: string | undefined, imageUrl: string | undefined) {
+    if (!imageUrl || imageUrl === '/placeholder.jpg') return;
+    const cleanPid = sanitizeProductId(productId);
+    _knownImagesMem[cleanPid] = imageUrl;
+    if (colorName) {
+      _knownImagesMem[`${cleanPid}_${colorName.toLowerCase().trim()}`] = imageUrl;
+    }
+    if (typeof window !== 'undefined') {
+      try {
+        const stored = JSON.parse(localStorage.getItem('ft_known_images') || '{}');
+        stored[cleanPid] = imageUrl;
+        if (colorName) stored[`${cleanPid}_${colorName.toLowerCase().trim()}`] = imageUrl;
+        localStorage.setItem('ft_known_images', JSON.stringify(stored));
+      } catch (e) {
+        // Ignore storage errors
+      }
+    }
+  }
+
+  function _getKnownImage(productId: string, colorName: string | undefined): string {
+    const cleanPid = sanitizeProductId(productId);
+    if (colorName && _knownImagesMem[`${cleanPid}_${colorName.toLowerCase().trim()}`]) {
+      return _knownImagesMem[`${cleanPid}_${colorName.toLowerCase().trim()}`];
+    }
+    if (_knownImagesMem[cleanPid]) {
+      return _knownImagesMem[cleanPid];
+    }
+    if (typeof window !== 'undefined') {
+      try {
+        const stored = JSON.parse(localStorage.getItem('ft_known_images') || '{}');
+        if (colorName && stored[`${cleanPid}_${colorName.toLowerCase().trim()}`]) {
+          return stored[`${cleanPid}_${colorName.toLowerCase().trim()}`];
+        }
+        if (stored[cleanPid]) return stored[cleanPid];
+      } catch (e) {
+        // Ignore
+      }
+    }
+    return '';
+  }
+
   // ─── JWT Expiration Auto-Retry Wrapper ─────────────────────────────────────
 
   async function _runWithRetry<T>(operation: () => Promise<T>): Promise<T> {
@@ -233,7 +277,7 @@ function createCartStore() {
           .from('cart')
           .select(`
             *,
-            product:product_id(id, slug, name, base_price, description, brand, category),
+            product:product_id(id, slug, name, base_price, description, brand, category, thumbnail_url, images, variants:product_variants(*, images:product_images(*))),
             variant:variant_id(*, images:product_images(*))
           `)
           .eq('user_id', userId);
@@ -253,25 +297,51 @@ function createCartStore() {
 
       const v = row.variant;
 
-      // Determine variant image
-      let imgUrl = '';
-      if (v?.images && Array.isArray(v.images) && v.images.length > 0) {
-        const primary = v.images.find((img: any) => img.is_primary) || v.images[0];
-        imgUrl = primary?.image_url || primary?.url || '';
-      }
-      if (!imgUrl && p?.images && Array.isArray(p.images) && p.images.length > 0) {
-        const first = p.images[0];
-        imgUrl = typeof first === 'string' ? first : (first?.image_url || first?.url || '');
-      }
-
-      // Row size is authoritative (stored per cart row); fall back to variant size
-      const rowSize = Number(sizeKey(row.size ?? v?.size ?? 38));
-
       const matchedColor: ColorVariant = {
         // Show the admin-defined color name verbatim; fall back through variant columns
         name: v?.color_name || v?.color || 'Default',
         hex: v?.color_hex || '#f4a7c3'
       };
+
+      // Determine image with comprehensive fallback chain
+      let imgUrl = '';
+      if (v?.images && Array.isArray(v.images) && v.images.length > 0) {
+        const primary = v.images.find((img: any) => img.is_primary) || v.images[0];
+        imgUrl = primary?.image_url || primary?.url || '';
+      }
+      if (!imgUrl && v?.image_url) {
+        imgUrl = v.image_url;
+      }
+      // If variant has no direct images, check product's color variants
+      if (!imgUrl && p?.variants && Array.isArray(p.variants) && p.variants.length > 0) {
+        const colorName = matchedColor.name.toLowerCase().trim();
+        const matchedVar = (colorName ? p.variants.find((pv: any) => (pv.color_name || pv.color || '').toLowerCase().trim() === colorName) : null)
+          || p.variants.find((pv: any) => pv.is_default)
+          || p.variants[0];
+        if (matchedVar?.images && Array.isArray(matchedVar.images) && matchedVar.images.length > 0) {
+          const primary = matchedVar.images.find((img: any) => img.is_primary) || matchedVar.images[0];
+          imgUrl = primary?.image_url || primary?.url || '';
+        }
+      }
+      // Check product level images
+      if (!imgUrl && p?.images && Array.isArray(p.images) && p.images.length > 0) {
+        const first = p.images[0];
+        imgUrl = typeof first === 'string' ? first : (first?.image_url || first?.url || '');
+      }
+      // Check product thumbnail_url
+      if (!imgUrl && p?.thumbnail_url) {
+        imgUrl = p.thumbnail_url;
+      }
+      // Fallback to cached image passed during addItem
+      if (!imgUrl) {
+        imgUrl = _getKnownImage(p.id, matchedColor.name);
+      }
+      if (!imgUrl) {
+        imgUrl = '/images/festive/story_wedges.jpg';
+      }
+
+      // Row size is authoritative (stored per cart row); fall back to variant size
+      const rowSize = Number(sizeKey(row.size ?? v?.size ?? 38));
 
       // Price in rupees: variant price_override wins over base price
       const basePriceNum = Number(p.base_price || 0);
@@ -286,7 +356,7 @@ function createCartStore() {
         sku: row.sku || v?.sku || undefined,
         slug: p.slug,
         name: p.name,
-        image: imgUrl || '/placeholder.jpg',
+        image: imgUrl,
         price: variantPrice,
         originalPrice: undefined,
         color: matchedColor,
@@ -319,6 +389,7 @@ function createCartStore() {
     const { slug, name, image, price, originalPrice, color, size, quantity = 1 } = params;
     // Guard: some callers pass composite display ids ("<uuid>_ColorName") — keep the uuid part
     const productId = sanitizeProductId(params.productId);
+    _saveKnownImage(productId, color?.name, image);
 
     // Per-variant identity: same product but different color/size = different line
     const isSameLine = (item: CartItem) =>
@@ -592,18 +663,6 @@ function createCartStore() {
           throw cartError || new Error('Failed to fetch cart rows for sync');
         }
 
-        if (cartRows.length === 0) {
-          // If the cart is empty, update the abandoned cart row to indicate empty cart
-          await supabase.from('abandoned_carts').upsert({
-            user_id: _userId!,
-            cart_items: [],
-            total_amount: 0,
-            status: 'pending',
-            last_updated: new Date().toISOString()
-          }, { onConflict: 'user_id' });
-          return;
-        }
-
         const cartItems = cartRows.map((row: any) => {
           // Variant price_override wins; else base price. Stored in rupees.
           const price = row.variant?.price_override !== null && row.variant?.price_override !== undefined && row.variant?.price_override !== ''
@@ -622,18 +681,36 @@ function createCartStore() {
 
         const totalAmount = cartItems.reduce((sum, item) => sum + item.price * item.quantity, 0);
 
-        const { error } = await supabase.from('abandoned_carts').upsert({
+        // Check if an abandoned cart row already exists for this user (avoids 42P10 missing constraint error)
+        const { data: existing } = await supabase
+          .from('abandoned_carts')
+          .select('id')
+          .eq('user_id', _userId!)
+          .maybeSingle();
+
+        const payload = {
           user_id: _userId!,
           cart_items: cartItems,
           total_amount: totalAmount,
           status: 'pending',
           last_updated: new Date().toISOString()
-        }, { onConflict: 'user_id' });
+        };
 
-        if (error) throw error;
+        if (existing?.id) {
+          const { error } = await supabase
+            .from('abandoned_carts')
+            .update(payload)
+            .eq('id', existing.id);
+          if (error) throw error;
+        } else {
+          const { error } = await supabase
+            .from('abandoned_carts')
+            .insert(payload);
+          if (error) throw error;
+        }
       });
     } catch (e) {
-      console.error('Error syncing abandoned cart:', e);
+      console.warn('Note: Abandoned cart sync:', (e as Error)?.message || e);
     }
   }
 

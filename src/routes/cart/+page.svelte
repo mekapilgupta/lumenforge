@@ -45,7 +45,7 @@
             {#each cartStore.items as item (item.id)}
               <div class="flex items-center gap-4 p-4 border-b last:border-b-0 bg-white" style="border-color: var(--color-blush);">
                 <a href="/product/{item.slug}" class="w-20 h-20 rounded-xl overflow-hidden shrink-0" style="background: var(--color-blush);">
-                  <img src={item.image} alt={item.name} class="w-full h-full object-cover" loading="lazy" />
+                  <img src={item.image} alt={item.name} class="w-full h-full object-cover" loading="lazy" onerror={(e) => { (e.currentTarget as HTMLImageElement).src = '/images/festive/story_wedges.jpg'; }} />
                 </a>
                 <div class="flex-1 min-w-0">
                   <a href="/product/{item.slug}">

@@ -13,7 +13,7 @@
   <!-- Image -->
   <a href="/product/{item.slug}" class="shrink-0">
     <div class="w-18 h-18 rounded-xl overflow-hidden bg-pink-50" style="width:72px;height:72px;">
-      <img src={item.image} alt={item.name} class="w-full h-full object-cover" loading="lazy" />
+      <img src={item.image} alt={item.name} class="w-full h-full object-cover" loading="lazy" onerror={(e) => { (e.currentTarget as HTMLImageElement).src = '/images/festive/story_wedges.jpg'; }} />
     </div>
   </a>
 
