@@ -815,6 +815,8 @@
               {/if}
             </p>
 
+            <!-- Leftover COD online payment collection hidden for now per request -->
+            <!--
             {#if due > 0 && order.payment_status !== 'paid' && order.status !== 'cancelled' && order.status !== 'delivered'}
               <div class="mt-4 pt-3 border-t border-pink-100">
                 <button
@@ -835,6 +837,7 @@
                 </p>
               </div>
             {/if}
+            -->
           </div>
         {/if}
 
