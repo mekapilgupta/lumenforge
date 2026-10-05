@@ -1,7 +1,7 @@
 export const prerender = false;
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { supabaseAdmin } from '$lib/server/shiprocket';
+import { supabaseAdmin } from '$lib/server/supabase';
 
 export const POST: RequestHandler = async ({ request }) => {
   try {
@@ -40,13 +40,13 @@ export const POST: RequestHandler = async ({ request }) => {
       return json({ success: false, error: updateErr.message }, { status: 500 });
     }
 
-    // Append log entry
+    // Append log entry (column is 'note', not 'message')
     await supabaseAdmin
       .from('order_logs')
       .insert({
         order_id: order.id,
         status: order.status,
-        message: `Admin marked COD balance (₹${(remainingBalancePaise / 100).toFixed(0)}) as collected & paid.${note ? ` Note: ${note}` : ''}`,
+        note: `Admin marked COD balance (₹${(remainingBalancePaise / 100).toFixed(0)}) as collected & paid.${note ? ` Note: ${note}` : ''}`,
         created_by: 'admin',
         created_at: new Date().toISOString()
       });

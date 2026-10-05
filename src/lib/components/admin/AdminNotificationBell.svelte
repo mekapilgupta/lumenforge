@@ -64,8 +64,13 @@
   }
 
   function subscribeRealtime() {
+    if (realtimeSub) {
+      supabase.removeChannel(realtimeSub);
+      realtimeSub = null;
+    }
+    const channelId = `admin-notifs-${Math.random().toString(36).slice(2, 9)}`;
     realtimeSub = supabase
-      .channel('admin-realtime-notifications')
+      .channel(channelId)
       .on(
         'postgres_changes',
         {

@@ -128,6 +128,9 @@
 
   async function loadOrder() {
     const orderId = ($page.params as Record<string, string>)['id'];
+    if (!orderId || orderId === 'undefined' || orderId === 'null') {
+      return;
+    }
     const { data } = await supabase
       .from('orders')
       .select('*, profile:user_id(full_name, email, phone), items:order_items(*), shipping_address:addresses!shipping_address_id(*)')
@@ -658,7 +661,7 @@
       await supabase.from('order_logs').insert({
         order_id: order.id,
         status: order.status,
-        message: target === 'cod'
+        note: target === 'cod'
           ? `Admin updated payment mode to Partial COD (Advance: ₹5, Balance Due: ₹${(due/100).toFixed(0)})`
           : `Admin updated payment mode to 100% Prepaid (₹${(order.total_amount/100).toFixed(0)})`,
         created_by: 'admin',
