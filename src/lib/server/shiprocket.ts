@@ -198,8 +198,9 @@ export async function pushOrderToShiprocket(orderId: string, customClient?: any)
   const city = order.address?.city || 'City Missing';
   const pincode = order.address?.pincode || '110001';
   const state = order.address?.state || 'State Missing';
-  const email = order.address?.email || order.profile?.email || 'orders@frenchtoes.in';
-  const phone = order.address?.phone || order.profile?.phone || '9999999999';
+  const email = order.address?.email || order.profile?.email || (order.payment_gateway_response as any)?.email || 'orders@frenchtoes.in';
+  const rawPhone = order.address?.phone || order.profile?.phone || (order.payment_gateway_response as any)?.contact || '9999999999';
+  const cleanPhone = String(rawPhone).replace(/\D/g, '').slice(-10) || '9999999999';
   const { isCodOrder, getAdvAmount, getCodDue } = await import('$lib/utils/orderPayments');
   const isCod = isCodOrder(order);
   const totalPaise = Number(order.total_amount || 0);
@@ -245,7 +246,7 @@ export async function pushOrderToShiprocket(orderId: string, customClient?: any)
     billing_state: state,
     billing_country: 'India',
     billing_email: email,
-    billing_phone: phone,
+    billing_phone: cleanPhone,
     shipping_is_billing: true,
     order_items: (order.items || []).map((item: any) => {
       const size = item.variant_info?.size || item.size || '';
@@ -461,12 +462,14 @@ export async function syncOrderWithShiprocket(orderIdOrAwb: string, customClient
     .update(updateData)
     .eq('id', dbOrder.id)
     .select('*')
-    .single();
+    .maybeSingle();
 
   if (updateErr) {
     console.error('[Shiprocket Sync] Failed to update orders table:', updateErr);
     return { success: false, error: updateErr.message };
   }
+
+  const finalOrder = updatedOrder || { ...dbOrder, ...updateData };
 
   // Record Activity Log / Scans
   const scans: any[] = trackData?.shipment_track_activities || shipmentTrack?.scans || [];
@@ -592,7 +595,7 @@ export async function syncOrderWithShiprocket(orderIdOrAwb: string, customClient
   console.log(`[Shiprocket Sync] Sync completed successfully for order #${dbOrder.order_number}`);
   return {
     success: true,
-    order: updatedOrder || dbOrder,
+    order: finalOrder,
     trackingData: {
       awb: awbCode,
       courier: courierName,

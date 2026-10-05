@@ -132,10 +132,18 @@ export async function POST({ request, url }) {
             })
             .eq('id', order.id)
             .select('*')
-            .single();
+            .maybeSingle();
 
-          if (!recError && updatedOrder) {
-            order = { ...order, ...updatedOrder };
+          if (!recError) {
+            order = {
+              ...order,
+              ...(updatedOrder || {
+                payment_method: 'cod',
+                payment_status: actuallyFullyPaid ? 'paid' : 'partial_paid',
+                advance_amount: adv,
+                cod_balance_due: due
+              })
+            };
             reconciled = true;
             if (statusLie) warnings.push('Payment status healed: COD balance still due, marked as partial_paid.');
           } else if (recError) {
