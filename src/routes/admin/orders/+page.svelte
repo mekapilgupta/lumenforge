@@ -504,6 +504,37 @@
       syncingSingleId = null;
     }
   }
+
+  let runningMasterSync = $state(false);
+
+  async function masterSyncAll() {
+    if (runningMasterSync) return;
+    runningMasterSync = true;
+    uiStore.addToast("Running Master Sync: healing COD/Prepaid statuses & syncing Shiprocket...", "info");
+
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData?.session?.access_token;
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      if (token) headers["Authorization"] = `Bearer ${token}`;
+
+      const res = await fetch("/api/orders/master-sync", {
+        method: "POST",
+        headers
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        uiStore.addToast(`Master Sync Complete! Scanned: ${data.total_orders_scanned}, Healed DB: ${data.healed}, Pushed/Fixed SR: ${data.pushed}, Synced: ${data.synced}`, "success");
+        await loadOrders();
+      } else {
+        uiStore.addToast(`Master Sync issue: ${data.error || "Unknown"}`, "error");
+      }
+    } catch (e: any) {
+      uiStore.addToast(`Master Sync error: ${e.message}`, "error");
+    } finally {
+      runningMasterSync = false;
+    }
+  }
 </script>
 
 <svelte:head><title>Orders — Admin French Toes</title></svelte:head>
@@ -513,12 +544,20 @@
     <div class="flex items-center gap-3">
       <h1 class="text-2xl font-bold text-white">Orders Management</h1>
       <button
+        onclick={masterSyncAll}
+        disabled={runningMasterSync}
+        class="px-3.5 py-1.5 rounded-xl text-xs font-bold text-white bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 border border-emerald-400/30 transition-all flex items-center gap-1.5 cursor-pointer shadow-sm disabled:opacity-50"
+      >
+        <span class={runningMasterSync ? "animate-spin" : ""}>⚡</span>
+        <span>{runningMasterSync ? "Reconciling All Orders..." : "Master Sync All Orders"}</span>
+      </button>
+      <button
         onclick={syncAllShiprocket}
         disabled={syncingAllShiprocket}
         class="px-3 py-1.5 rounded-xl text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-500 border border-indigo-400/30 transition-all flex items-center gap-1.5 cursor-pointer shadow-sm disabled:opacity-50"
       >
         <span class={syncingAllShiprocket ? "animate-spin" : ""}>🔄</span>
-        <span>{syncingAllShiprocket ? "Syncing Orders..." : "Sync Shiprocket Orders"}</span>
+        <span>{syncingAllShiprocket ? "Syncing..." : "Sync Tracking"}</span>
       </button>
     </div>
     <div class="relative">

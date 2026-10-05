@@ -189,20 +189,37 @@ export async function pushOrderToShiprocket(orderId: string, customClient?: any)
   const phone = order.address?.phone || order.profile?.phone || '9999999999';
   const { isCodOrder, getAdvAmount, getCodDue } = await import('$lib/utils/orderPayments');
   const isCod = isCodOrder(order);
+  const totalPaise = Number(order.total_amount || 0);
   const advAmount = getAdvAmount(order);
   const codDue = getCodDue(order);
-  const isFullyPaid = order.payment_status === 'paid' || codDue === 0;
+  // STRICT: For COD orders, only fully paid if balance due is 0 or advance covers total.
+  // Never trust order.payment_status === 'paid' because Razorpay advance transactions mark themselves 'paid'.
+  const isFullyPaid = isCod ? (codDue <= 0 || advAmount >= totalPaise) : (order.payment_status === 'paid');
   const codAmountToCollect = isCod && !isFullyPaid ? (codDue / 100) : 0;
-  // Shiprocket's adhoc API has NO cod_amount param. It computes the COD collect
-  // amount as: sub_total + shipping_charges + giftwrap/transaction charges - total_discount.
-  // So for a partially-paid COD order we pass the ADVANCE already paid as
-  // total_discount, making Shiprocket's Order Total = balance due.
+  // Shiprocket calculates COD collection as: sub_total + shipping_charges - total_discount.
+  // Passing the advance as total_discount ensures Shiprocket's Net Collectible = x - advance.
   const srTotalDiscount = isCod && !isFullyPaid
     ? ((order.discount_amount || 0) + advAmount) / 100
     : (order.discount_amount || 0) / 100;
 
-  const payload = {
-    order_id: order.id,
+  // Use clean order_number for Shiprocket channel_order_id (e.g. FT2610054777)
+  const channelOrderId = order.order_number || order.id;
+
+  // If order was previously pushed and we are updating/re-pushing, cancel old Shiprocket order
+  if (order.shiprocket_order_id && /^\d+$/.test(String(order.shiprocket_order_id))) {
+    try {
+      await fetch('https://apiv2.shiprocket.in/v1/external/orders/cancel', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ ids: [Number(order.shiprocket_order_id)] })
+      });
+    } catch (cancelErr) {
+      console.warn('[Shiprocket Push] Old order cancel notice:', cancelErr);
+    }
+  }
+
+  const payload: any = {
+    order_id: channelOrderId,
     order_date: new Date(order.created_at || Date.now()).toISOString().split('T')[0],
     pickup_location: env.SHIPROCKET_PICKUP_LOCATION || 'Primary',
     channel_id: '11173693',
@@ -233,9 +250,7 @@ export async function pushOrderToShiprocket(orderId: string, customClient?: any)
     payment_method: isCod && !isFullyPaid ? 'COD' : 'Prepaid',
     sub_total: (order.subtotal || order.total_amount || 0) / 100,
     shipping_charges: (order.shipping_charges || 0) / 100,
-    discount: (order.discount_amount || 0) / 100,
-    // Shiprocket ignores unknown "cod_amount"; it collects sub_total - total_discount.
-    // Sending the advance here makes Order Total on Shiprocket = balance due only.
+    discount: srTotalDiscount,
     total_discount: srTotalDiscount,
     cod_amount: codAmountToCollect,
     length: 30,
@@ -246,7 +261,7 @@ export async function pushOrderToShiprocket(orderId: string, customClient?: any)
 
   console.log('[Shiprocket Push] Sending adhoc payload:', JSON.stringify(payload, null, 2));
 
-  const res = await fetch('https://apiv2.shiprocket.in/v1/external/orders/create/adhoc', {
+  let res = await fetch('https://apiv2.shiprocket.in/v1/external/orders/create/adhoc', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -255,23 +270,45 @@ export async function pushOrderToShiprocket(orderId: string, customClient?: any)
     body: JSON.stringify(payload),
   });
 
-  const resData = await res.json();
+  let resData = await res.json();
   console.log('[Shiprocket Push] Response:', res.status, JSON.stringify(resData, null, 2));
+
+  // If Shiprocket says the channel_order_id was previously cancelled, retry with a clean suffix
+  if (resData.status_code === 5 || resData.status === 'CANCELED') {
+    const fallbackId = `${channelOrderId}-${Date.now().toString().slice(-4)}`;
+    payload.order_id = fallbackId;
+    console.log(`[Shiprocket Push] Retrying with fresh channel order id: ${fallbackId}`);
+    res = await fetch('https://apiv2.shiprocket.in/v1/external/orders/create/adhoc', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify(payload),
+    });
+    resData = await res.json();
+  }
 
   if (!res.ok || !resData.order_id) {
     return { success: false, error: resData.message || 'Failed to create order on Shiprocket' };
   }
 
-  // Update order with Shiprocket details
+  // Update order with Shiprocket details and heal COD fields
+  const updatePayload: Record<string, any> = {
+    shiprocket_order_id: String(resData.order_id),
+    shiprocket_shipment_id: String(resData.shipment_id || ''),
+    shiprocket_status: 'NEW',
+    status: order.status === 'pending' ? 'confirmed' : order.status,
+    shiprocket_last_synced_at: new Date().toISOString(),
+  };
+
+  if (isCod) {
+    updatePayload.payment_method = 'cod';
+    updatePayload.payment_status = isFullyPaid ? 'paid' : 'partial_paid';
+    updatePayload.advance_amount = advAmount;
+    updatePayload.cod_balance_due = codDue;
+  }
+
   await db
     .from('orders')
-    .update({
-      shiprocket_order_id: String(resData.order_id),
-      shiprocket_shipment_id: String(resData.shipment_id || ''),
-      shiprocket_status: 'NEW',
-      status: order.status === 'pending' ? 'confirmed' : order.status,
-      shiprocket_last_synced_at: new Date().toISOString(),
-    })
+    .update(updatePayload)
     .eq('id', order.id);
 
   return { success: true, shiprocket_order_id: String(resData.order_id) };
