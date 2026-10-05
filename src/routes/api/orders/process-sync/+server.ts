@@ -1,5 +1,6 @@
 export const prerender = false;
 import { json } from '@sveltejs/kit';
+import { createClient } from '@supabase/supabase-js';
 import { supabaseAdmin } from '$lib/server/supabase';
 import { pushOrderToShiprocket, syncOrderWithShiprocket } from '$lib/server/shiprocket';
 import { isCodOrder, getAdvAmount, getCodDue } from '$lib/utils/orderPayments';
@@ -7,12 +8,6 @@ import { PUBLIC_SUPABASE_URL, PUBLIC_SUPABASE_ANON_KEY } from '$env/static/publi
 
 /**
  * Unified, Resilient Order Processing & Shiprocket Sync API
- * Performs in a single atomic cycle:
- * 1. Safe Multi-Identifier Order Resolution (UUID / Order Number / AWB / Shiprocket ID)
- * 2. Automatic COD/Prepaid Payment Reconciliation
- * 3. Automatic Shiprocket Push (if not yet pushed)
- * 4. Automatic Shiprocket Status & Tracking Sync (if pushed or AWB available)
- * 5. Structured, granular feedback with actionable warnings
  */
 export async function POST({ request, url }) {
   const warnings: string[] = [];
@@ -21,6 +16,7 @@ export async function POST({ request, url }) {
   let synced = false;
 
   try {
+    const authHeader = request.headers.get('authorization') || '';
     const body = await request.json().catch(() => ({}));
     const rawId = body.orderId || body.id || body.orderNumber || body.awb || url.searchParams.get('orderId') || url.searchParams.get('id');
     const forcePush = body.forcePush === true || url.searchParams.get('forcePush') === 'true';
@@ -34,8 +30,16 @@ export async function POST({ request, url }) {
     const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(orderIdentifier);
     const isDigits = /^\d+$/.test(orderIdentifier);
 
+    // Create DB client with caller's authorization if provided (bypasses RLS for logged in admins/users)
+    const db = authHeader.startsWith('Bearer ')
+      ? createClient(PUBLIC_SUPABASE_URL, PUBLIC_SUPABASE_ANON_KEY, {
+          global: { headers: { Authorization: authHeader } },
+          auth: { persistSession: false, autoRefreshToken: false }
+        })
+      : supabaseAdmin;
+
     // 1. Locate Order in Supabase Database
-    let orderQuery = supabaseAdmin
+    let orderQuery = db
       .from('orders')
       .select(`
         *,
@@ -56,7 +60,39 @@ export async function POST({ request, url }) {
 
     let { data: order, error: orderErr } = await orderQuery.maybeSingle();
 
-    if (orderErr || !order) {
+    // Fallback: If not found through primary client, try elevated edge function or supabaseAdmin
+    if (!order && db !== supabaseAdmin) {
+      const { data: adminOrder } = await supabaseAdmin.from('orders').select('*, address:addresses!shipping_address_id(*), items:order_items(*), profile:user_id(id, full_name, email, phone)').eq(isUuid ? 'id' : 'order_number', orderIdentifier).maybeSingle();
+      if (adminOrder) {
+        order = adminOrder;
+      }
+    }
+
+    // Edge function cloud check fallback
+    if (!order) {
+      try {
+        const edgeRes = await fetch(`${PUBLIC_SUPABASE_URL}/functions/v1/push-to-shiprocket`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${PUBLIC_SUPABASE_ANON_KEY}`,
+          },
+          body: JSON.stringify({ orderId: orderIdentifier }),
+        });
+        const edgeData = await edgeRes.json().catch(() => ({}));
+        if (edgeRes.ok && (edgeData.success || edgeData.shiprocket_order_id)) {
+          return json({
+            success: true,
+            pushed: true,
+            synced: true,
+            shiprocket_order_id: edgeData.shiprocket_order_id,
+            order: edgeData.order,
+          });
+        }
+      } catch (e) {}
+    }
+
+    if (!order) {
       return json({
         success: false,
         error: `Order "${orderIdentifier}" not found in database.`,
@@ -76,7 +112,7 @@ export async function POST({ request, url }) {
           order.cod_balance_due !== due;
 
         if (needsUpdate) {
-          const { data: updatedOrder, error: recError } = await supabaseAdmin
+          const { data: updatedOrder, error: recError } = await db
             .from('orders')
             .update({
               payment_method: 'cod',
@@ -105,10 +141,10 @@ export async function POST({ request, url }) {
     if (!order.shiprocket_order_id || forcePush) {
       console.log(`[Process Sync] Order #${order.order_number} has no Shiprocket ID. Attempting auto-push...`);
       try {
-        // A. Try Cloud Edge Function
         let pushSuccess = false;
         let srId = null;
 
+        // A. Try Cloud Edge Function
         try {
           const edgeRes = await fetch(`${PUBLIC_SUPABASE_URL}/functions/v1/push-to-shiprocket`, {
             method: 'POST',
