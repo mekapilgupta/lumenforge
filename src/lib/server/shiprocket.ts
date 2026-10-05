@@ -282,11 +282,18 @@ export async function syncOrderWithShiprocket(orderIdOrAwb: string): Promise<{ s
       profile:user_id(id, full_name, email, phone)
     `);
 
-  const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(orderIdOrAwb);
+  const idStr = String(orderIdOrAwb).trim();
+  const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(idStr);
+  const isDigits = /^\d+$/.test(idStr);
+
   if (isUuid) {
-    orderQuery = orderQuery.or(`id.eq.${orderIdOrAwb},razorpay_order_id.eq.${orderIdOrAwb},order_number.eq.${orderIdOrAwb},shiprocket_order_id.eq.${orderIdOrAwb},awb_code.eq.${orderIdOrAwb}`);
+    orderQuery = orderQuery.eq('id', idStr);
+  } else if (idStr.startsWith('FT') || idStr.startsWith('ft_')) {
+    orderQuery = orderQuery.eq('order_number', idStr);
+  } else if (isDigits) {
+    orderQuery = orderQuery.or(`shiprocket_order_id.eq.${idStr},awb_code.eq.${idStr},order_number.eq.${idStr}`);
   } else {
-    orderQuery = orderQuery.or(`order_number.eq.${orderIdOrAwb},shiprocket_order_id.eq.${orderIdOrAwb},awb_code.eq.${orderIdOrAwb},razorpay_order_id.eq.${orderIdOrAwb}`);
+    orderQuery = orderQuery.or(`awb_code.eq.${idStr},order_number.eq.${idStr},razorpay_order_id.eq.${idStr}`);
   }
 
   const { data: dbOrder, error: dbErr } = await orderQuery.maybeSingle();

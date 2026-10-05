@@ -14,8 +14,8 @@ export async function POST({ request, url }) {
       return json({ success: true, ...result });
     }
 
-    if (!orderId) {
-      return json({ error: 'Missing orderId, awb, or syncAll parameter' }, { status: 400 });
+    if (!orderId || orderId === 'undefined' || orderId === 'null') {
+      return json({ error: 'Missing valid orderId or awb parameter' }, { status: 400 });
     }
 
     console.log(`[Shiprocket Sync API] Syncing single order: ${orderId}`);
