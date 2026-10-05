@@ -155,16 +155,23 @@ export async function fetchShiprocketOrderDetails(srOrderId: string): Promise<an
  * Push an order from DB to Shiprocket
  */
 export async function pushOrderToShiprocket(orderId: string): Promise<{ success: boolean; shiprocket_order_id?: string; error?: string }> {
-  const { data: order, error: orderErr } = await supabaseAdmin
+  const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(orderId).trim());
+  let orderQuery = supabaseAdmin
     .from('orders')
     .select(`
       *,
       address:addresses!shipping_address_id(*),
       items:order_items(*),
       profile:user_id(full_name, email, phone)
-    `)
-    .or(`id.eq.${orderId},order_number.eq.${orderId}`)
-    .maybeSingle();
+    `);
+
+  if (isUuid) {
+    orderQuery = orderQuery.eq('id', orderId);
+  } else {
+    orderQuery = orderQuery.eq('order_number', orderId);
+  }
+
+  const { data: order, error: orderErr } = await orderQuery.maybeSingle();
 
   if (orderErr || !order) {
     return { success: false, error: orderErr?.message || 'Order not found' };
@@ -177,6 +184,8 @@ export async function pushOrderToShiprocket(orderId: string): Promise<{ success:
   const city = order.address?.city || 'City Missing';
   const pincode = order.address?.pincode || '110001';
   const state = order.address?.state || 'State Missing';
+  const email = order.address?.email || order.profile?.email || 'orders@frenchtoes.in';
+  const phone = order.address?.phone || order.profile?.phone || '9999999999';
   const { isCodOrder, getAdvAmount, getCodDue } = await import('$lib/utils/orderPayments');
   const isCod = isCodOrder(order);
   const advAmount = getAdvAmount(order);

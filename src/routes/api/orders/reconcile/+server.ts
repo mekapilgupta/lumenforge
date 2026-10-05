@@ -5,18 +5,22 @@ import { isCodOrder, getAdvAmount, getCodDue } from '$lib/utils/orderPayments';
 
 export async function POST({ request }) {
   try {
-    const body = await request.json();
+    const body = await request.json().catch(() => ({}));
     const { orderId, isCod, advanceAmount, codBalanceDue } = body;
 
     if (!orderId) {
       return json({ error: 'Missing orderId' }, { status: 400 });
     }
 
-    const { data: order, error: findError } = await supabaseAdmin
-      .from('orders')
-      .select('*')
-      .eq('id', orderId)
-      .maybeSingle();
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(orderId).trim());
+    let query = supabaseAdmin.from('orders').select('*');
+    if (isUuid) {
+      query = query.eq('id', orderId);
+    } else {
+      query = query.eq('order_number', orderId);
+    }
+
+    const { data: order, error: findError } = await query.maybeSingle();
 
     if (findError || !order) {
       return json({ error: 'Order not found' }, { status: 404 });
@@ -38,7 +42,7 @@ export async function POST({ request }) {
       const { error: updateError } = await supabaseAdmin
         .from('orders')
         .update(updatePayload)
-        .eq('id', orderId);
+        .eq('id', order.id);
 
       if (updateError) throw updateError;
 
