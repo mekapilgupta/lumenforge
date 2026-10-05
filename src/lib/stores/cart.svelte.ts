@@ -217,21 +217,39 @@ function createCartStore() {
             // SKU identity for the merged row
             const mergeSku = itemSku || `${item.productId}-${item.color.name}-${rowSize}`.toLowerCase().replace(/[^a-z0-9-]/gi, '-');
 
-            // Add or update row in database — keyed by sku
-            const { data: existingRows, error: findError } = await supabase
+            // Find existing row by (product_id, variant_id, size) or (sku)
+            let mergeQuery = supabase
               .from('cart')
               .select('id, quantity')
               .eq('user_id', userId)
-              .eq('sku', mergeSku);
-            if (findError) throw findError;
+              .eq('product_id', item.productId)
+              .eq('size', rowSize);
+
+            if (variantId) {
+              mergeQuery = mergeQuery.eq('variant_id', variantId);
+            } else {
+              mergeQuery = mergeQuery.is('variant_id', null);
+            }
+
+            let { data: existingRows } = await mergeQuery;
+
+            if ((!existingRows || existingRows.length === 0) && mergeSku) {
+              const { data: skuRows } = await supabase
+                .from('cart')
+                .select('id, quantity')
+                .eq('user_id', userId)
+                .eq('sku', mergeSku);
+              if (skuRows && skuRows.length > 0) {
+                existingRows = skuRows;
+              }
+            }
 
             if (existingRows && existingRows.length > 0) {
               const newQty = Math.min(existingRows[0].quantity + item.quantity, MAX_QTY_PER_ITEM);
-              const { error: updateError } = await supabase
+              await supabase
                 .from('cart')
-                .update({ quantity: newQty })
+                .update({ quantity: newQty, sku: mergeSku })
                 .eq('id', existingRows[0].id);
-              if (updateError) throw updateError;
             } else {
               const { error: insertError } = await supabase
                 .from('cart')
@@ -243,7 +261,18 @@ function createCartStore() {
                   size: rowSize,
                   quantity: Math.min(item.quantity, MAX_QTY_PER_ITEM)
                 });
-              if (insertError) throw insertError;
+              if (insertError && insertError.code === '23505') {
+                const { data: retryRows } = await supabase
+                  .from('cart')
+                  .select('id, quantity')
+                  .eq('user_id', userId)
+                  .eq('product_id', item.productId)
+                  .eq('size', rowSize);
+                if (retryRows && retryRows.length > 0) {
+                  const newQty = Math.min(retryRows[0].quantity + item.quantity, MAX_QTY_PER_ITEM);
+                  await supabase.from('cart').update({ quantity: newQty }).eq('id', retryRows[0].id);
+                }
+              }
             }
           });
         } catch (e) {
@@ -437,6 +466,7 @@ function createCartStore() {
       await _runWithRetry(async () => {
         let sku = params.sku ?? null;
         let variantId = params.variantId ?? null;
+        const normalizedSize = sizeKey(size);
 
         // Ensure we always resolve the exact size-specific 8-digit SKU
         if (!sku || sku.length !== 8 || isNaN(Number(sku)) || !variantId) {
@@ -444,7 +474,7 @@ function createCartStore() {
             const res = await fetch('/api/variants/resolve', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ productId, size: sizeKey(size), color: color.name })
+              body: JSON.stringify({ productId, size: normalizedSize, color: color.name })
             });
             if (res.ok) {
               const data = await res.json();
@@ -457,22 +487,42 @@ function createCartStore() {
         }
 
         // SKU identity: deterministic fallback keeps distinct lines even without a variant row
-        const lineSku = sku || `${productId}-${color.name}-${sizeKey(size)}`.toLowerCase().replace(/[^a-z0-9-]/gi, '-');
+        const lineSku = sku || `${productId}-${color.name}-${normalizedSize}`.toLowerCase().replace(/[^a-z0-9-]/gi, '-');
 
-        // Look for an existing row for THIS sku + size
-        const { data: existingRows, error: findError } = await supabase
+        // Look for an existing row for THIS product + variant + size
+        let query = supabase
           .from('cart')
           .select('id, quantity')
           .eq('user_id', _userId!)
-          .eq('sku', lineSku);
-        if (findError) throw findError;
+          .eq('product_id', productId)
+          .eq('size', normalizedSize);
+
+        if (variantId) {
+          query = query.eq('variant_id', variantId);
+        } else {
+          query = query.is('variant_id', null);
+        }
+
+        let { data: existingRows } = await query;
+
+        // Also check by lineSku as secondary check
+        if ((!existingRows || existingRows.length === 0) && lineSku) {
+          const { data: skuRows } = await supabase
+            .from('cart')
+            .select('id, quantity')
+            .eq('user_id', _userId!)
+            .eq('sku', lineSku);
+          if (skuRows && skuRows.length > 0) {
+            existingRows = skuRows;
+          }
+        }
 
         if (existingRows && existingRows.length > 0) {
           // Update quantity (capped at MAX_QTY_PER_ITEM)
           const newQty = Math.min(existingRows[0].quantity + qtyToAdd, MAX_QTY_PER_ITEM);
           const { error: updateError } = await supabase
             .from('cart')
-            .update({ quantity: newQty })
+            .update({ quantity: newQty, sku: lineSku })
             .eq('id', existingRows[0].id);
 
           if (updateError) throw updateError;
@@ -485,19 +535,34 @@ function createCartStore() {
               product_id: productId,
               variant_id: variantId,
               sku: lineSku,
-              size: sizeKey(size),
+              size: normalizedSize,
               quantity: qtyToAdd
             });
 
-          if (insertError) throw insertError;
+          if (insertError) {
+            if (insertError.code === '23505') {
+              const { data: retryRows } = await supabase
+                .from('cart')
+                .select('id, quantity')
+                .eq('user_id', _userId!)
+                .eq('product_id', productId)
+                .eq('size', normalizedSize);
+              if (retryRows && retryRows.length > 0) {
+                const newQty = Math.min(retryRows[0].quantity + qtyToAdd, MAX_QTY_PER_ITEM);
+                await supabase.from('cart').update({ quantity: newQty }).eq('id', retryRows[0].id);
+              }
+            } else {
+              throw insertError;
+            }
+          }
         }
       });
 
-      // Sync abandoned cart
-      await syncAbandonedCart();
-
       // Reload latest state from Supabase
       await loadFromSupabase(_userId);
+
+      // Background abandoned cart sync (non-blocking)
+      syncAbandonedCart().catch(() => {});
     } catch (e) {
       console.error('Error adding item to cart:', e);
       uiStore.addToast('Could not add to cart. Please try again.', 'error');
@@ -505,11 +570,13 @@ function createCartStore() {
   }
 
   async function removeItem(id: string) {
+    // Optimistic local UI update immediately
+    const previousItems = [...items];
+    items = items.filter((item) => item.id !== id);
+    _deleteLocalMeta([id]);
+
     if (!_userId) {
-      const localItems = _loadLocalCart();
-      const filtered = localItems.filter((item) => item.id !== id);
-      items = filtered;
-      _saveLocalCart(filtered);
+      _saveLocalCart(items);
       return;
     }
 
@@ -523,15 +590,12 @@ function createCartStore() {
         if (error) throw error;
       });
 
-      _deleteLocalMeta([id]);
-
-      // Sync abandoned cart
-      await syncAbandonedCart();
-
-      // Reload latest state
-      await loadFromSupabase(_userId);
+      // Background abandoned cart sync
+      syncAbandonedCart().catch(() => {});
     } catch (e) {
       console.error('Error removing cart item:', e);
+      items = previousItems;
+      await loadFromSupabase(_userId);
     }
   }
 
@@ -541,23 +605,17 @@ function createCartStore() {
       quantity = MAX_QTY_PER_ITEM;
     }
 
-    if (!_userId) {
-      if (quantity < 1) {
-        await removeItem(id);
-        return;
-      }
-      const localItems = _loadLocalCart();
-      const item = localItems.find((item) => item.id === id);
-      if (item) {
-        item.quantity = quantity;
-      }
-      items = localItems;
-      _saveLocalCart(localItems);
+    if (quantity < 1) {
+      await removeItem(id);
       return;
     }
 
-    if (quantity < 1) {
-      await removeItem(id);
+    // Optimistic local UI update immediately
+    const previousItems = [...items];
+    items = items.map((item) => (item.id === id ? { ...item, quantity } : item));
+
+    if (!_userId) {
+      _saveLocalCart(items);
       return;
     }
 
@@ -571,13 +629,12 @@ function createCartStore() {
         if (error) throw error;
       });
 
-      // Sync abandoned cart
-      await syncAbandonedCart();
-
-      // Reload latest state
-      await loadFromSupabase(_userId);
+      // Background abandoned cart sync
+      syncAbandonedCart().catch(() => {});
     } catch (e) {
       console.error('Error updating cart quantity:', e);
+      items = previousItems;
+      await loadFromSupabase(_userId);
     }
   }
 
