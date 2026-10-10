@@ -12,12 +12,37 @@
   const STORAGE_KEY_TIME = "ft_auth_timestamp";
 
   let email = $state("");
+  let password = $state("");
+  let authMode = $state<"otp" | "password">("otp");
   let otpCode = $state("");
   let authStep = $state<"request" | "verify">("request");
   let errorMsg = $state("");
   let loading = $state(false);
   let resendCooldown = $state(0);
   let cooldownTimer: any;
+
+  async function handlePasswordLogin() {
+    const cleanEmail = email.trim().toLowerCase();
+    if (!cleanEmail || !password) {
+      errorMsg = "Please enter email and password";
+      return;
+    }
+    loading = true;
+    errorMsg = "";
+    try {
+      const res = await authStore.signIn(cleanEmail, password);
+      if (res.error) {
+        errorMsg = res.error;
+      } else {
+        clearPersistedAuth();
+        uiStore.addToast("Signed in successfully!", "success");
+      }
+    } catch (err: any) {
+      errorMsg = err instanceof Error ? err.message : "Sign in failed";
+    } finally {
+      loading = false;
+    }
+  }
 
   function clearPersistedAuth() {
     try {
@@ -97,24 +122,25 @@
   });
 
   async function handleSendMagicLink() {
-    if (!email.trim() || !email.includes("@")) {
+    const cleanEmail = email.trim().toLowerCase();
+    if (!cleanEmail || !cleanEmail.includes("@")) {
       errorMsg = "Please enter a valid email address";
       return;
     }
 
     loading = true;
     errorMsg = "";
-    authLogger.info("Requesting login OTP / link...", { email: email.trim() });
+    authLogger.info("Requesting login OTP / link...", { email: cleanEmail });
 
     try {
-      const result = await authStore.signInWithOtp(email.trim());
+      const result = await authStore.signInWithOtp(cleanEmail);
       if (result.error) {
         errorMsg = result.error;
         console.error("[Auth] signInWithOtp error:", result.error);
       } else {
         uiStore.addToast("Verification code sent to your email 📩", "success");
         authStep = "verify";
-        persistAuthStep(email.trim(), 30);
+        persistAuthStep(cleanEmail, 30);
         startCooldown(30);
       }
     } catch (err) {
@@ -127,17 +153,19 @@
   }
 
   async function handleVerifyOtp() {
-    if (!otpCode.trim() || otpCode.trim().length < 6) {
+    const cleanEmail = email.trim().toLowerCase();
+    const cleanOtp = otpCode.trim();
+    if (!cleanOtp || cleanOtp.length < 6) {
       errorMsg = "Please enter the 6-digit verification code";
       return;
     }
 
     loading = true;
     errorMsg = "";
-    authLogger.info("Verifying OTP code...", { email: email.trim() });
+    authLogger.info("Verifying OTP code...", { email: cleanEmail });
 
     try {
-      const result = await authStore.verifyOtp(email.trim(), otpCode.trim());
+      const result = await authStore.verifyOtp(cleanEmail, cleanOtp);
       if (result.error) {
         errorMsg = result.error;
         console.error("[Auth] verifyOtp error:", result.error);
@@ -207,42 +235,114 @@
       {/if}
 
       {#if authStep === "request"}
-        <!-- Step 1: Request OTP -->
-        <form
-          onsubmit={(e) => {
-            e.preventDefault();
-            handleSendMagicLink();
-          }}
-          class="flex flex-col gap-5"
-        >
-          <div class="flex flex-col gap-2">
-            <label for="email-input" class="text-xs font-semibold uppercase tracking-wider text-[#1A1A1A]">
-              Email Address
-            </label>
-            <input
-              id="email-input"
-              type="email"
-              bind:value={email}
-              disabled={loading}
-              placeholder="e.g. yourname@gmail.com"
-              required
-              class="w-full px-4 py-3 rounded-lg border border-[#E8E4E0] text-sm text-[#1A1A1A] bg-[#FFFFFF] outline-none focus:border-[#1A1A1A] transition-colors"
-            />
-          </div>
-
+        <!-- Mode Switcher -->
+        <div class="flex items-center justify-center p-1 bg-[#F5F2ED] rounded-xl mb-5">
           <button
-            type="submit"
-            disabled={loading}
-            class="w-full py-3.5 rounded-lg text-xs font-semibold tracking-wider uppercase text-white bg-[#1A1A1A] hover:bg-black transition-all shadow-md flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+            type="button"
+            onclick={() => { authMode = "otp"; errorMsg = ""; }}
+            class="flex-1 py-2 text-xs font-semibold rounded-lg transition-all {authMode === 'otp' ? 'bg-white text-[#1A1A1A] shadow-sm' : 'text-[#7A7A7A] hover:text-[#1A1A1A]'}"
           >
-            {#if loading}
-              <div class="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-              <span>Sending Code...</span>
-            {:else}
-              <span>Send Verification Code &rarr;</span>
-            {/if}
+            Email Code / OTP 📩
           </button>
-        </form>
+          <button
+            type="button"
+            onclick={() => { authMode = "password"; errorMsg = ""; }}
+            class="flex-1 py-2 text-xs font-semibold rounded-lg transition-all {authMode === 'password' ? 'bg-white text-[#1A1A1A] shadow-sm' : 'text-[#7A7A7A] hover:text-[#1A1A1A]'}"
+          >
+            Password 🔑
+          </button>
+        </div>
+
+        {#if authMode === "otp"}
+          <!-- Step 1: Request OTP -->
+          <form
+            onsubmit={(e) => {
+              e.preventDefault();
+              handleSendMagicLink();
+            }}
+            class="flex flex-col gap-5"
+          >
+            <div class="flex flex-col gap-2">
+              <label for="email-input" class="text-xs font-semibold uppercase tracking-wider text-[#1A1A1A]">
+                Email Address
+              </label>
+              <input
+                id="email-input"
+                type="email"
+                bind:value={email}
+                disabled={loading}
+                placeholder="e.g. yourname@gmail.com"
+                required
+                class="w-full px-4 py-3 rounded-lg border border-[#E8E4E0] text-sm text-[#1A1A1A] bg-[#FFFFFF] outline-none focus:border-[#1A1A1A] transition-colors"
+              />
+            </div>
+
+            <button
+              type="submit"
+              disabled={loading}
+              class="w-full py-3.5 rounded-lg text-xs font-semibold tracking-wider uppercase text-white bg-[#1A1A1A] hover:bg-black transition-all shadow-md flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+            >
+              {#if loading}
+                <div class="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                <span>Sending Code...</span>
+              {:else}
+                <span>Send Verification Code &rarr;</span>
+              {/if}
+            </button>
+          </form>
+        {:else}
+          <!-- Password Login Form -->
+          <form
+            onsubmit={(e) => {
+              e.preventDefault();
+              handlePasswordLogin();
+            }}
+            class="flex flex-col gap-4"
+          >
+            <div class="flex flex-col gap-2">
+              <label for="pwd-email-input" class="text-xs font-semibold uppercase tracking-wider text-[#1A1A1A]">
+                Email Address
+              </label>
+              <input
+                id="pwd-email-input"
+                type="email"
+                bind:value={email}
+                disabled={loading}
+                placeholder="e.g. hello@frenchtoes.in"
+                required
+                class="w-full px-4 py-3 rounded-lg border border-[#E8E4E0] text-sm text-[#1A1A1A] bg-[#FFFFFF] outline-none focus:border-[#1A1A1A] transition-colors"
+              />
+            </div>
+
+            <div class="flex flex-col gap-2">
+              <label for="password-input" class="text-xs font-semibold uppercase tracking-wider text-[#1A1A1A]">
+                Password
+              </label>
+              <input
+                id="password-input"
+                type="password"
+                bind:value={password}
+                disabled={loading}
+                placeholder="••••••••"
+                required
+                class="w-full px-4 py-3 rounded-lg border border-[#E8E4E0] text-sm text-[#1A1A1A] bg-[#FFFFFF] outline-none focus:border-[#1A1A1A] transition-colors"
+              />
+            </div>
+
+            <button
+              type="submit"
+              disabled={loading}
+              class="w-full py-3.5 rounded-lg text-xs font-semibold tracking-wider uppercase text-white bg-[#1A1A1A] hover:bg-black transition-all shadow-md flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 mt-1"
+            >
+              {#if loading}
+                <div class="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                <span>Signing In...</span>
+              {:else}
+                <span>Sign In with Password &rarr;</span>
+              {/if}
+            </button>
+          </form>
+        {/if}
       {:else}
         <!-- Step 2: Verify OTP (Persists across app switching & page reloads) -->
         <form

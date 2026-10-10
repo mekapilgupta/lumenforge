@@ -119,9 +119,10 @@ function createAuthStore() {
   }
 
   async function signInWithOtp(email: string): Promise<{ error: string | null }> {
-    authLogger.info('signInWithOtp called', { email });
+    const cleanEmail = email.trim().toLowerCase();
+    authLogger.info('signInWithOtp called', { email: cleanEmail });
     const { error } = await supabase.auth.signInWithOtp({
-      email,
+      email: cleanEmail,
       options: {
         emailRedirectTo: `${window.location.origin}/auth/callback`
       }
@@ -138,12 +139,31 @@ function createAuthStore() {
   }
 
   async function verifyOtp(email: string, token: string): Promise<{ error: string | null }> {
-    authLogger.info('verifyOtp called', { email, hasToken: !!token });
-    const { data, error } = await supabase.auth.verifyOtp({
-      email,
-      token,
+    const cleanEmail = email.trim().toLowerCase();
+    const cleanToken = token.trim();
+    authLogger.info('verifyOtp called', { email: cleanEmail, hasToken: !!cleanToken });
+
+    // Try type: 'email' first (existing user OTP)
+    let { data, error } = await supabase.auth.verifyOtp({
+      email: cleanEmail,
+      token: cleanToken,
       type: 'email'
     });
+
+    // If 'email' failed with invalid/expired token, attempt 'signup' (new user signup OTP)
+    if (error && (error.message.toLowerCase().includes('invalid') || error.message.toLowerCase().includes('expired'))) {
+      authLogger.warn('verifyOtp email type failed, trying signup type fallback', { error: error.message });
+      const retry = await supabase.auth.verifyOtp({
+        email: cleanEmail,
+        token: cleanToken,
+        type: 'signup'
+      });
+      if (!retry.error) {
+        data = retry.data;
+        error = null;
+      }
+    }
+
     if (error) {
       authLogger.error('verifyOtp failed', { 
         message: error.message,
