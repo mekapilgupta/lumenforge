@@ -3,7 +3,7 @@ import { json } from '@sveltejs/kit';
 import { env } from '$env/dynamic/private';
 import { createAdminNotification } from '$lib/server/notifications';
 
-const ADMIN_EMAILS = ["kapilgupta@duck.com", "hello@frenchtoes.in", "FRENCHTOESAPPARELS@GMAIL.COM"];
+const ADMIN_EMAILS = ["hello@frenchtoes.in", "FRENCHTOESAPPARELS@GMAIL.COM"];
 
 export async function POST({ request }) {
     console.log('[Admin Notify API] Request received');

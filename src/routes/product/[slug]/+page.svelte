@@ -57,6 +57,46 @@
   let selectedSize = $state<number | string | null>(null);
   let quantity = $state(1);
   let activeImage = $state(0);
+  let thumbnailsRef = $state<HTMLDivElement | null>(null);
+
+  function scrollThumbnailsIntoView(idx: number) {
+    if (!thumbnailsRef) return;
+    const thumbs = thumbnailsRef.children;
+    if (thumbs[idx]) {
+      (thumbs[idx] as HTMLElement).scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+    }
+  }
+
+  function nextImage(e?: Event) {
+    if (e) e.stopPropagation();
+    if (displayedImages.length <= 1) return;
+    activeImage = (activeImage + 1) % displayedImages.length;
+    scrollThumbnailsIntoView(activeImage);
+  }
+
+  function prevImage(e?: Event) {
+    if (e) e.stopPropagation();
+    if (displayedImages.length <= 1) return;
+    activeImage = (activeImage - 1 + displayedImages.length) % displayedImages.length;
+    scrollThumbnailsIntoView(activeImage);
+  }
+
+  let touchStartX = 0;
+  let touchStartY = 0;
+
+  function handleTouchStart(e: TouchEvent) {
+    touchStartX = e.touches[0].clientX;
+    touchStartY = e.touches[0].clientY;
+  }
+
+  function handleTouchEnd(e: TouchEvent) {
+    const diffX = touchStartX - e.changedTouches[0].clientX;
+    const diffY = touchStartY - e.changedTouches[0].clientY;
+    if (Math.abs(diffX) > 40 && Math.abs(diffX) > Math.abs(diffY)) {
+      if (diffX > 0) nextImage();
+      else prevImage();
+    }
+  }
   let activeTab = $state<'details' | 'materials' | 'care' | 'shipping'>('details');
   let adding = $state(false);
   let sizeError = $state(false);
@@ -400,24 +440,32 @@
         <!-- LEFT: Image Gallery -->
         <div class="flex flex-col gap-4">
           <div 
-            class="relative rounded-2xl overflow-hidden aspect-square img-zoom cursor-zoom-in bg-[#F5F5F5] border border-pink-50/50"
-            onmousemove={handleMouseMove}
-            onmouseleave={handleMouseLeave}
-            onclick={() => isLightboxOpen = true}
-            role="button"
-            tabindex="0"
-            aria-label="Inspect product texture zoom lightbox"
-            onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') isLightboxOpen = true; }}
+            class="relative rounded-2xl overflow-hidden aspect-square img-zoom cursor-zoom-in bg-[#F5F5F5] border border-pink-50/50 group select-none"
+            ontouchstart={handleTouchStart}
+            ontouchend={handleTouchEnd}
           >
-            <img
-              src={displayedImages[activeImage] ?? displayedImages[0] ?? '/placeholder.jpg'}
-              alt="{product.name} in {selectedColor?.name ?? 'selected color'}"
-              class="w-full h-full object-cover transition-opacity duration-300"
-              style="{zoomStyle} transition: transform 0.08s ease-out, transform-origin 0.08s ease-out;"
-              loading="eager"
-            />
+            <!-- Zoom Image Trigger -->
+            <div
+              class="w-full h-full"
+              onmousemove={handleMouseMove}
+              onmouseleave={handleMouseLeave}
+              onclick={() => isLightboxOpen = true}
+              role="button"
+              tabindex="0"
+              aria-label="Inspect product texture zoom lightbox"
+              onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') isLightboxOpen = true; }}
+            >
+              <img
+                src={displayedImages[activeImage] ?? displayedImages[0] ?? '/placeholder.jpg'}
+                alt="{product.name} in {selectedColor?.name ?? 'selected color'}"
+                class="w-full h-full object-cover transition-opacity duration-300"
+                style="{zoomStyle} transition: transform 0.08s ease-out, transform-origin 0.08s ease-out;"
+                loading="eager"
+              />
+            </div>
+
             <!-- Badges -->
-            <div class="absolute top-4 left-4 flex flex-col gap-1.5 pointer-events-none">
+            <div class="absolute top-4 left-4 flex flex-col gap-1.5 pointer-events-none z-10">
               {#each product.badges as badge}
                 <span class="text-xs font-bold px-3 py-1 rounded-full text-white shadow badge-pulse"
                   style="background: {badge === 'Best Seller' ? 'var(--color-gold)' : badge === 'Limited Edition' ? 'var(--color-lavender-deep)' : badge === 'Sale' ? 'var(--color-coral-deep)' : 'var(--color-mint-deep)'};">
@@ -425,10 +473,11 @@
                 </span>
               {/each}
             </div>
+
             <!-- Wishlist -->
             <button 
               onclick={(e) => { e.stopPropagation(); toggleWishlist(); }} 
-              class="absolute top-4 right-4 w-11 h-11 rounded-full flex items-center justify-center shadow-md transition-all hover:scale-110 active:scale-95 glass cursor-pointer z-10" 
+              class="absolute top-4 right-4 w-11 h-11 rounded-full flex items-center justify-center shadow-md transition-all hover:scale-110 active:scale-95 glass cursor-pointer z-20" 
               aria-label="{isWishlisted ? 'Remove from' : 'Add to'} wishlist" 
               aria-pressed={isWishlisted}
             >
@@ -436,22 +485,54 @@
                 <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/>
               </svg>
             </button>
+
+            <!-- Prev and Next Buttons -->
+            {#if displayedImages.length > 1}
+              <button
+                type="button"
+                onclick={prevImage}
+                class="absolute left-3 top-1/2 -translate-y-1/2 z-20 w-11 h-11 rounded-full bg-white/90 hover:bg-white text-stone-900 shadow-lg border border-black/5 backdrop-blur-sm flex items-center justify-center transition-all hover:scale-110 active:scale-95 cursor-pointer focus:outline-none"
+                aria-label="Previous product image"
+              >
+                <svg width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24">
+                  <path d="m15 18-6-6 6-6"/>
+                </svg>
+              </button>
+
+              <button
+                type="button"
+                onclick={nextImage}
+                class="absolute right-3 top-1/2 -translate-y-1/2 z-20 w-11 h-11 rounded-full bg-white/90 hover:bg-white text-stone-900 shadow-lg border border-black/5 backdrop-blur-sm flex items-center justify-center transition-all hover:scale-110 active:scale-95 cursor-pointer focus:outline-none"
+                aria-label="Next product image"
+              >
+                <svg width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24">
+                  <path d="m9 18 6-6-6-6"/>
+                </svg>
+              </button>
+
+              <!-- Counter Badge -->
+              <div class="absolute bottom-4 left-1/2 -translate-x-1/2 z-20 px-3 py-1 rounded-full bg-black/60 backdrop-blur-md text-white text-xs font-mono font-medium tracking-wider pointer-events-none shadow">
+                {activeImage + 1} / {displayedImages.length}
+              </div>
+            {/if}
           </div>
           
           <!-- Thumbnails -->
-          <div class="flex gap-3 overflow-x-auto pb-2 scrollbar-hide">
-            {#each displayedImages as img, i}
-              <button 
-                onclick={() => activeImage = i} 
-                class="w-20 h-20 rounded-xl overflow-hidden border-2 transition-all shrink-0 hover:scale-105 cursor-pointer" 
-                style="border-color: {activeImage === i ? 'var(--color-brand-magenta)' : 'transparent'};" 
-                aria-label="View image {i + 1}" 
-                aria-pressed={activeImage === i}
-              >
-                <img src={img} alt="Product view {i + 1}" class="w-full h-full object-cover" loading="lazy" />
-              </button>
-            {/each}
-          </div>
+          {#if displayedImages.length > 1}
+            <div bind:this={thumbnailsRef} class="flex gap-3 overflow-x-auto pb-2 scrollbar-hide scroll-smooth">
+              {#each displayedImages as img, i}
+                <button 
+                  onclick={() => { activeImage = i; scrollThumbnailsIntoView(i); }} 
+                  class="w-20 h-20 rounded-xl overflow-hidden border-2 transition-all shrink-0 hover:scale-105 cursor-pointer" 
+                  style="border-color: {activeImage === i ? 'var(--color-brand-magenta)' : 'transparent'};" 
+                  aria-label="View image {i + 1}" 
+                  aria-pressed={activeImage === i}
+                >
+                  <img src={img} alt="Product view {i + 1}" class="w-full h-full object-cover" loading="lazy" />
+                </button>
+              {/each}
+            </div>
+          {/if}
         </div>
 
         <!-- Lightbox Fullscreen Modal -->

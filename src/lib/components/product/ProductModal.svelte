@@ -80,10 +80,10 @@
         tabindex="-1"
       ></button>
 
-      <!-- Left Control (Desktop) -->
+      <!-- Left Control -->
       <button 
         onclick={(e) => { e.stopPropagation(); prev(); }}
-        class="relative z-10 w-14 h-14 rounded-full flex items-center justify-center bg-white/10 hover:bg-white/20 text-white transition-all hover:scale-105 cursor-pointer hidden md:flex"
+        class="relative z-10 w-11 h-11 sm:w-14 sm:h-14 rounded-full flex items-center justify-center bg-white/10 hover:bg-white/20 text-white transition-all hover:scale-105 active:scale-95 cursor-pointer shrink-0"
         aria-label="Previous image"
       >
         <svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M15 19l-7-7 7-7"/></svg>
@@ -98,10 +98,10 @@
         />
       </div>
 
-      <!-- Right Control (Desktop) -->
+      <!-- Right Control -->
       <button 
         onclick={(e) => { e.stopPropagation(); next(); }}
-        class="relative z-10 w-14 h-14 rounded-full flex items-center justify-center bg-white/10 hover:bg-white/20 text-white transition-all hover:scale-105 cursor-pointer hidden md:flex"
+        class="relative z-10 w-11 h-11 sm:w-14 sm:h-14 rounded-full flex items-center justify-center bg-white/10 hover:bg-white/20 text-white transition-all hover:scale-105 active:scale-95 cursor-pointer shrink-0"
         aria-label="Next image"
       >
         <svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M9 5l7 7-7 7"/></svg>

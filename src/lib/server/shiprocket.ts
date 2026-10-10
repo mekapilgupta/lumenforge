@@ -10,7 +10,7 @@ export const supabaseAdmin = createClient(supabaseUrl!, supabaseKey!);
 const shiprocketEmail = env.SHIPROCKET_API_EMAIL || (typeof process !== 'undefined' ? process.env.SHIPROCKET_API_EMAIL : undefined);
 const shiprocketPassword = env.SHIPROCKET_API_PASSWORD || (typeof process !== 'undefined' ? process.env.SHIPROCKET_API_PASSWORD : undefined);
 const brevoApiKey = env.BREVO_API_KEY || (typeof process !== 'undefined' ? process.env.BREVO_API_KEY : undefined);
-const ADMIN_EMAILS = ['kapilgupta@duck.com', 'hello@frenchtoes.in', 'FRENCHTOESAPPARELS@GMAIL.COM'];
+const ADMIN_EMAILS = ['hello@frenchtoes.in', 'FRENCHTOESAPPARELS@GMAIL.COM'];
 
 // Cache token in memory for sub-second responses, backed by database
 let cachedToken: string | null = null;

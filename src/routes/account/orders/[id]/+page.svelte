@@ -390,7 +390,7 @@
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         type: 'new_message',
-        recipientEmail: 'kapilgupta@duck.com',
+        recipientEmail: 'hello@frenchtoes.in',
         recipientName: 'Admin',
         payloadData: {
           orderNumber: order.order_number,

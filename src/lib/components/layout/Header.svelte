@@ -24,10 +24,6 @@
 
   let accountMenuOpen = $state(false);
   let notifOpen = $state(false);
-  let catDropdownOpen = $state(false);
-  let occDropdownOpen = $state(false);
-  let mobileCatOpen = $state(false);
-  let mobileOccOpen = $state(false);
 
   function openNotif() {
     notifOpen = !notifOpen;
@@ -73,95 +69,39 @@
       <!-- Desktop Nav -->
       <nav class="hidden lg:flex items-center gap-7 xl:gap-9" aria-label="Main navigation">
         <a
-          href="/shop?badge=Best+Seller"
+          href="/"
           class="text-sm font-medium tracking-wide text-[#3D3D3D] hover:text-[#1A1A1A] transition-colors relative py-2 group"
+          class:font-semibold={isActive('/')}
         >
-          Best Sellers
-          <span class="absolute bottom-0 left-0 w-0 h-0.5 bg-[#1A1A1A] transition-all duration-300 group-hover:w-full"></span>
+          Home
+          <span class="absolute bottom-0 left-0 h-0.5 bg-[#1A1A1A] transition-all duration-300 {isActive('/') ? 'w-full' : 'w-0 group-hover:w-full'}"></span>
         </a>
 
         <a
-          href="/shop?badge=New+Arrival"
+          href="/shop"
           class="text-sm font-medium tracking-wide text-[#3D3D3D] hover:text-[#1A1A1A] transition-colors relative py-2 group"
+          class:font-semibold={isActive('/shop')}
         >
-          New Arrivals
-          <span class="absolute bottom-0 left-0 w-0 h-0.5 bg-[#1A1A1A] transition-all duration-300 group-hover:w-full"></span>
+          Shop
+          <span class="absolute bottom-0 left-0 h-0.5 bg-[#1A1A1A] transition-all duration-300 {isActive('/shop') ? 'w-full' : 'w-0 group-hover:w-full'}"></span>
         </a>
-
-        <!-- Category Dropdown -->
-        <div
-          class="relative"
-          role="navigation"
-          aria-label="Category menu"
-          onmouseenter={() => catDropdownOpen = true}
-          onmouseleave={() => catDropdownOpen = false}
-        >
-          <a
-            href="/shop"
-            class="flex items-center gap-1 text-sm font-medium tracking-wide text-[#3D3D3D] hover:text-[#1A1A1A] transition-colors py-2"
-          >
-            Shop by Category
-            <svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6" class="transition-transform" class:rotate-180={catDropdownOpen}><path d="m2 4.5 4 4 4-4"/></svg>
-          </a>
-
-          {#if catDropdownOpen}
-            <div class="absolute left-0 top-full pt-1 w-56 z-50">
-              <div class="bg-white rounded-xl shadow-xl border border-[#E8E4E0] py-2 overflow-hidden">
-                <a href="/shop?category=daily-comfort" class="block px-4 py-2 text-sm text-[#3D3D3D] hover:bg-[#F9F6F2] hover:text-[#1A1A1A]">Daily Comfort</a>
-                <a href="/shop?category=flats" class="block px-4 py-2 text-sm text-[#3D3D3D] hover:bg-[#F9F6F2] hover:text-[#1A1A1A]">Elegant Flats</a>
-                <a href="/shop?category=wedges" class="flex items-center justify-between px-4 py-2 text-sm text-[#3D3D3D] hover:bg-[#F9F6F2] hover:text-[#1A1A1A]">
-                  <span>Soft Wedges</span>
-                  <span class="text-[9px] font-bold bg-[#FBF3F2] text-[#D4A5A5] px-1.5 py-0.5 rounded">NEW</span>
-                </a>
-                <a href="/shop?category=slippers" class="block px-4 py-2 text-sm text-[#3D3D3D] hover:bg-[#F9F6F2] hover:text-[#1A1A1A]">Slides &amp; Slippers</a>
-                <div class="border-t border-[#E8E4E0] my-1"></div>
-                <a href="/shop" class="block px-4 py-2 text-xs font-semibold uppercase tracking-wider text-[#1A1A1A] hover:bg-[#F9F6F2]">View All Footwear &rarr;</a>
-              </div>
-            </div>
-          {/if}
-        </div>
-
-        <!-- Occasion Dropdown -->
-        <div
-          class="relative"
-          role="navigation"
-          aria-label="Occasion menu"
-          onmouseenter={() => occDropdownOpen = true}
-          onmouseleave={() => occDropdownOpen = false}
-        >
-          <a
-            href="/#occasions"
-            class="flex items-center gap-1 text-sm font-medium tracking-wide text-[#3D3D3D] hover:text-[#1A1A1A] transition-colors py-2"
-          >
-            Shop by Occasion
-            <svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6" class="transition-transform" class:rotate-180={occDropdownOpen}><path d="m2 4.5 4 4 4-4"/></svg>
-          </a>
-
-          {#if occDropdownOpen}
-            <div class="absolute left-0 top-full pt-1 w-52 z-50">
-              <div class="bg-white rounded-xl shadow-xl border border-[#E8E4E0] py-2 overflow-hidden">
-                <a href="/shop?occasion=work" class="block px-4 py-2 text-sm text-[#3D3D3D] hover:bg-[#F9F6F2] hover:text-[#1A1A1A]">Everyday &amp; Work</a>
-                <a href="/shop?occasion=weekend" class="block px-4 py-2 text-sm text-[#3D3D3D] hover:bg-[#F9F6F2] hover:text-[#1A1A1A]">Weekend &amp; Travel</a>
-                <a href="/shop?occasion=evening" class="block px-4 py-2 text-sm text-[#3D3D3D] hover:bg-[#F9F6F2] hover:text-[#1A1A1A]">Evening &amp; Outings</a>
-              </div>
-            </div>
-          {/if}
-        </div>
 
         <a
           href="/about"
           class="text-sm font-medium tracking-wide text-[#3D3D3D] hover:text-[#1A1A1A] transition-colors relative py-2 group"
+          class:font-semibold={isActive('/about')}
         >
-          Our Comfort Promise
-          <span class="absolute bottom-0 left-0 w-0 h-0.5 bg-[#1A1A1A] transition-all duration-300 group-hover:w-full"></span>
+          About
+          <span class="absolute bottom-0 left-0 h-0.5 bg-[#1A1A1A] transition-all duration-300 {isActive('/about') ? 'w-full' : 'w-0 group-hover:w-full'}"></span>
         </a>
 
         <a
           href="/contact"
           class="text-sm font-medium tracking-wide text-[#3D3D3D] hover:text-[#1A1A1A] transition-colors relative py-2 group"
+          class:font-semibold={isActive('/contact')}
         >
-          Support
-          <span class="absolute bottom-0 left-0 w-0 h-0.5 bg-[#1A1A1A] transition-all duration-300 group-hover:w-full"></span>
+          Contact
+          <span class="absolute bottom-0 left-0 h-0.5 bg-[#1A1A1A] transition-all duration-300 {isActive('/contact') ? 'w-full' : 'w-0 group-hover:w-full'}"></span>
         </a>
       </nav>
 
@@ -342,73 +282,32 @@
         <!-- Main Links -->
         <div class="space-y-3">
           <a
-            href="/shop?badge=Best+Seller"
+            href="/"
             onclick={() => uiStore.closeMobileMenu()}
             class="block text-base font-medium text-[#1A1A1A]"
           >
-            Best Sellers
+            Home
           </a>
           <a
-            href="/shop?badge=New+Arrival"
+            href="/shop"
             onclick={() => uiStore.closeMobileMenu()}
             class="block text-base font-medium text-[#1A1A1A]"
           >
-            New Arrivals
+            Shop
           </a>
-
-          <!-- Accordion Categories -->
-          <div class="pt-2 border-t border-[#F0ECE8]">
-            <button
-              type="button"
-              onclick={() => mobileCatOpen = !mobileCatOpen}
-              class="flex items-center justify-between w-full text-base font-medium text-[#1A1A1A] py-1"
-            >
-              <span>Shop by Category</span>
-              <svg width="14" height="14" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8" class="transition-transform" class:rotate-180={mobileCatOpen}><path d="m2 4.5 4 4 4-4"/></svg>
-            </button>
-            {#if mobileCatOpen}
-              <div class="pl-4 pt-2 space-y-2 text-sm text-[#6B6B6B]">
-                <a href="/shop?category=daily-comfort" onclick={() => uiStore.closeMobileMenu()} class="block py-1 hover:text-[#1A1A1A]">Daily Comfort</a>
-                <a href="/shop?category=flats" onclick={() => uiStore.closeMobileMenu()} class="block py-1 hover:text-[#1A1A1A]">Elegant Flats</a>
-                <a href="/shop?category=wedges" onclick={() => uiStore.closeMobileMenu()} class="block py-1 hover:text-[#1A1A1A]">Soft Wedges</a>
-                <a href="/shop?category=slippers" onclick={() => uiStore.closeMobileMenu()} class="block py-1 hover:text-[#1A1A1A]">Slides &amp; Slippers</a>
-                <a href="/shop" onclick={() => uiStore.closeMobileMenu()} class="block py-1 font-semibold text-[#1A1A1A]">All Footwear &rarr;</a>
-              </div>
-            {/if}
-          </div>
-
-          <!-- Accordion Occasions -->
-          <div class="pt-2 border-t border-[#F0ECE8]">
-            <button
-              type="button"
-              onclick={() => mobileOccOpen = !mobileOccOpen}
-              class="flex items-center justify-between w-full text-base font-medium text-[#1A1A1A] py-1"
-            >
-              <span>Shop by Occasion</span>
-              <svg width="14" height="14" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8" class="transition-transform" class:rotate-180={mobileOccOpen}><path d="m2 4.5 4 4 4-4"/></svg>
-            </button>
-            {#if mobileOccOpen}
-              <div class="pl-4 pt-2 space-y-2 text-sm text-[#6B6B6B]">
-                <a href="/shop?occasion=work" onclick={() => uiStore.closeMobileMenu()} class="block py-1 hover:text-[#1A1A1A]">Everyday &amp; Work</a>
-                <a href="/shop?occasion=weekend" onclick={() => uiStore.closeMobileMenu()} class="block py-1 hover:text-[#1A1A1A]">Weekend &amp; Travel</a>
-                <a href="/shop?occasion=evening" onclick={() => uiStore.closeMobileMenu()} class="block py-1 hover:text-[#1A1A1A]">Evening &amp; Outings</a>
-              </div>
-            {/if}
-          </div>
-
           <a
             href="/about"
             onclick={() => uiStore.closeMobileMenu()}
-            class="block text-base font-medium text-[#1A1A1A] pt-2 border-t border-[#F0ECE8]"
+            class="block text-base font-medium text-[#1A1A1A]"
           >
-            Our Comfort Promise
+            About
           </a>
           <a
             href="/contact"
             onclick={() => uiStore.closeMobileMenu()}
             class="block text-base font-medium text-[#1A1A1A]"
           >
-            Support &amp; Contact
+            Contact
           </a>
         </div>
 

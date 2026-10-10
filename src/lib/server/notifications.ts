@@ -2,7 +2,7 @@ import { supabaseAdmin } from '$lib/server/shiprocket';
 import { env } from '$env/dynamic/private';
 
 const brevoApiKey = env.BREVO_API_KEY || (typeof process !== 'undefined' ? process.env.BREVO_API_KEY : '');
-const adminEmails = (env.ADMIN_NOTIFICATION_EMAILS || (typeof process !== 'undefined' ? process.env.ADMIN_NOTIFICATION_EMAILS : '') || 'kapilgupta@duck.com')
+const adminEmails = (env.ADMIN_NOTIFICATION_EMAILS || (typeof process !== 'undefined' ? process.env.ADMIN_NOTIFICATION_EMAILS : '') || 'hello@frenchtoes.in')
   .split(',')
   .map((e) => e.trim())
   .filter(Boolean);

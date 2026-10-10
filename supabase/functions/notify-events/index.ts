@@ -4,7 +4,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 const supabaseAdmin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!, {
   auth: { autoRefreshToken: false, persistSession: false },
 });
-const ADMIN_EMAILS = ["kapilgupta@duck.com", "hello@frenchtoes.in", "FRENCHTOESAPPARELS@GMAIL.COM"];
+const ADMIN_EMAILS = ["hello@frenchtoes.in", "FRENCHTOESAPPARELS@GMAIL.COM"];
 const BREVO_API_KEY = Deno.env.get("BREVO_API_KEY");
 const EMAIL_FROM = Deno.env.get("EMAIL_FROM") ?? "alerts@frenchtoes.in";
 const NOTIFY_EVENTS_SECRET = Deno.env.get("NOTIFY_EVENTS_SECRET");

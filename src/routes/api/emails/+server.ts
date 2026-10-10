@@ -21,7 +21,7 @@ const VALID_EVENTS: OrderEmailEvent[] = [
 ];
 
 function adminRecipients(): string[] {
-  return (env.ADMIN_NOTIFICATION_EMAILS || process.env.ADMIN_NOTIFICATION_EMAILS || 'kapilgupta@duck.com')
+  return (env.ADMIN_NOTIFICATION_EMAILS || process.env.ADMIN_NOTIFICATION_EMAILS || 'hello@frenchtoes.in')
     .split(',')
     .map((e) => e.trim())
     .filter(Boolean);

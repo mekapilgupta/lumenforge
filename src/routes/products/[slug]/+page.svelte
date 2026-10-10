@@ -66,8 +66,48 @@
     ) || null;
   }
 
-  // Gallery Active Image Index
+  // Gallery Active Image Index & Carousel Controls
   let activeImageIndex = $state(0);
+  let thumbnailsContainer = $state<HTMLDivElement | null>(null);
+
+  function scrollThumbnailsIntoView(idx: number) {
+    if (!thumbnailsContainer) return;
+    const thumbs = thumbnailsContainer.children;
+    if (thumbs[idx]) {
+      (thumbs[idx] as HTMLElement).scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+    }
+  }
+
+  function nextImage(e?: Event) {
+    if (e) e.stopPropagation();
+    if (activeImages.length <= 1) return;
+    activeImageIndex = (activeImageIndex + 1) % activeImages.length;
+    scrollThumbnailsIntoView(activeImageIndex);
+  }
+
+  function prevImage(e?: Event) {
+    if (e) e.stopPropagation();
+    if (activeImages.length <= 1) return;
+    activeImageIndex = (activeImageIndex - 1 + activeImages.length) % activeImages.length;
+    scrollThumbnailsIntoView(activeImageIndex);
+  }
+
+  let touchStartX = 0;
+  let touchStartY = 0;
+
+  function handleTouchStart(e: TouchEvent) {
+    touchStartX = e.touches[0].clientX;
+    touchStartY = e.touches[0].clientY;
+  }
+
+  function handleTouchEnd(e: TouchEvent) {
+    const diffX = touchStartX - e.changedTouches[0].clientX;
+    const diffY = touchStartY - e.changedTouches[0].clientY;
+    if (Math.abs(diffX) > 40 && Math.abs(diffX) > Math.abs(diffY)) {
+      if (diffX > 0) nextImage();
+      else prevImage();
+    }
+  }
 
   // When variant switches, reset active image to 0 (or primary image)
   function switchVariant(variant: any) {
@@ -174,6 +214,18 @@
   // Zoom / Lightbox State
   let isLightboxOpen = $state(false);
   let zoomStyle = $state('transform-origin: center; transform: scale(1);');
+
+  // Lightbox keyboard navigation (ArrowLeft, ArrowRight, Escape)
+  $effect(() => {
+    if (!isLightboxOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') isLightboxOpen = false;
+      else if (e.key === 'ArrowRight') nextImage();
+      else if (e.key === 'ArrowLeft') prevImage();
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  });
 
   function handleMouseMove(e: MouseEvent) {
     const target = e.currentTarget as HTMLDivElement;
@@ -335,33 +387,43 @@
       <!-- LEFT: IMAGE GALLERY -->
       <!-- ===================================================================== -->
       <div class="lg:col-span-7 space-y-4">
-        <!-- Main Image with Zoom -->
+        <!-- Main Image with Zoom, Next/Prev buttons, and swipe -->
         <div
-          role="button"
-          tabindex="0"
-          onclick={() => isLightboxOpen = true}
-          onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') isLightboxOpen = true; }}
-          onmousemove={handleMouseMove}
-          onmouseleave={handleMouseLeave}
-          class="relative aspect-[4/4.5] sm:aspect-square bg-stone-100 rounded-3xl overflow-hidden border border-stone-200/80 shadow-sm cursor-zoom-in group select-none"
+          role="region"
+          aria-label="Product image gallery"
+          class="relative aspect-[4/4.5] sm:aspect-square bg-stone-100 rounded-3xl overflow-hidden border border-stone-200/80 shadow-sm group select-none"
+          ontouchstart={handleTouchStart}
+          ontouchend={handleTouchEnd}
         >
-          {#if activeMainImage}
-            <img
-              src={getImageKitUrl(activeMainImage.image_url, 'w-900,q-85')}
-              alt={activeMainImage.alt_text || product.name}
-              class="w-full h-full object-cover transition-transform duration-200 ease-out"
-              style={zoomStyle}
-            />
-          {:else}
-            <!-- Missing Image Placeholder -->
-            <div class="w-full h-full flex flex-col items-center justify-center p-8 text-stone-400 bg-stone-50">
-              <svg width="64" height="64" class="opacity-40 mb-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>
-              <p class="text-sm font-medium">No preview photo for {activeVariant?.color_name || 'this color'}</p>
-            </div>
-          {/if}
+          <!-- Main Zoomable Image -->
+          <div
+            role="button"
+            tabindex="0"
+            onclick={() => isLightboxOpen = true}
+            onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') isLightboxOpen = true; }}
+            onmousemove={handleMouseMove}
+            onmouseleave={handleMouseLeave}
+            class="w-full h-full cursor-zoom-in relative"
+            aria-label="Zoom product image"
+          >
+            {#if activeMainImage}
+              <img
+                src={getImageKitUrl(activeMainImage.image_url, 'w-900,q-85')}
+                alt={activeMainImage.alt_text || product.name}
+                class="w-full h-full object-cover transition-transform duration-200 ease-out"
+                style={zoomStyle}
+              />
+            {:else}
+              <!-- Missing Image Placeholder -->
+              <div class="w-full h-full flex flex-col items-center justify-center p-8 text-stone-400 bg-stone-50">
+                <svg width="64" height="64" class="opacity-40 mb-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>
+                <p class="text-sm font-medium">No preview photo for {activeVariant?.color_name || 'this color'}</p>
+              </div>
+            {/if}
+          </div>
 
           <!-- Floating Badges -->
-          <div class="absolute top-4 left-4 flex flex-col gap-2 pointer-events-none">
+          <div class="absolute top-4 left-4 flex flex-col gap-2 pointer-events-none z-10">
             {#if isOutOfStock}
               <span class="px-3 py-1 rounded-full text-xs font-bold bg-stone-900 text-white uppercase tracking-wider shadow">
                 Out of Stock
@@ -377,7 +439,7 @@
           <button
             type="button"
             onclick={(e) => { e.stopPropagation(); handleToggleWishlist(); }}
-            class="absolute top-4 right-4 z-10 w-11 h-11 rounded-full bg-white/95 backdrop-blur-md shadow-md flex items-center justify-center transition-all hover:scale-110 active:scale-95 cursor-pointer text-stone-900"
+            class="absolute top-4 right-4 z-20 w-11 h-11 rounded-full bg-white/95 backdrop-blur-md shadow-md flex items-center justify-center transition-all hover:scale-110 active:scale-95 cursor-pointer text-stone-900"
             aria-label="{isWishlisted ? 'Remove from' : 'Add to'} wishlist"
           >
             <svg width="20" height="20" fill={isWishlisted ? '#E8A0A0' : 'none'} stroke={isWishlisted ? '#E8A0A0' : 'currentColor'} stroke-width="2" viewBox="0 0 24 24">
@@ -385,24 +447,55 @@
             </svg>
           </button>
 
+          <!-- Prev and Next Navigation Buttons -->
+          {#if activeImages.length > 1}
+            <button
+              type="button"
+              onclick={prevImage}
+              class="absolute left-3 top-1/2 -translate-y-1/2 z-20 w-11 h-11 rounded-full bg-white/90 hover:bg-white text-stone-900 shadow-lg border border-black/5 backdrop-blur-sm flex items-center justify-center transition-all hover:scale-110 active:scale-95 cursor-pointer focus:outline-none"
+              aria-label="Previous product image"
+            >
+              <svg width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24">
+                <path d="m15 18-6-6 6-6"/>
+              </svg>
+            </button>
+
+            <button
+              type="button"
+              onclick={nextImage}
+              class="absolute right-3 top-1/2 -translate-y-1/2 z-20 w-11 h-11 rounded-full bg-white/90 hover:bg-white text-stone-900 shadow-lg border border-black/5 backdrop-blur-sm flex items-center justify-center transition-all hover:scale-110 active:scale-95 cursor-pointer focus:outline-none"
+              aria-label="Next product image"
+            >
+              <svg width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24">
+                <path d="m9 18 6-6-6-6"/>
+              </svg>
+            </button>
+
+            <!-- Counter Badge -->
+            <div class="absolute bottom-4 left-1/2 -translate-x-1/2 z-20 px-3 py-1 rounded-full bg-black/60 backdrop-blur-md text-white text-xs font-mono font-medium tracking-wider pointer-events-none shadow">
+              {activeImageIndex + 1} / {activeImages.length}
+            </div>
+          {/if}
+
           <!-- Zoom hint button -->
-          <div class="absolute bottom-4 right-4 p-2.5 rounded-full bg-white/80 backdrop-blur-md text-stone-700 shadow-md opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
+          <div class="absolute bottom-4 right-4 z-10 p-2.5 rounded-full bg-white/80 backdrop-blur-md text-stone-700 shadow-md opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line><line x1="11" y1="8" x2="11" y2="14"></line><line x1="8" y1="11" x2="14" y2="11"></line></svg>
           </div>
         </div>
 
         <!-- Thumbnails Row -->
         {#if activeImages.length > 1}
-          <div class="flex items-center gap-3 overflow-x-auto pb-2 scrollbar-none">
+          <div bind:this={thumbnailsContainer} class="flex items-center gap-3 overflow-x-auto pb-2 scrollbar-none scroll-smooth">
             {#each activeImages as img, idx (img.id || idx)}
               <button
                 type="button"
-                onclick={() => activeImageIndex = idx}
-                class="w-20 h-20 rounded-2xl overflow-hidden border-2 transition-all shrink-0 bg-stone-100 {
+                onclick={() => { activeImageIndex = idx; scrollThumbnailsIntoView(idx); }}
+                class="w-20 h-20 rounded-2xl overflow-hidden border-2 transition-all shrink-0 bg-stone-100 cursor-pointer {
                   activeImageIndex === idx 
                     ? 'border-stone-900 ring-2 ring-stone-900/20 scale-105 shadow-md' 
                     : 'border-transparent opacity-60 hover:opacity-100'
                 }"
+                aria-label="View photo {idx + 1}"
               >
                 <img
                   src={getImageKitUrl(img.image_url, 'w-150,q-75')}
@@ -655,22 +748,97 @@
       aria-modal="true"
       tabindex="-1"
       onclick={() => isLightboxOpen = false}
-      onkeydown={(e) => { if (e.key === 'Escape') isLightboxOpen = false; }}
-      class="fixed inset-0 bg-black/90 z-50 flex items-center justify-center p-4 backdrop-blur-md cursor-zoom-out"
+      ontouchstart={handleTouchStart}
+      ontouchend={handleTouchEnd}
+      class="fixed inset-0 bg-black/95 z-50 flex flex-col items-center justify-between p-4 sm:p-6 backdrop-blur-md select-none"
     >
-      <button
-        type="button"
-        onclick={() => isLightboxOpen = false}
-        aria-label="Close image lightbox"
-        class="absolute top-6 right-6 text-white p-2 rounded-full bg-white/10 hover:bg-white/20 transition-colors"
-      >
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
-      </button>
-      <img
-        src={getImageKitUrl(activeMainImage.image_url, 'w-1400,q-95')}
-        alt={activeMainImage.alt_text || product.name}
-        class="max-w-full max-h-[90vh] object-contain rounded-2xl shadow-2xl"
-      />
+      <!-- Top Bar: Counter & Close button -->
+      <div class="w-full max-w-7xl flex items-center justify-between text-white z-20 px-2" onclick={(e) => e.stopPropagation()}>
+        <span class="text-sm font-semibold tracking-wider text-white/70">
+          {activeImageIndex + 1} / {activeImages.length}
+        </span>
+        <button
+          type="button"
+          onclick={() => isLightboxOpen = false}
+          aria-label="Close image lightbox"
+          class="w-11 h-11 rounded-full flex items-center justify-center bg-white/10 hover:bg-white/20 text-white transition-all hover:scale-105 cursor-pointer focus:outline-none"
+        >
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+            <line x1="18" y1="6" x2="6" y2="18"></line>
+            <line x1="6" y1="6" x2="18" y2="18"></line>
+          </svg>
+        </button>
+      </div>
+
+      <!-- Center: Main Image with Next/Prev Buttons -->
+      <div class="flex-1 w-full max-w-7xl flex items-center justify-between gap-2 sm:gap-6 relative my-auto">
+        <!-- Prev Button -->
+        {#if activeImages.length > 1}
+          <button
+            type="button"
+            onclick={prevImage}
+            class="z-20 w-12 h-12 sm:w-14 sm:h-14 rounded-full flex items-center justify-center bg-white/15 hover:bg-white/25 active:scale-95 text-white transition-all cursor-pointer backdrop-blur-sm shadow-2xl focus:outline-none shrink-0"
+            aria-label="Previous image"
+          >
+            <svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+              <path d="M15 19l-7-7 7-7"/>
+            </svg>
+          </button>
+        {:else}
+          <div class="w-12 sm:w-14 shrink-0"></div>
+        {/if}
+
+        <!-- Center Image Viewport -->
+        <div class="relative max-w-full max-h-[75vh] flex items-center justify-center z-10" onclick={(e) => e.stopPropagation()}>
+          <img
+            src={getImageKitUrl(activeMainImage.image_url, 'w-1400,q-95')}
+            alt={activeMainImage.alt_text || product.name}
+            class="max-w-full max-h-[75vh] object-contain rounded-2xl shadow-2xl"
+          />
+        </div>
+
+        <!-- Next Button -->
+        {#if activeImages.length > 1}
+          <button
+            type="button"
+            onclick={nextImage}
+            class="z-20 w-12 h-12 sm:w-14 sm:h-14 rounded-full flex items-center justify-center bg-white/15 hover:bg-white/25 active:scale-95 text-white transition-all cursor-pointer backdrop-blur-sm shadow-2xl focus:outline-none shrink-0"
+            aria-label="Next image"
+          >
+            <svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+              <path d="M9 5l7 7-7 7"/>
+            </svg>
+          </button>
+        {:else}
+          <div class="w-12 sm:w-14 shrink-0"></div>
+        {/if}
+      </div>
+
+      <!-- Bottom Thumbnail Strip -->
+      {#if activeImages.length > 1}
+        <div class="w-full max-w-7xl flex justify-center z-20 px-2 pb-2" onclick={(e) => e.stopPropagation()}>
+          <div class="flex items-center gap-2.5 overflow-x-auto max-w-full pb-1 scrollbar-none">
+            {#each activeImages as img, idx (img.id || idx)}
+              <button
+                type="button"
+                onclick={() => { activeImageIndex = idx; scrollThumbnailsIntoView(idx); }}
+                class="w-14 h-14 sm:w-16 sm:h-16 rounded-xl overflow-hidden border-2 shrink-0 transition-all hover:scale-105 cursor-pointer bg-white/5 {
+                  activeImageIndex === idx
+                    ? 'border-white scale-105 ring-2 ring-white/30'
+                    : 'border-white/20 opacity-50 hover:opacity-90'
+                }"
+                aria-label="View photo {idx + 1}"
+              >
+                <img
+                  src={getImageKitUrl(img.image_url, 'w-150,q-75')}
+                  alt="Thumbnail {idx + 1}"
+                  class="w-full h-full object-cover"
+                />
+              </button>
+            {/each}
+          </div>
+        </div>
+      {/if}
     </div>
   {/if}
 </div>

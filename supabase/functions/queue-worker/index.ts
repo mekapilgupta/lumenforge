@@ -52,7 +52,7 @@ try {
 }
 
 const BREVO_API_KEY = Deno.env.get("BREVO_API_KEY");
-const ADMIN_EMAILS = (Deno.env.get("ADMIN_EMAILS") ?? "kapilgupta@duck.com,hello@frenchtoes.in,FRENCHTOESAPPARELS@GMAIL.COM")
+const ADMIN_EMAILS = (Deno.env.get("ADMIN_EMAILS") ?? "hello@frenchtoes.in,FRENCHTOESAPPARELS@GMAIL.COM")
   .split(",")
   .map(email => email.trim())
   .filter(email => email.length > 0);
