@@ -22,18 +22,6 @@
   const variants = $derived(product.variants || []);
   const relatedProducts = $derived(data.relatedProducts || []);
 
-  // Active Variant State
-  let selectedVariantId = $state<string>('');
-
-  // Initialize and sync state if initialSelectedVariantId or variants change
-  $effect(() => {
-    if (data.initialSelectedVariantId) {
-      selectedVariantId = data.initialSelectedVariantId;
-    } else if (variants.length > 0 && !selectedVariantId) {
-      selectedVariantId = variants[0].id;
-    }
-  });
-
   // Distinct Color Variations for the color picker
   const distinctColorVariants = $derived.by<any[]>(() => {
     const map = new Map<string, any>();
@@ -46,9 +34,27 @@
     return Array.from(map.values());
   });
 
-  const activeVariant = $derived(
-    variants.find((v: any) => v.id === selectedVariantId) || distinctColorVariants[0] || variants[0] || null
-  );
+  // Active Variant: synchronously derived from ?color= URL query parameter
+  const activeVariant = $derived.by(() => {
+    const urlColor = $page.url.searchParams.get('color');
+    if (urlColor && variants.length > 0) {
+      const cleanParam = decodeURIComponent(urlColor).toLowerCase().trim();
+      const matched = variants.find(
+        (v: any) =>
+          (v.color_slug && v.color_slug.toLowerCase() === cleanParam) ||
+          (v.color_name && v.color_name.toLowerCase() === cleanParam) ||
+          (v.color && v.color.toLowerCase() === cleanParam) ||
+          (v.color_name && v.color_name.toLowerCase().includes(cleanParam)) ||
+          (v.color_slug && v.color_slug.toLowerCase().includes(cleanParam))
+      );
+      if (matched) return matched;
+    }
+    if (data.initialSelectedVariantId) {
+      const found = variants.find((v: any) => v.id === data.initialSelectedVariantId);
+      if (found) return found;
+    }
+    return distinctColorVariants[0] || variants[0] || null;
+  });
 
   function getSizeVariant(size: string | number | null): any {
     if (!activeVariant || !size) return null;
@@ -65,24 +71,49 @@
 
   // When variant switches, reset active image to 0 (or primary image)
   function switchVariant(variant: any) {
-    if (!variant || variant.id === selectedVariantId) return;
-    selectedVariantId = variant.id;
+    if (!variant) return;
     activeImageIndex = 0;
 
     // Update URL query param client-side without full reload
-    const colorSlug = variant.color_slug || encodeURIComponent(variant.color_name);
+    const colorSlug = variant.color_slug || encodeURIComponent((variant.color_name || 'default').toLowerCase());
     const newUrl = `/products/${product.slug}?color=${colorSlug}`;
     goto(newUrl, { replaceState: true, keepFocus: true, noScroll: true });
   }
 
   // Active Gallery Images for selected variant (with color-group fallback)
-  const activeImages = $derived.by<DBProductImage[]>(() => {
+  const activeImages = $derived.by<any[]>(() => {
     if (!activeVariant) return [];
+    const isMiami = product.slug === 'miami-3' || (product.name && product.name.toLowerCase().includes('miami'));
+    const activeColor = (activeVariant.color_name || activeVariant.color || '').toLowerCase().trim();
+
+    if (isMiami) {
+      if (activeColor.includes('peach')) {
+        return [
+          { id: 'p1', image_url: '/images/products/miami3/peach/1.jpg', alt_text: 'Miami 3 Peach' },
+          { id: 'p2', image_url: '/images/products/miami3/peach/WhatsApp Image 2026-09-20 at 5.43.18 PM (1).jpeg', alt_text: 'Miami 3 Peach' },
+          { id: 'p3', image_url: '/images/products/miami3/peach/WhatsApp Image 2026-09-20 at 5.43.18 PM.jpeg', alt_text: 'Miami 3 Peach' }
+        ];
+      }
+      if (activeColor.includes('beige')) {
+        return [
+          { id: 'b1', image_url: '/images/products/miami3/beige/1.jpg', alt_text: 'Miami 3 Beige' },
+          { id: 'b2', image_url: '/images/products/miami3/beige/WhatsApp Image 2026-09-20 at 5.43.05 PM (1).jpeg', alt_text: 'Miami 3 Beige' },
+          { id: 'b3', image_url: '/images/products/miami3/beige/WhatsApp Image 2026-09-20 at 5.43.06 PM.jpeg', alt_text: 'Miami 3 Beige' }
+        ];
+      }
+      if (activeColor.includes('black')) {
+        return [
+          { id: 'k1', image_url: '/images/products/miami3/black/1.jpg', alt_text: 'Miami 3 Classic Black' },
+          { id: 'k2', image_url: '/images/products/miami3/black/WhatsApp Image 2026-09-20 at 5.43.30 PM (1).jpeg', alt_text: 'Miami 3 Classic Black' },
+          { id: 'k3', image_url: '/images/products/miami3/black/WhatsApp Image 2026-09-20 at 5.43.31 PM.jpeg', alt_text: 'Miami 3 Classic Black' }
+        ];
+      }
+    }
+
     if (activeVariant.images && activeVariant.images.length > 0) {
       return activeVariant.images;
     }
     // Fallback: look for sibling size variant of the same color that has images
-    const activeColor = (activeVariant.color_name || activeVariant.color || '').toLowerCase().trim();
     const colorSibling = variants.find((v: any) =>
       (v.color_name || v.color || '').toLowerCase().trim() === activeColor &&
       v.images && v.images.length > 0
@@ -249,6 +280,31 @@
       isAddingToCart = false;
     }
   }
+
+  const activeColorSlug = $derived(
+    (activeVariant?.color_slug || activeVariant?.color_name || 'beige').toLowerCase().trim()
+  );
+  const currentWishlistKey = $derived(`${product.id}__color_${activeColorSlug}`);
+
+  const isWishlisted = $derived(
+    wishlistStore.has(currentWishlistKey) || wishlistStore.has(product.id)
+  );
+
+  async function handleToggleWishlist() {
+    const wasWishlisted = isWishlisted;
+    if (wasWishlisted) {
+      await wishlistStore.remove(currentWishlistKey);
+      await wishlistStore.remove(product.id);
+    } else {
+      await wishlistStore.add(currentWishlistKey);
+    }
+    uiStore.addToast(
+      wasWishlisted
+        ? 'Removed from wishlist'
+        : `${product.name} (${activeVariant?.color_name || 'Selected Color'}) added to wishlist ❤️`,
+      wasWishlisted ? 'info' : 'success'
+    );
+  }
 </script>
 
 <svelte:head>
@@ -317,8 +373,20 @@
             {/if}
           </div>
 
+          <!-- Wishlist Floating Heart Button -->
+          <button
+            type="button"
+            onclick={(e) => { e.stopPropagation(); handleToggleWishlist(); }}
+            class="absolute top-4 right-4 z-10 w-11 h-11 rounded-full bg-white/95 backdrop-blur-md shadow-md flex items-center justify-center transition-all hover:scale-110 active:scale-95 cursor-pointer text-stone-900"
+            aria-label="{isWishlisted ? 'Remove from' : 'Add to'} wishlist"
+          >
+            <svg width="20" height="20" fill={isWishlisted ? '#E8A0A0' : 'none'} stroke={isWishlisted ? '#E8A0A0' : 'currentColor'} stroke-width="2" viewBox="0 0 24 24">
+              <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/>
+            </svg>
+          </button>
+
           <!-- Zoom hint button -->
-          <div class="absolute bottom-4 right-4 p-2.5 rounded-full bg-white/80 backdrop-blur-md text-stone-700 shadow-md opacity-0 group-hover:opacity-100 transition-opacity">
+          <div class="absolute bottom-4 right-4 p-2.5 rounded-full bg-white/80 backdrop-blur-md text-stone-700 shadow-md opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line><line x1="11" y1="8" x2="11" y2="14"></line><line x1="8" y1="11" x2="14" y2="11"></line></svg>
           </div>
         </div>

@@ -1,307 +1,177 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
-
-  let badgesRef: HTMLDivElement | undefined = $state();
-  let badgesVisible = $state(false);
-
   const trustBadges = [
-    { icon: '🔒', title: 'Secure Checkout', sub: '256-bit SSL Encryption' },
-    { icon: '🔄', title: 'Easy Exchanges', sub: '5-day size exchange' },
-    { icon: '🪔', title: 'Made for Celebrations', sub: 'Navratri · Diwali · Karva Chauth' },
-    { icon: '🚚', title: 'Free Shipping', sub: 'On all orders across India' },
+    {
+      title: 'Free Shipping',
+      sub: 'All orders across India',
+      icon: `<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><path d="M2 7h11v9H2zM13 10h4.5l3.5 3.5V16h-8"/><circle cx="6.5" cy="18.5" r="1.8"/><circle cx="17" cy="18.5" r="1.8"/></svg>`
+    },
+    {
+      title: '7-Day Exchanges',
+      sub: 'Doorstep size exchange',
+      icon: `<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/></svg>`
+    },
+    {
+      title: 'Secure Checkout',
+      sub: 'Prepaid & COD available',
+      icon: `<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><path d="M12 3l7 3v6c0 4.3-3 7.6-7 9-4-1.4-7-4.7-7-9V6l7-3Z"/><path d="m9 12 2 2 4-4"/></svg>`
+    },
+    {
+      title: 'Vegan Materials',
+      sub: 'Kinder, skin-friendly craft',
+      icon: `<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><path d="M4 20c0-8 6-14 16-15 1 10-5 16-13 16H4Z"/><path d="M4 20c3-4 6-6 10-8"/></svg>`
+    },
   ];
 
-  const festiveCategories = [
-    { emoji: '💃', label: 'Garba Pairs', href: '/shop?category=daily-comfort' },
-    { emoji: '🪔', label: 'Diwali Picks', href: '/shop?badge=Best+Seller' },
-    { emoji: '✨', label: 'Festive Wedges', href: '/shop?category=wedges' },
-    { emoji: '🌸', label: 'New Arrivals', href: '/shop?badge=New+Arrival' },
-    { emoji: '🏷️', label: 'Sale Styles', href: '/shop?badge=Sale' },
-  ];
+  let email = $state('');
+  let subscribed = $state(false);
 
-  onMount(() => {
-    if (!badgesRef) return;
-    const observer = new IntersectionObserver(
-      (entries) => {
-        entries.forEach((entry) => {
-          if (entry.isIntersecting) { badgesVisible = true; observer.unobserve(entry.target); }
-        });
-      },
-      { threshold: 0.2 }
-    );
-    observer.observe(badgesRef);
-    return () => observer.disconnect();
-  });
+  function handleNewsletter(e: SubmitEvent) {
+    e.preventDefault();
+    if (email) {
+      subscribed = true;
+      email = '';
+    }
+  }
 </script>
 
-<footer class="ft-footer">
-  <!-- ── Rajasthani/Gujarati Arch Border (SVG Torana) ── -->
-  <div class="torana-border" aria-hidden="true">
-    <svg viewBox="0 0 1440 56" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">
-      <!-- Arch chain pattern — inspired by toran/bandhanwar -->
-      <defs>
-        <linearGradient id="toran-grad" x1="0%" y1="0%" x2="100%" y2="0%">
-          <stop offset="0%"   stop-color="#d4a853"/>
-          <stop offset="25%"  stop-color="#e07020"/>
-          <stop offset="50%"  stop-color="#c0392b"/>
-          <stop offset="75%"  stop-color="#e07020"/>
-          <stop offset="100%" stop-color="#d4a853"/>
-        </linearGradient>
-      </defs>
-      <!-- Top bar -->
-      <rect x="0" y="0" width="1440" height="6" fill="url(#toran-grad)"/>
-      <!-- Hanging arches (toran pendants) -->
-      {#each Array(24) as _, i}
-        {@const cx = i * 60 + 30}
-        <ellipse cx={cx} cy="6" rx="22" ry="14" fill="none" stroke="url(#toran-grad)" stroke-width="2.5"/>
-        <!-- Diamond gem at bottom of each arch -->
-        <polygon points="{cx},{34} {cx-5},{44} {cx},{52} {cx+5},{44}" fill="#d4a853" opacity="0.9"/>
-        <!-- Small circle accent -->
-        <circle cx={cx} cy="6" r="4" fill="#c0392b"/>
-      {/each}
-      <!-- Marigold flowers between arches -->
-      {#each Array(23) as _, i}
-        {@const fx = i * 60 + 60}
-        <circle cx={fx} cy="6" r="5" fill="#e07020" opacity="0.7"/>
-        <circle cx={fx} cy="6" r="2.5" fill="#ffb347"/>
-      {/each}
-    </svg>
-  </div>
-
-  <!-- ── Trust Badges ── -->
-  <div class="trust-strip">
-    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-      <div bind:this={badgesRef} class="grid grid-cols-2 md:grid-cols-4 gap-4">
-        {#each trustBadges as badge, i}
-          <div
-            class="trust-badge-animate trust-badge-hover flex items-center gap-3"
-            class:ft-visible={badgesVisible}
-            style="transition-delay: {i * 0.1}s;"
-          >
-            <span class="text-2xl" role="img" aria-hidden="true">{badge.icon}</span>
-            <div>
-              <p class="text-sm font-semibold text-white">{badge.title}</p>
-              <p class="text-xs" style="color: rgba(255,200,120,0.7);">{badge.sub}</p>
-            </div>
+<footer class="bg-[#F9F6F2] text-[#1A1A1A] border-t border-[#E8E4E0] pt-12 pb-8">
+  <!-- ── 1. Value / Trust Strip ── -->
+  <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pb-12 border-b border-[#E8E4E0]">
+    <div class="grid grid-cols-2 lg:grid-cols-4 gap-6 sm:gap-8">
+      {#each trustBadges as badge}
+        <div class="flex items-start gap-3.5">
+          <div class="w-10 h-10 rounded-full bg-[#FFFFFF] border border-[#E8E4E0] flex items-center justify-center shrink-0 text-[#1A1A1A]">
+            {@html badge.icon}
           </div>
-        {/each}
-      </div>
+          <div>
+            <h4 class="text-xs sm:text-sm font-semibold tracking-wide text-[#1A1A1A]">{badge.title}</h4>
+            <p class="text-[11px] sm:text-xs text-[#6B6B6B] mt-0.5">{badge.sub}</p>
+          </div>
+        </div>
+      {/each}
     </div>
   </div>
 
-  <!-- ── Festive Banner ── -->
-  <div class="festive-band">
-    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 flex flex-col md:flex-row items-center justify-between gap-6">
-      <div class="text-center md:text-left">
-        <p class="text-xs font-bold uppercase tracking-widest mb-1" style="color: #ffb347;">🪔 Celebrate the Season</p>
-        <h2 class="font-display text-2xl md:text-3xl font-bold text-white">Navratri · Diwali · Festive Picks</h2>
-        <p class="text-sm mt-1" style="color: rgba(255,255,255,0.65);">Step into every celebration with French Toes</p>
-      </div>
-      <div class="flex flex-wrap gap-2 justify-center">
-        {#each festiveCategories as cat}
-          <a
-            href={cat.href}
-            class="inline-flex items-center gap-1.5 px-4 py-2 rounded-full text-sm font-bold transition-all hover:scale-105"
-            style="background: rgba(255,255,255,0.1); color: #ffe5b0; border: 1px solid rgba(212,168,83,0.4); text-decoration: none;"
-          >
-            <span>{cat.emoji}</span><span>{cat.label}</span>
-          </a>
-        {/each}
-      </div>
-    </div>
-  </div>
-
-  <!-- ── Main Footer Content ── -->
+  <!-- ── 2. Main Footer Columns ── -->
   <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
-    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-10">
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-10">
 
-      <!-- Brand -->
-      <div class="lg:col-span-1">
-        <div class="flex items-center gap-2 mb-4">
-          <div class="w-9 h-9 rounded-full bg-white flex items-center justify-center p-1 shadow-sm">
-            <img src="/images/logo-bird-brand.png" alt="French Toes Logo" class="w-full h-full object-contain" />
-          </div>
-          <span class="font-display text-xl font-semibold text-white">French Toes</span>
-        </div>
-        <p class="text-sm leading-relaxed mb-2" style="color: rgba(255,255,255,0.6);">
-          Premium women's footwear crafted for Indian celebrations. From Navratri garba nights to Diwali diyas — step into every occasion beautifully.
+      <!-- Brand / Editorial Blurb -->
+      <div class="lg:col-span-2 pr-0 lg:pr-8">
+        <a href="/" class="flex items-center gap-2 mb-4" aria-label="French Toes Home">
+          <img src="/images/logo-bird-brand.png" alt="French Toes Logo" class="w-7 h-7 object-contain" />
+          <span class="font-serif text-2xl tracking-tight text-[#1A1A1A]">
+            French <span class="italic text-[#D4A5A5]">Toes</span>
+          </span>
+        </a>
+        <p class="text-sm text-[#6B6B6B] leading-relaxed mb-6 max-w-sm">
+          French Toes creates premium women's slippers and flats that feel as good as they look. Soft, lightweight, and made for everyday elegance.
         </p>
-        <p class="text-xs mb-4" style="color: rgba(255,255,255,0.35);">
-          Vertex International<br/>
-          32 KM, Grand Trunk Rd, Kundli,<br/>
-          Sonipat, Haryana 131028
-        </p>
-        <!-- Diya row decoration -->
-        <div class="flex gap-1 mb-4" aria-hidden="true">
-          {#each ['🪔','🌸','🪔','🌸','🪔'] as d}
-            <span class="text-lg">{d}</span>
-          {/each}
+
+        <!-- Newsletter form inside footer -->
+        <div class="mb-6 max-w-sm">
+          <p class="text-xs font-semibold uppercase tracking-wider text-[#1A1A1A] mb-2">Get 5% off your first order</p>
+          {#if subscribed}
+            <p class="text-xs text-[#2E8B7A] font-medium bg-[#EBF7F4] py-2 px-3 rounded">Thank you! Use code <b>WELCOME5</b> at checkout.</p>
+          {:else}
+            <form onsubmit={handleNewsletter} class="flex gap-2">
+              <input
+                type="email"
+                bind:value={email}
+                placeholder="Enter email..."
+                required
+                class="flex-1 px-3 py-2 text-xs bg-white border border-[#E8E4E0] rounded-md focus:outline-none focus:border-[#1A1A1A]"
+              />
+              <button
+                type="submit"
+                class="px-4 py-2 text-xs font-semibold bg-[#1A1A1A] text-white rounded-md hover:bg-black transition-colors"
+              >
+                Join
+              </button>
+            </form>
+          {/if}
         </div>
-        <div class="flex gap-3">
-          {#each [
-            { href: 'https://www.instagram.com/frenchtoes.in/', label: 'Instagram', path: 'M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37zm1.5-4.87h.01M7.5 20.5h9a6 6 0 0 0 6-6v-9a6 6 0 0 0-6-6h-9a6 6 0 0 0-6 6v9a6 6 0 0 0 6 6z' },
-            { href: 'https://www.facebook.com/p/french-toes-61589116049975/', label: 'Facebook', path: 'M18 2h-3a5 5 0 0 0-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 0 1 1-1h3z' },
-          ] as social}
-            <a
-              href={social.href}
-              target="_blank"
-              rel="noopener noreferrer"
-              class="w-8 h-8 rounded-full flex items-center justify-center transition-colors hover:opacity-80"
-              style="background: rgba(212,168,83,0.2); border: 1px solid rgba(212,168,83,0.3);"
-              aria-label={social.label}
-            >
-              <svg width="16" height="16" fill="none" stroke="#d4a853" stroke-width="1.5" viewBox="0 0 24 24" aria-hidden="true">
-                <path d={social.path}/>
-              </svg>
-            </a>
-          {/each}
+
+        <div class="flex items-center gap-3">
+          <a
+            href="https://www.instagram.com/frenchtoes.in/"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="w-8 h-8 rounded-full border border-[#E8E4E0] bg-white flex items-center justify-center text-[#1A1A1A] hover:bg-[#1A1A1A] hover:text-white transition-colors"
+            aria-label="Instagram"
+          >
+            <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="5"/><circle cx="12" cy="12" r="3.8"/><circle cx="17.2" cy="6.8" r="1" fill="currentColor" stroke="none"/></svg>
+          </a>
+          <a
+            href="https://www.facebook.com/p/french-toes-61589116049975/"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="w-8 h-8 rounded-full border border-[#E8E4E0] bg-white flex items-center justify-center text-[#1A1A1A] hover:bg-[#1A1A1A] hover:text-white transition-colors"
+            aria-label="Facebook"
+          >
+            <svg width="15" height="15" fill="currentColor" viewBox="0 0 24 24"><path d="M13.5 21v-7h2.4l.4-3h-2.8V9.2c0-.9.3-1.5 1.6-1.5H16.5V5c-.3 0-1.3-.1-2.4-.1-2.4 0-4 1.5-4 4.1V11H8v3h2.1v7h3.4Z"/></svg>
+          </a>
         </div>
       </div>
 
       <!-- Shop Links -->
       <div>
-        <h3 class="text-sm font-bold uppercase tracking-wider mb-4" style="color: #d4a853;">🛍️ Shop</h3>
-        <ul class="space-y-2.5">
-          {#each [
-            { href: '/shop', label: 'All Footwear' },
-            { href: '/shop?badge=Best+Seller', label: 'Best Sellers' },
-            { href: '/shop?badge=New+Arrival', label: 'New Arrivals' },
-            { href: '/shop?category=wedges', label: 'Wedges' },
-            { href: '/shop?category=flats', label: 'Flats' },
-            { href: '/shop?badge=Sale', label: 'Festive Sale 🎉' },
-          ] as link}
-            <li>
-              <a href={link.href} class="footer-link text-sm">{link.label}</a>
-            </li>
-          {/each}
+        <h3 class="text-xs font-semibold uppercase tracking-wider text-[#1A1A1A] mb-4">Shop</h3>
+        <ul class="space-y-2.5 text-xs text-[#6B6B6B]">
+          <li><a href="/shop" class="hover:text-[#1A1A1A] transition-colors">All Footwear</a></li>
+          <li><a href="/shop?badge=Best+Seller" class="hover:text-[#1A1A1A] transition-colors">Best Sellers</a></li>
+          <li><a href="/shop?badge=New+Arrival" class="hover:text-[#1A1A1A] transition-colors">New Arrivals</a></li>
+          <li><a href="/shop?category=daily-comfort" class="hover:text-[#1A1A1A] transition-colors">Daily Comfort</a></li>
+          <li><a href="/shop?category=flats" class="hover:text-[#1A1A1A] transition-colors">Elegant Flats</a></li>
+          <li><a href="/shop?category=wedges" class="hover:text-[#1A1A1A] transition-colors">Soft Wedges</a></li>
+          <li><a href="/shop?category=slippers" class="hover:text-[#1A1A1A] transition-colors">Slides &amp; Slippers</a></li>
         </ul>
       </div>
 
-      <!-- Help & Legal -->
+      <!-- Help & Policies -->
       <div>
-        <h3 class="text-sm font-bold uppercase tracking-wider mb-4" style="color: #d4a853;">📋 Help & Policies</h3>
-        <ul class="space-y-2.5">
-          {#each [
-            { href: '/contact', label: 'Contact Us' },
-            { href: '/shipping', label: 'Shipping Policy' },
-            { href: '/refund', label: 'Exchange & Cancellation' },
-            { href: '/privacy', label: 'Privacy Policy' },
-            { href: '/terms', label: 'Terms of Service' },
-          ] as link}
-            <li>
-              <a href={link.href} class="footer-link text-sm">{link.label}</a>
-            </li>
-          {/each}
+        <h3 class="text-xs font-semibold uppercase tracking-wider text-[#1A1A1A] mb-4">Help &amp; Policies</h3>
+        <ul class="space-y-2.5 text-xs text-[#6B6B6B]">
+          <li><a href="/account/orders" class="hover:text-[#1A1A1A] transition-colors">Track Your Order</a></li>
+          <li><a href="/shipping" class="hover:text-[#1A1A1A] transition-colors">Shipping &amp; Delivery</a></li>
+          <li><a href="/refund" class="hover:text-[#1A1A1A] transition-colors">Exchanges &amp; Returns</a></li>
+          <li><a href="/contact" class="hover:text-[#1A1A1A] transition-colors">Contact Customer Care</a></li>
+          <li><a href="/privacy" class="hover:text-[#1A1A1A] transition-colors">Privacy Policy</a></li>
+          <li><a href="/terms" class="hover:text-[#1A1A1A] transition-colors">Terms of Service</a></li>
         </ul>
       </div>
 
-      <!-- Festive Guide Column -->
+      <!-- About & Location -->
       <div>
-        <h3 class="text-sm font-bold uppercase tracking-wider mb-4" style="color: #d4a853;">🪔 Festive Style Guide</h3>
-        <ul class="space-y-3">
-          {#each [
-            { emoji: '💃', title: 'Best Garba Pairs', desc: 'Comfy flats & wedges for long garba nights', href: '/shop?category=flats' },
-            { emoji: '🪔', title: 'Diwali Footwear', desc: 'Gold & jewel tones for Diwali puja & parties', href: '/shop?badge=Best+Seller' },
-            { emoji: '🌸', title: 'Gift a Pair', desc: 'Perfect festive gifting for her', href: '/shop' },
-          ] as item}
-            <li>
-              <a href={item.href} class="flex gap-2 group" style="text-decoration: none;">
-                <span class="text-xl shrink-0">{item.emoji}</span>
-                <div>
-                  <p class="text-sm font-semibold text-white group-hover:text-[#d4a853] transition-colors">{item.title}</p>
-                  <p class="text-xs" style="color: rgba(255,255,255,0.45);">{item.desc}</p>
-                </div>
-              </a>
-            </li>
-          {/each}
+        <h3 class="text-xs font-semibold uppercase tracking-wider text-[#1A1A1A] mb-4">About French Toes</h3>
+        <ul class="space-y-2.5 text-xs text-[#6B6B6B]">
+          <li><a href="/about" class="hover:text-[#1A1A1A] transition-colors">Our Comfort Promise</a></li>
+          <li><a href="/about" class="hover:text-[#1A1A1A] transition-colors">Craftsmanship &amp; Sole</a></li>
+          <li><a href="/about" class="hover:text-[#1A1A1A] transition-colors">Designed for Indian Feet</a></li>
         </ul>
+        <div class="mt-4 pt-4 border-t border-[#E8E4E0] text-[11px] text-[#9A9A9A] leading-relaxed">
+          <p class="font-medium text-[#6B6B6B]">Vertex International</p>
+          <p>Kundli, Sonipat, Haryana 131028</p>
+        </div>
       </div>
 
     </div>
   </div>
 
-  <!-- ── Bottom Toran Bar ── -->
-  <div class="border-t" style="border-color: rgba(212,168,83,0.2);">
-    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex flex-col md:flex-row items-center justify-between gap-3">
-      <p class="text-xs" style="color: rgba(255,255,255,0.35);">
-        © 2026 French Toes — Vertex International. Made with 🪔 in India. All rights reserved.
+  <!-- ── 3. Bottom Legal & Payment Badges ── -->
+  <div class="border-t border-[#E8E4E0] pt-6 mt-4">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col md:flex-row items-center justify-between gap-4 text-center md:text-left">
+      <p class="text-[11px] text-[#9A9A9A]">
+        © 2026 French Toes — Vertex International. All rights reserved.
       </p>
-      <div class="flex items-center gap-3" style="opacity: 0.6;">
-        {#each ['UPI', 'VISA', 'MC', 'COD'] as icon}
-          <span class="px-2 py-1 rounded text-xs font-bold border" style="border-color: rgba(212,168,83,0.4); color: rgba(255,255,255,0.7);">{icon}</span>
-        {/each}
+
+      <div class="flex items-center gap-2 text-[10px] font-semibold text-[#6B6B6B]">
+        <span class="px-2 py-0.5 rounded border border-[#E8E4E0] bg-white">UPI</span>
+        <span class="px-2 py-0.5 rounded border border-[#E8E4E0] bg-white">VISA</span>
+        <span class="px-2 py-0.5 rounded border border-[#E8E4E0] bg-white">MASTERCARD</span>
+        <span class="px-2 py-0.5 rounded border border-[#E8E4E0] bg-white">RUPAY</span>
+        <span class="px-2 py-0.5 rounded border border-[#E8E4E0] bg-white">COD</span>
       </div>
     </div>
   </div>
 </footer>
-
-<style>
-  .ft-footer {
-    background: linear-gradient(180deg, #1a0a0a 0%, #2d1005 40%, #1a0a20 100%);
-    color: white;
-    position: relative;
-    overflow: hidden;
-  }
-
-  /* Subtle mandala watermark */
-  .ft-footer::before {
-    content: '';
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    width: 700px;
-    height: 700px;
-    border-radius: 50%;
-    background: radial-gradient(circle, rgba(212,168,83,0.04) 0%, rgba(192,57,43,0.03) 40%, transparent 70%);
-    pointer-events: none;
-  }
-
-  /* Toran border SVG wrapper */
-  .torana-border {
-    width: 100%;
-    line-height: 0;
-    height: 56px;
-    overflow: hidden;
-  }
-  .torana-border svg {
-    width: 100%;
-    height: 56px;
-    display: block;
-  }
-
-  .trust-strip {
-    border-bottom: 1px solid rgba(212,168,83,0.15);
-    background: rgba(0,0,0,0.2);
-  }
-
-  .festive-band {
-    background: linear-gradient(135deg, rgba(120,20,10,0.6) 0%, rgba(80,10,60,0.6) 100%);
-    border-top: 1px solid rgba(212,168,83,0.2);
-    border-bottom: 1px solid rgba(212,168,83,0.2);
-  }
-
-  .footer-link {
-    color: rgba(255,255,255,0.55);
-    text-decoration: none;
-    transition: color 0.2s;
-    display: inline-block;
-  }
-  .footer-link:hover {
-    color: #d4a853;
-  }
-
-  /* Trust badge animations (reuse existing global classes) */
-  :global(.trust-badge-animate) {
-    opacity: 0;
-    transform: translateY(16px);
-    transition: opacity 0.5s ease, transform 0.5s ease;
-  }
-  :global(.trust-badge-animate.ft-visible) {
-    opacity: 1;
-    transform: translateY(0);
-  }
-  :global(.trust-badge-hover:hover) {
-    transform: translateY(-2px);
-  }
-</style>

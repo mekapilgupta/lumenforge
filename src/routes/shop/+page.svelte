@@ -293,32 +293,34 @@
 </script>
 
 <svelte:head>
-  <title>Shop All Slippers — French Toes</title>
-  <meta name="description" content="Browse all French Toes premium women's slippers. Filter by collection, color, size & price. Free shipping on all orders." />
+  <title>Shop All Footwear — French Toes</title>
+  <meta name="description" content="Browse all French Toes premium women's flats and slippers. Filter by collection, color, size & price. Free shipping across India." />
 </svelte:head>
 
-<div class="min-h-screen" style="background: var(--color-warm-white);">
+<div class="min-h-screen bg-[#FFFFFF]">
   <!-- Page header -->
-  <div class="py-10 px-4 text-center" style="background: var(--color-blush);">
-    <span class="text-xs font-semibold uppercase tracking-widest" style="color: var(--color-blush-deep);">
-      {selectedBadge || selectedCategory || 'All Styles'}
+  <div class="py-12 md:py-16 px-4 text-center bg-[#F9F6F2] border-b border-[#E8E4E0]">
+    <span class="text-[11px] font-semibold tracking-[0.2em] uppercase text-[#6B6B6B]">
+      {selectedBadge || (selectedCategory ? (categories.find(c => c.slug === selectedCategory)?.name ?? selectedCategory) : 'All Footwear')}
     </span>
-    <h1 class="font-display text-3xl md:text-4xl font-bold mt-1" style="color: var(--color-text-dark);">
-      {selectedBadge === 'Sale' ? 'Blossom Summer Sale' : selectedCategory ? categories.find(c => c.slug === selectedCategory)?.name ?? selectedCategory : 'Shop All Slippers'}
+    <h1 class="font-serif text-3xl md:text-4xl font-normal text-[#1A1A1A] mt-2 tracking-tight">
+      {selectedBadge === 'Sale' ? 'Sale Footwear' : selectedCategory ? (categories.find(c => c.slug === selectedCategory)?.name ?? selectedCategory) : 'Shop All Footwear'}
     </h1>
-    <p class="text-sm mt-2" style="color: var(--color-text-mid);">
-      {loadingDB ? 'Loading...' : `${filteredProducts.length} styles — breathable, premium & made for Indian summers`}
+    <p class="text-xs sm:text-sm text-[#6B6B6B] mt-2">
+      {loadingDB ? 'Loading collections...' : `${filteredProducts.length} styles — cushioned, lightweight & made for everyday elegance`}
     </p>
 
     <!-- Search bar -->
-    <div class="mt-4 max-w-sm mx-auto">
-      <input
-        type="search"
-        placeholder="Search slippers..."
-        bind:value={searchQuery}
-        class="w-full px-4 py-2.5 rounded-xl border text-sm outline-none"
-        style="border-color: var(--color-blush-deep); background: white; color: var(--color-text-dark);"
-      />
+    <div class="mt-6 max-w-md mx-auto">
+      <div class="relative">
+        <input
+          type="search"
+          placeholder="Search styles, colors..."
+          bind:value={searchQuery}
+          class="w-full pl-10 pr-4 py-2.5 rounded-lg border border-[#E8E4E0] bg-white text-xs sm:text-sm text-[#1A1A1A] outline-none focus:border-[#1A1A1A] shadow-sm"
+        />
+        <svg class="absolute left-3.5 top-3 text-[#9A9A9A]" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+      </div>
     </div>
   </div>
 

@@ -1,42 +1,51 @@
 @import "tailwindcss";
 
-/* ─── French Toes Design Tokens ─────────────────────────────── */
+/* ─── French Toes Design Tokens (Monrow-Inspired Quiet Luxury) ─── */
 @theme {
-  /* Color palette */
-  --color-blush:       #f9d5e5;
-  --color-blush-deep:  #f4a7c3;
-  --color-brand-magenta: #D81B60;
-  --color-peach:       #ffdab9;
-  --color-peach-deep:  #ffb347;
-  --color-lavender:    #e8d5f5;
-  --color-lavender-deep: #c9a0dc;
-  --color-mint:        #d5f0e8;
-  --color-mint-deep:   #7ecba1;
-  --color-coral:       #ffb5a7;
-  --color-coral-deep:  #ff7f6e;
-  --color-gold:        #d4a853;
-  --color-gold-light:  #f5e6c8;
-  --color-cream:       #fdf8f3;
+  /* Surfaces */
+  --color-bg:          #FFFFFF;
+  --color-cream:       #F9F6F2;
+  --color-beige:       #F5F0EB;
+  --color-bar:         #111111;
   --color-warm-white:  #FAFAFA;
-  --color-text-dark:   #2d1b2e;
-  --color-text-mid:    #6b4c6e;
-  --color-text-soft:   #9e7ca0;
 
-  /* Danger / Alert tokens (used for admin badges, overdue SLA, etc.) */
+  /* Ink / Text */
+  --color-ink:         #1A1A1A;
+  --color-ink-soft:    #3D3D3D;
+  --color-muted:       #6B6B6B;
+  --color-muted-light: #9A9A9A;
+  --color-text-dark:   #1A1A1A;
+  --color-text-mid:    #3D3D3D;
+  --color-text-soft:   #6B6B6B;
+
+  /* Accents — Soft Blush & Warm Neutrals */
+  --color-blush:       #E8A0A0;
+  --color-blush-deep:  #D4A5A5;
+  --color-blush-tint:  #FBF3F2;
+  --color-peach:       #F5E6D8;
+  --color-peach-deep:  #D4A574;
+  --color-brand-magenta: #1A1A1A;
+
+  /* Functional */
+  --color-sale:        #2E8B7A;
+  --color-star:        #F5A623;
+  --color-line:        #E8E4E0;
+  --color-line-soft:   #F0ECE8;
+
+  /* Danger / Alert tokens */
   --bg-danger:   rgba(239, 68, 68, 0.15);
   --text-danger: #ef4444;
 
   /* Fonts */
   --font-display: 'Playfair Display', 'Georgia', serif;
-  --font-body:    'Outfit', 'Inter', 'system-ui', sans-serif;
+  --font-serif:   'Playfair Display', 'Georgia', serif;
+  --font-body:    'Inter', 'Outfit', 'system-ui', sans-serif;
+  --font-sans:    'Inter', 'Outfit', 'system-ui', sans-serif;
 
   /* Border radius */
-  --radius-card:  1rem;
+  --radius-card:  0.875rem;
+  --radius-btn:   0.375rem;
   --radius-pill:  9999px;
-
-  /* Danger status colors */
-  --bg-danger:     #ef4444;
-  --text-danger:   #ffffff;
 }
 
 /* ─── Base Styles ─────────────────────────────────────────────── */
@@ -131,30 +140,31 @@ h1, h2, h3 {
   animation: pulseGlow 2s ease-in-out infinite;
 }
 
-/* ─── Button base ──────────────────────────────────────────── */
+/* ─── Button base (Monrow Quiet Luxury) ──────────────────────── */
 .btn-primary {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 0.5rem;
   padding: 0.75rem 2rem;
-  background: linear-gradient(135deg, var(--color-brand-magenta) 0%, #ff5c93 100%);
+  background: #1A1A1A;
   color: white;
   font-weight: 600;
-  font-size: 0.95rem;
-  border-radius: var(--radius-pill);
-  transition: opacity 0.2s, transform 0.2s, box-shadow 0.2s;
+  font-size: 0.875rem;
+  border-radius: var(--radius-btn);
+  transition: background 0.2s, transform 0.2s, box-shadow 0.2s;
   cursor: pointer;
   border: none;
-  letter-spacing: 0.01em;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
 }
 .btn-primary:hover {
-  opacity: 0.92;
-  transform: translateY(-2px);
-  box-shadow: 0 8px 24px rgba(216, 27, 96, 0.4);
+  background: #000000;
+  transform: translateY(-1px);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.15);
 }
 .btn-primary:active {
-  transform: scale(0.97);
+  transform: scale(0.98);
 }
 
 .btn-outline {
@@ -164,16 +174,19 @@ h1, h2, h3 {
   gap: 0.5rem;
   padding: 0.7rem 1.75rem;
   background: transparent;
-  color: var(--color-text-dark);
+  color: #1A1A1A;
   font-weight: 600;
-  border: 2px solid var(--color-brand-magenta);
-  border-radius: var(--radius-pill);
+  font-size: 0.875rem;
+  border: 1px solid #1A1A1A;
+  border-radius: var(--radius-btn);
   transition: background 0.2s, color 0.2s;
   cursor: pointer;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
 }
 .btn-outline:hover {
-  background: #FFF0F5;
-  color: var(--color-brand-magenta);
+  background: #1A1A1A;
+  color: #FFFFFF;
 }
 
 /* ─── Section Spacing ──────────────────────────────────────── */

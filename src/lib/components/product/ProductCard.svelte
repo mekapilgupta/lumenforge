@@ -99,28 +99,19 @@
     }
   }
 
-  function toggleWishlist(e: MouseEvent) {
-    console.log('[FUNCTION] Entering toggleWishlist event');
+  async function toggleWishlist(e: MouseEvent) {
     try {
       e.preventDefault();
       e.stopPropagation();
-      console.log('[TYPE CHECK] typeof authStore.user:', typeof authStore.user);
-      if (!authStore.user) {
-        uiStore.addToast('Please sign in to add items to your wishlist 🌸', 'info');
-        goto('/auth?redirect=' + $page.url.pathname);
-        return;
-      }
       const wasWishlisted = isWishlisted;
-      console.log('[FUNCTION] toggleWishlist: toggling product ID:', product.id);
-      wishlistStore.toggle(product.id);
+      await wishlistStore.toggle(product.id);
       uiStore.addToast(
-        wasWishlisted ? `Removed from wishlist` : `${product.name} added to wishlist 🌸`,
+        wasWishlisted ? `Removed from wishlist` : `${product.name} added to wishlist ❤️`,
         wasWishlisted ? 'info' : 'success'
       );
     } catch (err) {
       console.log('[ERROR] in toggleWishlist:', err);
     }
-    console.log('[FUNCTION] Exiting toggleWishlist');
   }
 
   async function quickAdd(e: MouseEvent) {
@@ -325,7 +316,7 @@
   console.log('[BOUNDARY] ProductCard.svelte script loading end');
   const productHref = $derived(
     product?.slug
-      ? `/product/${product.slug}${currentColor?.name ? `?color=${encodeURIComponent(currentColor.name)}` : ''}`
+      ? `/products/${product.slug}?color=${encodeURIComponent((currentColor?.name || 'beige').toLowerCase())}`
       : '#'
   );
 </script>
@@ -408,26 +399,6 @@
       {/if}
     </div>
   </a>
-
-  <!-- Wishlist button -->
-  <button
-    onclick={toggleWishlist}
-    class="absolute top-3 right-3 w-8 h-8 rounded-full flex items-center justify-center transition-all duration-200 hover:scale-110 shadow-sm z-10"
-    style="background: white;"
-    aria-label="{isWishlisted ? 'Remove from wishlist' : 'Add to wishlist'}"
-    aria-pressed={isWishlisted}
-  >
-    <svg
-      width="15" height="15"
-      fill={isWishlisted ? 'var(--color-coral-deep)' : 'none'}
-      stroke={isWishlisted ? 'var(--color-coral-deep)' : 'var(--color-text-soft)'}
-      stroke-width="2"
-      viewBox="0 0 24 24"
-      aria-hidden="true"
-    >
-      <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/>
-    </svg>
-  </button>
 
   <!-- Product info -->
   <a href={productHref} class="block p-3 pb-4">

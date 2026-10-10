@@ -1,29 +1,49 @@
 <script lang="ts">
+  import { onMount } from "svelte";
   import { authStore } from "$lib/stores/auth.svelte";
   import { authLogger } from "$lib/authLogger";
   import { uiStore } from "$lib/stores/ui.svelte";
   import { goto } from "$app/navigation";
   import { page } from "$app/stores";
 
+  const STORAGE_KEY_EMAIL = "ft_auth_pending_email";
+  const STORAGE_KEY_STEP = "ft_auth_pending_step";
+  const STORAGE_KEY_COOLDOWN = "ft_auth_cooldown_until";
+  const STORAGE_KEY_TIME = "ft_auth_timestamp";
+
   let email = $state("");
   let otpCode = $state("");
-  let authStep = $state<"request" | "verify">("request"); // 'request' or 'verify'
+  let authStep = $state<"request" | "verify">("request");
   let errorMsg = $state("");
   let loading = $state(false);
   let resendCooldown = $state(0);
   let cooldownTimer: any;
 
-  $effect(() => {
-    // If user is already authenticated in Supabase, redirect to account or target page
-    if (authStore.user && !loading) {
-      const redirectUrl = $page.url.searchParams.get("redirect") || "/account";
-      authLogger.info(`User already authenticated, redirecting to ${redirectUrl}`);
-      goto(redirectUrl);
-    }
-  });
+  function clearPersistedAuth() {
+    try {
+      if (typeof window !== "undefined") {
+        localStorage.removeItem(STORAGE_KEY_EMAIL);
+        localStorage.removeItem(STORAGE_KEY_STEP);
+        localStorage.removeItem(STORAGE_KEY_COOLDOWN);
+        localStorage.removeItem(STORAGE_KEY_TIME);
+      }
+    } catch (_) {}
+  }
 
-  function startCooldown() {
-    resendCooldown = 30;
+  function persistAuthStep(targetEmail: string, cooldownSeconds: number = 30) {
+    try {
+      if (typeof window !== "undefined") {
+        const cooldownUntil = Date.now() + cooldownSeconds * 1000;
+        localStorage.setItem(STORAGE_KEY_EMAIL, targetEmail);
+        localStorage.setItem(STORAGE_KEY_STEP, "verify");
+        localStorage.setItem(STORAGE_KEY_COOLDOWN, String(cooldownUntil));
+        localStorage.setItem(STORAGE_KEY_TIME, String(Date.now()));
+      }
+    } catch (_) {}
+  }
+
+  function startCooldown(seconds: number = 30) {
+    resendCooldown = seconds;
     if (cooldownTimer) clearInterval(cooldownTimer);
     cooldownTimer = setInterval(() => {
       if (resendCooldown > 0) {
@@ -34,6 +54,48 @@
     }, 1000);
   }
 
+  onMount(() => {
+    try {
+      if (typeof window !== "undefined") {
+        const savedEmail = localStorage.getItem(STORAGE_KEY_EMAIL);
+        const savedStep = localStorage.getItem(STORAGE_KEY_STEP);
+        const savedTime = localStorage.getItem(STORAGE_KEY_TIME);
+        const savedCooldown = localStorage.getItem(STORAGE_KEY_COOLDOWN);
+
+        // Check if OTP was sent within the last 15 minutes
+        if (savedEmail && savedStep === "verify" && savedTime) {
+          const elapsedMs = Date.now() - Number(savedTime);
+          if (elapsedMs < 15 * 60 * 1000) {
+            email = savedEmail;
+            authStep = "verify";
+
+            if (savedCooldown) {
+              const remainingSec = Math.max(
+                0,
+                Math.ceil((Number(savedCooldown) - Date.now()) / 1000),
+              );
+              if (remainingSec > 0) {
+                startCooldown(remainingSec);
+              }
+            }
+          } else {
+            clearPersistedAuth();
+          }
+        }
+      }
+    } catch (_) {}
+  });
+
+  $effect(() => {
+    // If user is already authenticated in Supabase, redirect to account or target page
+    if (authStore.user && !loading) {
+      clearPersistedAuth();
+      const redirectUrl = $page.url.searchParams.get("redirect") || "/account";
+      authLogger.info(`User authenticated, redirecting to ${redirectUrl}`);
+      goto(redirectUrl);
+    }
+  });
+
   async function handleSendMagicLink() {
     if (!email.trim() || !email.includes("@")) {
       errorMsg = "Please enter a valid email address";
@@ -42,25 +104,23 @@
 
     loading = true;
     errorMsg = "";
-    authLogger.info("Requesting Supabase Login Code/Link...", { email });
+    authLogger.info("Requesting login OTP / link...", { email: email.trim() });
 
     try {
       const result = await authStore.signInWithOtp(email.trim());
       if (result.error) {
         errorMsg = result.error;
-        console.error(
-          "[Auth Page] signInWithOtp returned error:",
-          result.error,
-        );
+        console.error("[Auth] signInWithOtp error:", result.error);
       } else {
-        uiStore.addToast("Verification code sent! 📩", "success");
+        uiStore.addToast("Verification code sent to your email 📩", "success");
         authStep = "verify";
-        startCooldown();
+        persistAuthStep(email.trim(), 30);
+        startCooldown(30);
       }
     } catch (err) {
       errorMsg =
-        err instanceof Error ? err.message : "Failed to send login details";
-      console.error("[Auth Page] signInWithOtp caught exception:", err);
+        err instanceof Error ? err.message : "Failed to send verification code";
+      console.error("[Auth] signInWithOtp caught error:", err);
     } finally {
       loading = false;
     }
@@ -68,26 +128,26 @@
 
   async function handleVerifyOtp() {
     if (!otpCode.trim() || otpCode.trim().length < 6) {
-      errorMsg = "Please enter a 6-digit verification code";
+      errorMsg = "Please enter the 6-digit verification code";
       return;
     }
 
     loading = true;
     errorMsg = "";
-    authLogger.info("Verifying Supabase OTP code...", { email });
+    authLogger.info("Verifying OTP code...", { email: email.trim() });
 
     try {
       const result = await authStore.verifyOtp(email.trim(), otpCode.trim());
       if (result.error) {
         errorMsg = result.error;
-        console.error("[Auth Page] verifyOtp returned error:", result.error);
+        console.error("[Auth] verifyOtp error:", result.error);
       } else {
-        uiStore.addToast("Welcome back! 🌸", "success");
-        // Redirection is handled automatically by the $effect listening to authStore.user
+        clearPersistedAuth();
+        uiStore.addToast("Signed in successfully!", "success");
       }
     } catch (err) {
       errorMsg = err instanceof Error ? err.message : "Verification failed";
-      console.error("[Auth Page] verifyOtp caught exception:", err);
+      console.error("[Auth] verifyOtp exception:", err);
     } finally {
       loading = false;
     }
@@ -99,6 +159,7 @@
   }
 
   function handleGoBack() {
+    clearPersistedAuth();
     authStep = "request";
     otpCode = "";
     errorMsg = "";
@@ -106,59 +167,47 @@
 </script>
 
 <svelte:head>
-  <title>Login or Sign Up — French Toes</title>
+  <title>Login / Sign In — French Toes</title>
+  <meta name="description" content="Sign in securely to your French Toes account to track orders and manage wishlist." />
 </svelte:head>
 
-<div
-  class="min-h-screen flex items-center justify-center px-4 py-12"
-  style="background: var(--color-cream);"
->
+<div class="min-h-screen flex items-center justify-center px-4 py-12 bg-[#F9F6F2]">
   <div class="w-full max-w-md">
-    <!-- Logo -->
+    <!-- Logo & Header -->
     <div class="text-center mb-8">
-      <a href="/" class="inline-flex items-center gap-2 mb-6">
-        <img src="/images/logo-bird-brand.png" alt="French Toes Logo" class="w-10 h-10 object-contain" />
-        <span
-          class="font-display text-2xl font-semibold"
-          style="color: var(--color-text-dark);">French Toes</span
-        >
+      <a href="/" class="inline-flex items-center gap-2 mb-4 group" aria-label="French Toes Home">
+        <img src="/images/logo-bird-brand.png" alt="French Toes Logo" class="w-8 h-8 object-contain" />
+        <span class="font-serif text-2xl font-normal tracking-tight text-[#1A1A1A]">
+          French <span class="italic text-[#D4A5A5]">Toes</span>
+        </span>
       </a>
-      <h1
-        class="font-display text-3xl font-bold"
-        style="color: var(--color-text-dark);"
-      >
+      <h1 class="font-serif text-3xl font-normal text-[#1A1A1A] tracking-tight">
         {#if authStep === "request"}
-          Login or Sign Up
+          Sign In / Register
         {:else}
-          Verify Your Login
+          Enter Verification Code
         {/if}
       </h1>
-      <p class="mt-2 text-sm" style="color: var(--color-text-soft);">
+      <p class="mt-2 text-xs sm:text-sm text-[#6B6B6B]">
         {#if authStep === "request"}
-          Secure passwordless login with standard Supabase Auth
+          Enter your email to receive a secure instant login code
         {:else}
-          We sent a link & 6-digit code to your inbox
+          We sent a 6-digit code to <b class="text-[#1A1A1A]">{email}</b>
         {/if}
       </p>
     </div>
 
-    <!-- Card -->
-    <div
-      class="bg-white rounded-3xl p-8 shadow-lg flex flex-col"
-      style="box-shadow: 0 8px 40px rgba(180,100,140,0.12);"
-    >
-      <!-- Error Message -->
+    <!-- Auth Card -->
+    <div class="bg-white rounded-2xl p-6 sm:p-8 border border-[#E8E4E0] shadow-xl flex flex-col">
+      <!-- Error Banner -->
       {#if errorMsg}
-        <div
-          class="w-full mb-5 px-4 py-3 rounded-xl text-sm font-medium animate-pulse"
-          style="background: #fde8e8; color: var(--color-coral-deep);"
-        >
+        <div class="w-full mb-5 px-4 py-3 rounded-lg text-xs font-medium bg-red-50 text-red-700 border border-red-200">
           {errorMsg}
         </div>
       {/if}
 
       {#if authStep === "request"}
-        <!-- Phase 1: Request OTP/Magic Link -->
+        <!-- Step 1: Request OTP -->
         <form
           onsubmit={(e) => {
             e.preventDefault();
@@ -167,43 +216,35 @@
           class="flex flex-col gap-5"
         >
           <div class="flex flex-col gap-2">
-            <label
-              for="email-input"
-              class="text-xs font-bold uppercase tracking-wider text-[#6b4c6e]"
-              >Email Address</label
-            >
+            <label for="email-input" class="text-xs font-semibold uppercase tracking-wider text-[#1A1A1A]">
+              Email Address
+            </label>
             <input
               id="email-input"
               type="email"
               bind:value={email}
               disabled={loading}
-              placeholder="e.g. hello@frenchtoes.in"
+              placeholder="e.g. yourname@gmail.com"
               required
-              class="w-full px-4 py-3.5 rounded-xl border text-sm bg-[#faf6f0]/50 outline-none transition-all focus:border-[#D81B60] focus:bg-white"
-              style="border-color: var(--color-blush); color: var(--color-text-dark);"
+              class="w-full px-4 py-3 rounded-lg border border-[#E8E4E0] text-sm text-[#1A1A1A] bg-[#FFFFFF] outline-none focus:border-[#1A1A1A] transition-colors"
             />
           </div>
 
           <button
             type="submit"
             disabled={loading}
-            class="w-full py-4 rounded-full text-sm font-bold text-white transition-all shadow-md active:scale-98 flex items-center justify-center gap-2"
-            style="background: var(--color-brand-magenta); opacity: {loading
-              ? 0.7
-              : 1}; cursor: {loading ? 'not-allowed' : 'pointer'};"
+            class="w-full py-3.5 rounded-lg text-xs font-semibold tracking-wider uppercase text-white bg-[#1A1A1A] hover:bg-black transition-all shadow-md flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
           >
             {#if loading}
-              <div
-                class="w-5 h-5 border-2 border-solid border-white border-t-transparent rounded-full animate-spin"
-              ></div>
-              Sending Secure Link...
+              <div class="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+              <span>Sending Code...</span>
             {:else}
-              Send Login Link ✨
+              <span>Send Verification Code &rarr;</span>
             {/if}
           </button>
         </form>
       {:else}
-        <!-- Phase 2: Verify OTP or Link -->
+        <!-- Step 2: Verify OTP (Persists across app switching & page reloads) -->
         <form
           onsubmit={(e) => {
             e.preventDefault();
@@ -213,16 +254,13 @@
         >
           <div class="flex flex-col gap-2">
             <div class="flex justify-between items-center">
-              <label
-                for="otp-input"
-                class="text-xs font-bold uppercase tracking-wider text-[#6b4c6e]"
-                >Verification Code</label
-              >
+              <label for="otp-input" class="text-xs font-semibold uppercase tracking-wider text-[#1A1A1A]">
+                6-Digit Code
+              </label>
               <button
                 type="button"
                 onclick={handleGoBack}
-                class="text-xs font-semibold hover:underline"
-                style="color: var(--color-brand-magenta);"
+                class="text-xs text-[#D4A5A5] hover:text-[#1A1A1A] font-medium transition-colors"
               >
                 Change Email
               </button>
@@ -237,83 +275,58 @@
               disabled={loading}
               placeholder="123456"
               required
-              class="w-full px-4 py-3.5 rounded-xl border text-center text-lg font-mono tracking-widest bg-[#faf6f0]/50 outline-none transition-all focus:border-[#D81B60] focus:bg-white"
-              style="border-color: var(--color-blush); color: var(--color-text-dark);"
+              autofocus
+              class="w-full px-4 py-3 rounded-lg border border-[#E8E4E0] text-center text-xl font-mono tracking-widest text-[#1A1A1A] bg-[#FFFFFF] outline-none focus:border-[#1A1A1A] transition-colors"
             />
-            <p
-              class="text-[11px] text-center mt-2 leading-relaxed"
-              style="color: var(--color-text-soft);"
-            >
-              Click the link in the email sent to <span
-                class="font-semibold"
-                style="color: var(--color-text-dark);">{email}</span
-              > to log in instantly, or enter the 6-digit code above.
+            <p class="text-[11px] text-center mt-2 text-[#6B6B6B] leading-relaxed">
+              Check your email app for the 6-digit code or click the magic link directly.
             </p>
           </div>
 
           <button
             type="submit"
             disabled={loading}
-            class="w-full py-4 rounded-full text-sm font-bold text-white transition-all shadow-md active:scale-98 flex items-center justify-center gap-2"
-            style="background: var(--color-brand-magenta); opacity: {loading
-              ? 0.7
-              : 1}; cursor: {loading ? 'not-allowed' : 'pointer'};"
+            class="w-full py-3.5 rounded-lg text-xs font-semibold tracking-wider uppercase text-white bg-[#1A1A1A] hover:bg-black transition-all shadow-md flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
           >
             {#if loading}
-              <div
-                class="w-5 h-5 border-2 border-solid border-white border-t-transparent rounded-full animate-spin"
-              ></div>
-              Verifying...
+              <div class="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+              <span>Verifying...</span>
             {:else}
-              Verify & Sign In 🌸
+              <span>Verify &amp; Sign In</span>
             {/if}
           </button>
 
           <!-- Resend Cooldown -->
-          <div class="text-center mt-2">
+          <div class="text-center mt-1">
             {#if resendCooldown > 0}
-              <p class="text-xs" style="color: var(--color-text-soft);">
-                Resend code in <span class="font-bold text-[#6b4c6e]"
-                  >{resendCooldown}s</span
-                >
+              <p class="text-xs text-[#9A9A9A]">
+                Resend code in <span class="font-semibold text-[#1A1A1A]">{resendCooldown}s</span>
               </p>
             {:else}
               <button
                 type="button"
                 onclick={handleResendMagicLink}
-                class="text-xs font-bold hover:underline"
-                style="color: var(--color-brand-magenta);"
+                class="text-xs font-semibold text-[#1A1A1A] hover:underline"
               >
-                Didn't receive the email? Resend Link & Code 📩
+                Didn't get the code? Resend Code 📩
               </button>
             {/if}
           </div>
         </form>
       {/if}
 
-      <p
-        class="text-xs text-center mt-6"
-        style="color: var(--color-text-soft);"
-      >
-        By continuing you agree to our <a
-          href="/terms"
-          class="underline"
-          style="color: var(--color-brand-magenta);">terms</a
-        >
-        &
-        <a
-          href="/privacy"
-          class="underline"
-          style="color: var(--color-brand-magenta);">privacy policy</a
-        >.
+      <p class="text-[11px] text-center mt-6 text-[#9A9A9A]">
+        By signing in you agree to our
+        <a href="/terms" class="underline text-[#1A1A1A]">Terms</a> &amp;
+        <a href="/privacy" class="underline text-[#1A1A1A]">Privacy Policy</a>.
       </p>
     </div>
 
-    <!-- Back link -->
-    <p class="text-center mt-6 text-sm" style="color: var(--color-text-soft);">
-      <a href="/shop" class="hover:underline"
-        >← Continue shopping without account</a
-      >
+    <!-- Back to shop -->
+    <p class="text-center mt-6 text-xs text-[#6B6B6B]">
+      <a href="/shop" class="hover:text-[#1A1A1A] transition-colors">
+        &larr; Continue shopping
+      </a>
     </p>
   </div>
 </div>

@@ -30,32 +30,62 @@ export function rupeesToPaise(rupees: number): number {
 export function mapDBProductToFrontend(row: any): SupabaseProduct {
   const variants = (row.variants || []).sort((a: any, b: any) => (a.position ?? 0) - (b.position ?? 0));
   const defaultVar = variants.find((v: any) => v.is_default) || variants[0];
+  const isMiami = row.slug === 'miami-3' || (row.name && row.name.toLowerCase().includes('miami'));
 
   const allImages: string[] = [];
   const imageDetails: any[] = [];
 
   for (const v of variants) {
     const vImages = (v.images || []).sort((a: any, b: any) => (a.position ?? 0) - (b.position ?? 0));
-    for (const img of vImages) {
-      if (img.image_url) {
-        allImages.push(img.image_url);
-        imageDetails.push({
-          url: img.image_url,
-          alt: img.alt_text || row.name,
-          order: img.position ?? 0,
-          color: v.color_name,
-          is_primary: img.is_primary
-        });
+    const vColorLower = (v.color_name || v.color || '').toLowerCase();
+    
+    // For miami-3, ensure authentic client product photoshoot paths
+    let defaultPhotoshootUrl = '';
+    if (isMiami) {
+      if (vColorLower.includes('beige')) defaultPhotoshootUrl = '/images/products/miami3/beige/1.jpg';
+      else if (vColorLower.includes('peach')) defaultPhotoshootUrl = '/images/products/miami3/peach/1.jpg';
+      else if (vColorLower.includes('black')) defaultPhotoshootUrl = '/images/products/miami3/black/1.jpg';
+    }
+
+    if (vImages.length > 0) {
+      for (const img of vImages) {
+        const finalUrl = defaultPhotoshootUrl || img.image_url;
+        if (finalUrl) {
+          allImages.push(finalUrl);
+          imageDetails.push({
+            url: finalUrl,
+            alt: img.alt_text || row.name,
+            order: img.position ?? 0,
+            color: v.color_name,
+            is_primary: img.is_primary
+          });
+        }
       }
+    } else if (defaultPhotoshootUrl) {
+      allImages.push(defaultPhotoshootUrl);
+      imageDetails.push({
+        url: defaultPhotoshootUrl,
+        alt: `${row.name} - ${v.color_name}`,
+        order: 1,
+        color: v.color_name,
+        is_primary: true
+      });
     }
   }
 
   const colors: ColorVariant[] = variants.map((v: any) => {
+    const vColorLower = (v.color_name || v.color || '').toLowerCase();
+    let photoshootImg = '';
+    if (isMiami) {
+      if (vColorLower.includes('beige')) photoshootImg = '/images/products/miami3/beige/1.jpg';
+      else if (vColorLower.includes('peach')) photoshootImg = '/images/products/miami3/peach/1.jpg';
+      else if (vColorLower.includes('black')) photoshootImg = '/images/products/miami3/black/1.jpg';
+    }
     const primaryImg = (v.images || []).find((img: any) => img.is_primary) || (v.images || [])[0];
     return {
       name: v.color_name,
-      hex: v.color_hex || '#f4a7c3',
-      image: primaryImg?.image_url || undefined
+      hex: v.color_hex || (vColorLower.includes('peach') ? '#f4a7c3' : vColorLower.includes('beige') ? '#d9cdbd' : '#1a1a1a'),
+      image: photoshootImg || primaryImg?.image_url || undefined
     };
   });
 

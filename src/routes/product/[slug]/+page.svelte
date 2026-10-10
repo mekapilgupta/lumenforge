@@ -252,6 +252,15 @@
   function selectColor(c: ColorVariant) {
     selectedColor = c;
     activeImage = 0;
+    if (browser && c?.name) {
+      try {
+        const url = new URL(window.location.href);
+        url.searchParams.set('color', c.name.toLowerCase());
+        window.history.replaceState({}, '', url.toString());
+      } catch (err) {
+        console.warn('Could not update url with variant:', err);
+      }
+    }
   }
 
   // Sizes shown/available are RAW admin-defined values (deduped canonically, order preserved)
@@ -323,17 +332,13 @@
     setTimeout(() => { adding = false; }, 1000);
   }
 
-  function toggleWishlist() {
+  async function toggleWishlist() {
     if (!product) return;
-    if (!authStore.user) {
-      uiStore.addToast('Please sign in to add items to your wishlist 🌸', 'info');
-      goto('/auth?redirect=' + $page.url.pathname);
-      return;
-    }
-    wishlistStore.toggle(product.id);
+    const wasWishlisted = isWishlisted;
+    await wishlistStore.toggle(product.id);
     uiStore.addToast(
-      isWishlisted ? 'Removed from wishlist' : `${product.name} added to wishlist`,
-      isWishlisted ? 'info' : 'success'
+      wasWishlisted ? 'Removed from wishlist' : `${product.name} added to wishlist ❤️`,
+      wasWishlisted ? 'info' : 'success'
     );
   }
 
@@ -800,13 +805,25 @@
             <p class="text-sm font-bold" style="color: var(--color-blush-deep);">{formatPrice(product.price)}</p>
           </div>
         </div>
-        <button
-          onclick={addToCart}
-          disabled={product.stockStatus === 'out_of_stock'}
-          class="btn-primary px-6 py-2.5 text-sm shrink-0"
-        >
-          <span>{adding ? '✓ Added' : 'Add to Bag'}</span>
-        </button>
+        <div class="flex items-center gap-2 shrink-0">
+          <button
+            onclick={toggleWishlist}
+            type="button"
+            class="w-10 h-10 rounded-full border border-[#E8E4E0] bg-white flex items-center justify-center cursor-pointer transition-transform active:scale-95"
+            aria-label="{isWishlisted ? 'Remove from' : 'Add to'} wishlist"
+          >
+            <svg width="18" height="18" fill={isWishlisted ? 'var(--color-coral-deep)' : 'none'} stroke={isWishlisted ? 'var(--color-coral-deep)' : '#1A1A1A'} stroke-width="2" viewBox="0 0 24 24">
+              <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/>
+            </svg>
+          </button>
+          <button
+            onclick={addToCart}
+            disabled={product.stockStatus === 'out_of_stock'}
+            class="btn-primary px-6 py-2.5 text-sm shrink-0"
+          >
+            <span>{adding ? '✓ Added' : 'Add to Bag'}</span>
+          </button>
+        </div>
       </div>
     </div>
   {/if}
